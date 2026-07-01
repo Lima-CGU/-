@@ -190,7 +190,7 @@
     '涼拌小黃瓜', '紅燒豆腐', '糖醋排骨', '蒜炒地瓜葉', '蒸魚',
     '木耳炒肉絲', '滷豆干', '玉米濃湯', '煎鮭魚', '芹菜炒豆包'
   ];
-  const DET_COLORS = ['#6d4fe0', '#12a981', '#ff6f59', '#ffc857', '#3b82f6', '#ec4899'];
+  const DET_COLORS = ['#6d4fe0', '#ff6f59', '#ffc857', '#3b82f6', '#ec4899', '#8b5cf6'];
 
   function colorToRgba(hex, alpha){
     const h = hex.replace('#', '');
@@ -320,9 +320,10 @@
       recognizeOverlay.appendChild(box);
     });
 
-    document.addEventListener('click', () => closeAllTips(), { once: false });
     updateProgress();
   }
+
+  document.addEventListener('click', () => closeAllTips());
 
   finishRecognizeBtn.addEventListener('click', () => {
     const total = currentDetections.length;
