@@ -328,6 +328,139 @@ body{
 }
 .review-controls .btn{ flex: 1; }
 
+/* recognize screen */
+.recognize-body{ gap: 12px; }
+.recognize-hint{
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0;
+}
+.recognize-photo-wrap{
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.recognize-photo-wrap img{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+  background: var(--purple-soft);
+}
+.recognize-overlay{
+  position: absolute;
+  inset: 0;
+}
+
+.det-box{
+  position: absolute;
+  border: 2px dashed var(--purple);
+  border-radius: 8px;
+  background: rgba(109,79,224,0.08);
+  pointer-events: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.det-box.confirmed{
+  border-style: solid;
+}
+
+.det-dot{
+  position: absolute;
+  width: 26px; height: 26px;
+  margin-left: -13px; margin-top: -13px;
+  border-radius: 50%;
+  border: none;
+  background: var(--purple);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.55);
+  transition: background 0.2s ease, transform 0.15s ease;
+  z-index: 2;
+}
+.det-dot:hover, .det-dot:focus-visible{ transform: scale(1.12); outline: none; }
+
+.det-tip{
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  background: var(--ink);
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 3;
+}
+.det-tip::after{
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--ink);
+}
+.det-tip.below{
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+.det-tip.below::after{
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--ink);
+}
+.det-dot:hover .det-tip,
+.det-tip.show{
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.det-tip-name{ font-weight: 600; }
+.det-tip-confirm{
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  width: 20px; height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.det-tip-confirm:hover{ background: #0e8f6c; }
+
+.recognize-controls{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.confirm-progress{
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--purple-deep);
+  white-space: nowrap;
+}
+
 /* ---------- buttons ---------- */
 .btn{
   font-family: var(--font-body);
@@ -491,11 +624,21 @@ body{
   width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--coral);
+  flex-shrink: 0;
   animation: pulse 1.4s ease-in-out infinite;
 }
 @keyframes pulse{
   0%,100%{ opacity: 1; }
   50%{ opacity: 0.35; }
+}
+.meal-status.done{
+  color: var(--teal);
+  white-space: normal;
+  line-height: 1.5;
+}
+.meal-status.done::before{
+  background: var(--teal);
+  animation: none;
 }
 .meal-remove{
   position: absolute;

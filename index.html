@@ -21,6 +21,7 @@
     <li class="active" data-step="start">A 開始</li>
     <li data-step="camera">B 拍照</li>
     <li data-step="review">C 確認上傳</li>
+    <li data-step="recognize">D 辨識菜色</li>
   </ol>
 </header>
 
@@ -100,7 +101,22 @@
       </div>
       <div class="screen-foot review-controls">
         <button class="btn btn-ghost" id="retakeBtn">重拍</button>
-        <button class="btn btn-primary" id="confirmUploadBtn">確認上傳 · 建立辨識清單</button>
+        <button class="btn btn-primary" id="confirmUploadBtn">確認上傳 · 開始辨識</button>
+      </div>
+    </section>
+
+    <!-- Screen D: Recognize -->
+    <section class="screen" data-screen="recognize">
+      <div class="screen-body recognize-body">
+        <p class="recognize-hint">點圓點看看 AI 覺得那是什麼菜,確認後圓點會變綠</p>
+        <div class="recognize-photo-wrap" id="recognizeWrap">
+          <img id="recognizePhoto" alt="辨識中的餐點照片">
+          <div class="recognize-overlay" id="recognizeOverlay"></div>
+        </div>
+      </div>
+      <div class="screen-foot recognize-controls">
+        <span class="confirm-progress" id="confirmProgress">已確認 0 / 0</span>
+        <button class="btn btn-primary" id="finishRecognizeBtn">完成 · 存入日記</button>
       </div>
     </section>
 
@@ -116,7 +132,7 @@
   <div id="strip" class="strip">
     <p class="empty-state" id="emptyState">還沒有上傳紀錄 — 完成一次拍照上傳,會顯示在這裡,狀態是「等待辨識」。</p>
   </div>
-  <p class="log-note">下一階段會把這裡每一筆「等待辨識」的餐點,拆成逐道菜的 AI 辨識確認卡片。</p>
+  <p class="log-note">辨識結果目前是展示用的假資料(隨機配對菜名),還沒有接真的 AI 影像辨識。</p>
 </section>
 
 <footer class="site-footer">
