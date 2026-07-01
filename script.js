@@ -240,6 +240,9 @@
     return dets;
   }
 
+  const recognizeLoading = document.getElementById('recognizeLoading');
+  const recognizeHint    = document.getElementById('recognizeHint');
+
   let currentDetections = [];
 
   function updateProgress(){
@@ -254,12 +257,149 @@
     });
   }
 
-  function setupRecognizeScreen(photoDataUrl, dishCount){
-    const n = dishCount === 6 ? 6 : dishCount;
+  /* ---------- real circle detection via OpenCV.js ---------- */
+  function waitForCv(timeoutMs){
+    return new Promise(resolve => {
+      if (window.cvReady) { resolve(true); return; }
+      if (window.cvFailed) { resolve(false); return; }
+      const start = Date.now();
+      const poll = setInterval(() => {
+        if (window.cvReady){ clearInterval(poll); resolve(true); }
+        else if (window.cvFailed || Date.now() - start > timeoutMs){
+          clearInterval(poll); resolve(false);
+        }
+      }, 200);
+    });
+  }
+
+  // Group circles into rows by y-proximity, then sort left-to-right within each row
+  function sortCirclesGrid(circles){
+    if (!circles.length) return circles;
+    const avgR = circles.reduce((s, c) => s + c.r, 0) / circles.length;
+    const byY = [...circles].sort((a, b) => a.cy - b.cy);
+    const rows = [];
+    byY.forEach(c => {
+      let row = rows.find(r => Math.abs(r.y - c.cy) < avgR * 0.8);
+      if (row){
+        row.items.push(c);
+        row.y = (row.y * (row.items.length - 1) + c.cy) / row.items.length;
+      } else {
+        rows.push({ y: c.cy, items: [c] });
+      }
+    });
+    rows.sort((a, b) => a.y - b.y);
+    const out = [];
+    rows.forEach(row => {
+      row.items.sort((a, b) => a.cx - b.cx);
+      out.push(...row.items);
+    });
+    return out;
+  }
+
+  function detectCirclesReal(dataUrl){
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          const cnv = document.createElement('canvas');
+          cnv.width = w;
+          cnv.height = h;
+          cnv.getContext('2d').drawImage(img, 0, 0);
+
+          const src = cv.imread(cnv);
+          const gray = new cv.Mat();
+          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+          const blurred = new cv.Mat();
+          const ksize = Math.max(3, Math.round(Math.min(w, h) / 120) | 1);
+          cv.medianBlur(gray, blurred, ksize % 2 === 0 ? ksize + 1 : ksize);
+
+          const circlesMat = new cv.Mat();
+          const minDim = Math.min(w, h);
+          cv.HoughCircles(
+            blurred, circlesMat, cv.HOUGH_GRADIENT,
+            1.5, minDim * 0.22,
+            80, 55,
+            Math.round(minDim * 0.12), Math.round(minDim * 0.34)
+          );
+
+          const results = [];
+          for (let i = 0; i < circlesMat.cols; i++){
+            results.push({
+              cx: circlesMat.data32F[i * 3],
+              cy: circlesMat.data32F[i * 3 + 1],
+              r: circlesMat.data32F[i * 3 + 2]
+            });
+          }
+
+          src.delete(); gray.delete(); blurred.delete(); circlesMat.delete();
+          resolve({ circles: sortCirclesGrid(results), w, h });
+        } catch (err){
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  }
+
+  function circlesToDetections(circles, imgW, imgH){
+    const names = pickRandomNames(circles.length);
+    return circles.map((c, i) => {
+      const wPct = (c.r * 2 / imgW) * 100;
+      const hPct = (c.r * 2 / imgH) * 100;
+      const xPct = (c.cx / imgW) * 100 - wPct / 2;
+      const yPct = (c.cy / imgH) * 100 - hPct / 2;
+      return {
+        id: `d${i}`,
+        x: Math.max(1, Math.min(99 - wPct, xPct)),
+        y: Math.max(1, Math.min(99 - hPct, yPct)),
+        w: wPct,
+        h: hPct,
+        name: names[i],
+        color: DET_COLORS[i % DET_COLORS.length],
+        confirmed: false
+      };
+    });
+  }
+
+  async function setupRecognizeScreen(photoDataUrl, dishCount){
     recognizePhoto.src = photoDataUrl;
     recognizeOverlay.innerHTML = '';
-    currentDetections = generateDetections(n);
+    currentDetections = [];
+    updateProgress();
+    recognizeLoading.classList.add('show');
+    finishRecognizeBtn.disabled = true;
 
+    const cvOk = await waitForCv(7000);
+    let usedReal = false;
+
+    if (cvOk){
+      const detection = await detectCirclesReal(photoDataUrl);
+      if (detection && detection.circles.length >= 2){
+        const capped = detection.circles.slice(0, Math.max(dishCount, detection.circles.length > 8 ? 8 : detection.circles.length));
+        currentDetections = circlesToDetections(capped, detection.w, detection.h);
+        usedReal = true;
+      }
+    }
+
+    if (!usedReal){
+      const n = dishCount === 6 ? 6 : dishCount;
+      currentDetections = generateDetections(n);
+    }
+
+    recognizeLoading.classList.remove('show');
+    finishRecognizeBtn.disabled = false;
+    recognizeHint.textContent = usedReal
+      ? `偵測到 ${currentDetections.length} 個圓盤/圓碗,位置是真實算出來的 — 點圓點看 AI 覺得是什麼菜`
+      : '沒偵測到圓形容器,改用示範排列 — 點圓點看 AI 覺得是什麼菜';
+    showToast(usedReal ? `真的偵測到 ${currentDetections.length} 個盤子位置` : '沒偵測到圓盤,改用示範排列');
+
+    renderDetections();
+  }
+
+  function renderDetections(){
     currentDetections.forEach((det, i) => {
       const box = document.createElement('div');
       box.className = 'det-box';
@@ -333,7 +473,7 @@
       return;
     }
     const names = currentDetections.map(d => d.name);
-    addMealCard(currentPhotoData, selectedDishCount, names);
+    addMealCard(currentPhotoData, currentDetections.length, names);
     showToast('這餐記錄好了!');
     currentPhotoData = null;
     goToScreen('start');

@@ -8,6 +8,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script>
+  window.cvReady = false;
+  window.cvFailed = false;
+  window.onOpenCvLoad = function(){
+    try {
+      cv['onRuntimeInitialized'] = () => { window.cvReady = true; };
+    } catch (err){
+      window.cvFailed = true;
+    }
+  };
+  window.onOpenCvFail = function(){
+    window.cvFailed = true;
+  };
+</script>
+<script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvLoad()" onerror="onOpenCvFail()" type="text/javascript"></script>
 </head>
 <body>
 
@@ -108,10 +123,14 @@
     <!-- Screen D: Recognize -->
     <section class="screen" data-screen="recognize">
       <div class="screen-body recognize-body">
-        <p class="recognize-hint">點圓點看看 AI 覺得那是什麼菜,確認後圓點會變綠</p>
+        <p class="recognize-hint" id="recognizeHint">點圓點看看 AI 覺得那是什麼菜,確認後圓點會變綠</p>
         <div class="recognize-photo-wrap" id="recognizeWrap">
           <img id="recognizePhoto" alt="辨識中的餐點照片">
           <div class="recognize-overlay" id="recognizeOverlay"></div>
+          <div class="recognize-loading" id="recognizeLoading">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <p>正在框出盤子位置…</p>
+          </div>
         </div>
       </div>
       <div class="screen-foot recognize-controls">
@@ -132,7 +151,7 @@
   <div id="strip" class="strip">
     <p class="empty-state" id="emptyState">還沒有上傳紀錄 — 完成一次拍照上傳,會顯示在這裡,狀態是「等待辨識」。</p>
   </div>
-  <p class="log-note">辨識結果目前是展示用的假資料(隨機配對菜名),還沒有接真的 AI 影像辨識。</p>
+  <p class="log-note">邊界框位置是瀏覽器用 OpenCV.js 即時偵測圓盤/圓碗算出來的真實座標;菜名仍是展示用的假資料(隨機配對),還沒有接真的食物辨識模型。</p>
 </section>
 
 <footer class="site-footer">
