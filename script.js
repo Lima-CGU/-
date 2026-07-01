@@ -1,23 +1,35 @@
 (() => {
   'use strict';
 
-  const dropzone   = document.getElementById('dropzone');
-  const fileInput  = document.getElementById('fileInput');
+  /* ---------- elements ---------- */
+  const steps       = document.querySelectorAll('.flow-steps li');
+  const screens      = document.querySelectorAll('.screen');
+
+  const toCameraBtn      = document.getElementById('toCameraBtn');
+  const backToStartBtn   = document.getElementById('backToStartBtn');
+  const retakeBtn        = document.getElementById('retakeBtn');
+  const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+
+  const video        = document.getElementById('video');
+  const canvas       = document.getElementById('canvas');
+  const cameraIdle   = document.getElementById('cameraIdle');
+  const cameraStatus = document.getElementById('cameraStatus');
+  const retryCamBtn  = document.getElementById('retryCamBtn');
+  const shotBtn       = document.getElementById('shotBtn');
+  const fileInput     = document.getElementById('fileInput');
+
+  const reviewImg   = document.getElementById('reviewImg');
+  const dishChips   = document.getElementById('dishChips');
+
   const strip      = document.getElementById('strip');
   const emptyState = document.getElementById('emptyState');
   const countTag   = document.getElementById('countTag');
-  const toast      = document.getElementById('toast');
-
-  const video      = document.getElementById('video');
-  const canvas     = document.getElementById('canvas');
-  const cameraIdle = document.getElementById('cameraIdle');
-  const recDot     = document.getElementById('recDot');
-  const startCam   = document.getElementById('startCam');
-  const stopCam    = document.getElementById('stopCam');
-  const shotBtn    = document.getElementById('shotBtn');
+  const toast       = document.getElementById('toast');
 
   let stream = null;
-  let photoCount = 0;
+  let currentPhotoData = null;
+  let selectedDishCount = 4;
+  let mealCount = 0;
 
   /* ---------- toast ---------- */
   let toastTimer = null;
@@ -28,100 +40,27 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
   }
 
-  /* ---------- helpers ---------- */
-  function timestamp(){
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
-
-  function addPrint(dataUrl, label){
-    emptyState.style.display = 'none';
-    photoCount += 1;
-    countTag.textContent = `${photoCount} 張`;
-
-    const card = document.createElement('div');
-    card.className = 'print';
-    card.style.setProperty('--tilt', `${(Math.random() * 4 - 2).toFixed(2)}deg`);
-
-    const tape = document.createElement('span');
-    tape.className = 'print-tape';
-    tape.setAttribute('aria-hidden', 'true');
-
-    const img = document.createElement('img');
-    img.className = 'print-photo';
-    img.src = dataUrl;
-    img.alt = label;
-
-    const caption = document.createElement('div');
-    caption.className = 'print-caption';
-
-    const name = document.createElement('span');
-    name.className = 'print-name';
-    name.textContent = label;
-
-    const time = document.createElement('span');
-    time.className = 'print-time';
-    time.textContent = timestamp();
-
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'print-remove';
-    removeBtn.setAttribute('aria-label', `移除 ${label}`);
-    removeBtn.textContent = '×';
-    removeBtn.addEventListener('click', () => {
-      card.remove();
-      photoCount = Math.max(0, photoCount - 1);
-      countTag.textContent = `${photoCount} 張`;
-      if (photoCount === 0) emptyState.style.display = 'block';
+  /* ---------- screen navigation ---------- */
+  function goToScreen(name){
+    screens.forEach(s => s.classList.toggle('active', s.dataset.screen === name));
+    steps.forEach(li => {
+      li.classList.toggle('active', li.dataset.step === name);
+      const order = ['start', 'camera', 'review'];
+      li.classList.toggle('done', order.indexOf(li.dataset.step) < order.indexOf(name));
     });
-
-    caption.append(name, time);
-    card.append(tape, img, caption, removeBtn);
-    strip.prepend(card);
+    if (name === 'camera') openCamera();
+    else closeCamera();
   }
 
-  function handleFiles(fileList){
-    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
-    if (!files.length){
-      showToast('請選擇圖片檔案');
-      return;
-    }
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = e => addPrint(e.target.result, file.name);
-      reader.readAsDataURL(file);
-    });
-    showToast(`已加入 ${files.length} 張照片`);
-  }
-
-  /* ---------- dropzone events ---------- */
-  dropzone.addEventListener('click', () => fileInput.click());
-  dropzone.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' '){
-      e.preventDefault();
-      fileInput.click();
-    }
-  });
-  fileInput.addEventListener('change', e => handleFiles(e.target.files));
-
-  ['dragenter', 'dragover'].forEach(evt =>
-    dropzone.addEventListener(evt, e => {
-      e.preventDefault();
-      dropzone.classList.add('drag-over');
-    })
-  );
-  ['dragleave', 'drop'].forEach(evt =>
-    dropzone.addEventListener(evt, e => {
-      e.preventDefault();
-      dropzone.classList.remove('drag-over');
-    })
-  );
-  dropzone.addEventListener('drop', e => {
-    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
-  });
+  toCameraBtn.addEventListener('click', () => goToScreen('camera'));
+  backToStartBtn.addEventListener('click', () => goToScreen('start'));
+  retakeBtn.addEventListener('click', () => goToScreen('camera'));
 
   /* ---------- camera ---------- */
   async function openCamera(){
+    cameraIdle.classList.remove('hidden');
+    cameraStatus.textContent = '正在開啟鏡頭…';
+    retryCamBtn.hidden = true;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -130,12 +69,11 @@
       video.srcObject = stream;
       video.classList.add('active');
       cameraIdle.classList.add('hidden');
-      recDot.hidden = false;
-      startCam.disabled = true;
-      stopCam.disabled = false;
       shotBtn.disabled = false;
     } catch (err){
-      showToast('無法開啟鏡頭,請確認權限已允許');
+      cameraStatus.textContent = '無法開啟鏡頭,請確認權限已允許,或改用「從相簿選」';
+      retryCamBtn.hidden = false;
+      shotBtn.disabled = true;
     }
   }
 
@@ -145,29 +83,97 @@
       stream = null;
     }
     video.classList.remove('active');
-    cameraIdle.classList.remove('hidden');
-    recDot.hidden = true;
-    startCam.disabled = false;
-    stopCam.disabled = true;
     shotBtn.disabled = true;
   }
 
-  function takeShot(){
+  retryCamBtn.addEventListener('click', openCamera);
+
+  function useDataUrl(dataUrl){
+    currentPhotoData = dataUrl;
+    reviewImg.src = dataUrl;
+    goToScreen('review');
+  }
+
+  shotBtn.addEventListener('click', () => {
     if (!stream) return;
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-    addPrint(dataUrl, `拍照-${Date.now()}.jpg`);
-    showToast('拍好了一張');
+    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+    useDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+  });
+
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = ev => useDataUrl(ev.target.result);
+    reader.readAsDataURL(file);
+  });
+
+  /* ---------- dish count chips ---------- */
+  dishChips.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    dishChips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    selectedDishCount = Number(chip.dataset.count);
+  });
+
+  /* ---------- confirm upload -> log entry ---------- */
+  function timestamp(){
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  startCam.addEventListener('click', openCamera);
-  stopCam.addEventListener('click', closeCamera);
-  shotBtn.addEventListener('click', takeShot);
+  function addMealCard(dataUrl, dishCount){
+    emptyState.style.display = 'none';
+    mealCount += 1;
+    countTag.textContent = `${mealCount} 筆`;
+
+    const card = document.createElement('div');
+    card.className = 'meal-card';
+
+    const img = document.createElement('img');
+    img.className = 'meal-photo';
+    img.src = dataUrl;
+    img.alt = `餐點照片,標記 ${dishCount} 道菜`;
+
+    const meta = document.createElement('div');
+    meta.className = 'meal-meta';
+    meta.innerHTML = `
+      <span class="meal-dishes">${dishCount === 6 ? '6+' : dishCount} 道菜</span>
+      <span class="meal-time">${timestamp()}</span>
+    `;
+
+    const status = document.createElement('div');
+    status.className = 'meal-status';
+    status.textContent = '等待辨識';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'meal-remove';
+    removeBtn.setAttribute('aria-label', '移除這筆紀錄');
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      card.remove();
+      mealCount = Math.max(0, mealCount - 1);
+      countTag.textContent = `${mealCount} 筆`;
+      if (mealCount === 0) emptyState.style.display = 'block';
+    });
+
+    card.append(img, meta, status, removeBtn);
+    strip.prepend(card);
+  }
+
+  confirmUploadBtn.addEventListener('click', () => {
+    if (!currentPhotoData) return;
+    addMealCard(currentPhotoData, selectedDishCount);
+    showToast(`已上傳,標記 ${selectedDishCount === 6 ? '6+' : selectedDishCount} 道菜,等待辨識`);
+    currentPhotoData = null;
+    goToScreen('start');
+  });
 
   window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t => t.stop());
