@@ -210,37 +210,6 @@
     return picked;
   }
 
-  // Generate non-overlapping-ish bounding boxes in a jittered grid, as % of container
-  function generateDetections(n){
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const cellW = 100 / cols;
-    const cellH = 100 / rows;
-    const names = pickRandomNames(n);
-    const dets = [];
-    for (let i = 0; i < n; i++){
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const jitterX = (Math.random() - 0.5) * cellW * 0.12;
-      const jitterY = (Math.random() - 0.5) * cellH * 0.12;
-      const w = cellW * (0.62 + Math.random() * 0.18);
-      const h = cellH * (0.62 + Math.random() * 0.18);
-      const x = col * cellW + (cellW - w) / 2 + jitterX;
-      const y = row * cellH + (cellH - h) / 2 + jitterY;
-      dets.push({
-        id: `d${i}`,
-        x: Math.max(2, Math.min(98 - w, x)),
-        y: Math.max(2, Math.min(98 - h, y)),
-        w, h,
-        name: names[i],
-        color: DET_COLORS[i % DET_COLORS.length],
-        confirmed: false
-      });
-    }
-    return dets;
-  }
-
-  const recognizeLoading = document.getElementById('recognizeLoading');
   const recognizeHint    = document.getElementById('recognizeHint');
 
   let currentDetections = [];
@@ -248,7 +217,9 @@
   function updateProgress(){
     const total = currentDetections.length;
     const done = currentDetections.filter(d => d.confirmed).length;
-    confirmProgress.textContent = `已確認 ${done} / ${total}`;
+    confirmProgress.textContent = total
+      ? `已確認 ${done} / ${total}`
+      : '還沒有框任何一道菜';
   }
 
   function closeAllTips(exceptEl){
@@ -257,216 +228,164 @@
     });
   }
 
-  /* ---------- real circle detection via OpenCV.js ---------- */
-  function waitForCv(timeoutMs){
-    return new Promise(resolve => {
-      if (window.cvReady) { resolve(true); return; }
-      if (window.cvFailed) { resolve(false); return; }
-      const start = Date.now();
-      const poll = setInterval(() => {
-        if (window.cvReady){ clearInterval(poll); resolve(true); }
-        else if (window.cvFailed || Date.now() - start > timeoutMs){
-          clearInterval(poll); resolve(false);
-        }
-      }, 200);
-    });
-  }
-
-  // Group circles into rows by y-proximity, then sort left-to-right within each row
-  function sortCirclesGrid(circles){
-    if (!circles.length) return circles;
-    const avgR = circles.reduce((s, c) => s + c.r, 0) / circles.length;
-    const byY = [...circles].sort((a, b) => a.cy - b.cy);
-    const rows = [];
-    byY.forEach(c => {
-      let row = rows.find(r => Math.abs(r.y - c.cy) < avgR * 0.8);
-      if (row){
-        row.items.push(c);
-        row.y = (row.y * (row.items.length - 1) + c.cy) / row.items.length;
-      } else {
-        rows.push({ y: c.cy, items: [c] });
-      }
-    });
-    rows.sort((a, b) => a.y - b.y);
-    const out = [];
-    rows.forEach(row => {
-      row.items.sort((a, b) => a.cx - b.cx);
-      out.push(...row.items);
-    });
-    return out;
-  }
-
-  function detectCirclesReal(dataUrl){
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const w = img.naturalWidth;
-          const h = img.naturalHeight;
-          const cnv = document.createElement('canvas');
-          cnv.width = w;
-          cnv.height = h;
-          cnv.getContext('2d').drawImage(img, 0, 0);
-
-          const src = cv.imread(cnv);
-          const gray = new cv.Mat();
-          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-          const blurred = new cv.Mat();
-          const ksize = Math.max(3, Math.round(Math.min(w, h) / 120) | 1);
-          cv.medianBlur(gray, blurred, ksize % 2 === 0 ? ksize + 1 : ksize);
-
-          const circlesMat = new cv.Mat();
-          const minDim = Math.min(w, h);
-          cv.HoughCircles(
-            blurred, circlesMat, cv.HOUGH_GRADIENT,
-            1.5, minDim * 0.22,
-            80, 55,
-            Math.round(minDim * 0.12), Math.round(minDim * 0.34)
-          );
-
-          const results = [];
-          for (let i = 0; i < circlesMat.cols; i++){
-            results.push({
-              cx: circlesMat.data32F[i * 3],
-              cy: circlesMat.data32F[i * 3 + 1],
-              r: circlesMat.data32F[i * 3 + 2]
-            });
-          }
-
-          src.delete(); gray.delete(); blurred.delete(); circlesMat.delete();
-          resolve({ circles: sortCirclesGrid(results), w, h });
-        } catch (err){
-          resolve(null);
-        }
-      };
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    });
-  }
-
-  function circlesToDetections(circles, imgW, imgH){
-    const names = pickRandomNames(circles.length);
-    return circles.map((c, i) => {
-      const wPct = (c.r * 2 / imgW) * 100;
-      const hPct = (c.r * 2 / imgH) * 100;
-      const xPct = (c.cx / imgW) * 100 - wPct / 2;
-      const yPct = (c.cy / imgH) * 100 - hPct / 2;
-      return {
-        id: `d${i}`,
-        x: Math.max(1, Math.min(99 - wPct, xPct)),
-        y: Math.max(1, Math.min(99 - hPct, yPct)),
-        w: wPct,
-        h: hPct,
-        name: names[i],
-        color: DET_COLORS[i % DET_COLORS.length],
-        confirmed: false
-      };
-    });
-  }
-
-  async function setupRecognizeScreen(photoDataUrl, dishCount){
+  function setupRecognizeScreen(photoDataUrl, dishCount){
     recognizePhoto.src = photoDataUrl;
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
-    updateProgress();
-    recognizeLoading.classList.add('show');
-    finishRecognizeBtn.disabled = true;
-
-    const cvOk = await waitForCv(7000);
-    let usedReal = false;
-
-    if (cvOk){
-      const detection = await detectCirclesReal(photoDataUrl);
-      if (detection && detection.circles.length >= 2){
-        const capped = detection.circles.slice(0, Math.max(dishCount, detection.circles.length > 8 ? 8 : detection.circles.length));
-        currentDetections = circlesToDetections(capped, detection.w, detection.h);
-        usedReal = true;
-      }
-    }
-
-    if (!usedReal){
-      const n = dishCount === 6 ? 6 : dishCount;
-      currentDetections = generateDetections(n);
-    }
-
-    recognizeLoading.classList.remove('show');
     finishRecognizeBtn.disabled = false;
-    recognizeHint.textContent = usedReal
-      ? `偵測到 ${currentDetections.length} 個圓盤/圓碗,位置是真實算出來的 — 點圓點看 AI 覺得是什麼菜`
-      : '沒偵測到圓形容器,改用示範排列 — 點圓點看 AI 覺得是什麼菜';
-    showToast(usedReal ? `真的偵測到 ${currentDetections.length} 個盤子位置` : '沒偵測到圓盤,改用示範排列');
-
-    renderDetections();
+    const n = dishCount === 6 ? '6+' : dishCount;
+    recognizeHint.textContent = `這餐標記了大概 ${n} 道菜 — 在照片上拖曳,框出每一道菜,框好會自動配一個可能的菜名讓你確認`;
+    updateProgress();
   }
 
-  function renderDetections(){
-    currentDetections.forEach((det, i) => {
-      const box = document.createElement('div');
-      box.className = 'det-box';
-      box.style.left = det.x + '%';
-      box.style.top = det.y + '%';
-      box.style.width = det.w + '%';
-      box.style.height = det.h + '%';
-      box.style.borderColor = det.color;
-      box.style.background = colorToRgba(det.color, 0.08);
+  function renderOneDetection(det, i){
+    const box = document.createElement('div');
+    box.className = 'det-box';
+    box.dataset.detId = det.id;
+    box.style.left = det.x + '%';
+    box.style.top = det.y + '%';
+    box.style.width = det.w + '%';
+    box.style.height = det.h + '%';
+    box.style.borderColor = det.color;
+    box.style.background = colorToRgba(det.color, 0.08);
 
-      const dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'det-dot';
-      dot.style.left = (det.x + det.w / 2) + '%';
-      dot.style.top = (det.y + det.h / 2) + '%';
-      dot.style.background = det.color;
-      dot.setAttribute('aria-label', `第 ${i + 1} 道菜,點看看是什麼`);
-      dot.textContent = i + 1;
-
-      const tip = document.createElement('span');
-      tip.className = 'det-tip';
-      if (det.y < 22) tip.classList.add('below');
-      const tipName = document.createElement('span');
-      tipName.className = 'det-tip-name';
-      tipName.textContent = det.name;
-      const tipConfirm = document.createElement('button');
-      tipConfirm.type = 'button';
-      tipConfirm.className = 'det-tip-confirm';
-      tipConfirm.setAttribute('aria-label', `確認是${det.name}`);
-      tipConfirm.textContent = '✓';
-      tip.append(tipName, tipConfirm);
-      dot.appendChild(tip);
-
-      function confirmThis(){
-        det.confirmed = true;
-        box.classList.add('confirmed');
-        box.style.borderColor = '#12a981';
-        box.style.background = colorToRgba('#12a981', 0.1);
-        dot.style.background = '#12a981';
-        dot.textContent = '✓';
-        tip.classList.remove('show');
-        updateProgress();
-      }
-
-      tipConfirm.addEventListener('click', e => {
-        e.stopPropagation();
-        confirmThis();
-      });
-
-      dot.addEventListener('click', e => {
-        e.stopPropagation();
-        const willShow = !tip.classList.contains('show');
-        closeAllTips();
-        tip.classList.toggle('show', willShow);
-      });
-
-      box.appendChild(dot);
-      recognizeOverlay.appendChild(box);
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'det-remove';
+    removeBtn.setAttribute('aria-label', '刪除這個框');
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      currentDetections = currentDetections.filter(d => d.id !== det.id);
+      box.remove();
+      updateProgress();
     });
 
-    updateProgress();
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'det-dot';
+    dot.style.left = (det.x + det.w / 2) + '%';
+    dot.style.top = (det.y + det.h / 2) + '%';
+    dot.style.background = det.color;
+    dot.setAttribute('aria-label', `第 ${i + 1} 道菜,點看看是什麼`);
+    dot.textContent = i + 1;
+
+    const tip = document.createElement('span');
+    tip.className = 'det-tip';
+    if (det.y < 22) tip.classList.add('below');
+    const tipName = document.createElement('span');
+    tipName.className = 'det-tip-name';
+    tipName.textContent = det.name;
+    const tipConfirm = document.createElement('button');
+    tipConfirm.type = 'button';
+    tipConfirm.className = 'det-tip-confirm';
+    tipConfirm.setAttribute('aria-label', `確認是${det.name}`);
+    tipConfirm.textContent = '✓';
+    tip.append(tipName, tipConfirm);
+    dot.appendChild(tip);
+
+    function confirmThis(){
+      det.confirmed = true;
+      box.classList.add('confirmed');
+      box.style.borderColor = '#12a981';
+      box.style.background = colorToRgba('#12a981', 0.1);
+      dot.style.background = '#12a981';
+      dot.textContent = '✓';
+      tip.classList.remove('show');
+      updateProgress();
+    }
+
+    tipConfirm.addEventListener('click', e => {
+      e.stopPropagation();
+      confirmThis();
+    });
+
+    dot.addEventListener('click', e => {
+      e.stopPropagation();
+      const willShow = !tip.classList.contains('show');
+      closeAllTips();
+      tip.classList.toggle('show', willShow);
+    });
+
+    box.append(removeBtn, dot);
+    recognizeOverlay.appendChild(box);
   }
+
+  /* ---------- manual box drawing (fix AI misses / mistakes) ---------- */
+  let drawState = null;
+
+  function wrapRect(){
+    return recognizeWrap.getBoundingClientRect();
+  }
+
+  function clientToPct(clientX, clientY){
+    const r = wrapRect();
+    const x = ((clientX - r.left) / r.width) * 100;
+    const y = ((clientY - r.top) / r.height) * 100;
+    return {
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y))
+    };
+  }
+
+  recognizeWrap.addEventListener('pointerdown', e => {
+    if (e.target.closest('.det-dot') || e.target.closest('.det-remove')) return;
+    const p = clientToPct(e.clientX, e.clientY);
+    const tempBox = document.createElement('div');
+    tempBox.className = 'det-box drawing';
+    tempBox.style.left = p.x + '%';
+    tempBox.style.top = p.y + '%';
+    tempBox.style.width = '0%';
+    tempBox.style.height = '0%';
+    recognizeOverlay.appendChild(tempBox);
+    drawState = { startX: p.x, startY: p.y, el: tempBox };
+    recognizeWrap.setPointerCapture(e.pointerId);
+  });
+
+  recognizeWrap.addEventListener('pointermove', e => {
+    if (!drawState) return;
+    const p = clientToPct(e.clientX, e.clientY);
+    const x = Math.min(drawState.startX, p.x);
+    const y = Math.min(drawState.startY, p.y);
+    const w = Math.abs(p.x - drawState.startX);
+    const h = Math.abs(p.y - drawState.startY);
+    drawState.el.style.left = x + '%';
+    drawState.el.style.top = y + '%';
+    drawState.el.style.width = w + '%';
+    drawState.el.style.height = h + '%';
+    drawState.current = { x, y, w, h };
+  });
+
+  recognizeWrap.addEventListener('pointerup', () => {
+    if (!drawState) return;
+    const box = drawState.current;
+    drawState.el.remove();
+    drawState = null;
+    if (!box || box.w < 4 || box.h < 4) return; // too small, treat as accidental tap
+
+    const idx = currentDetections.length;
+    const name = pickRandomNames(1)[0];
+    const det = {
+      id: `manual${Date.now()}`,
+      x: box.x, y: box.y, w: box.w, h: box.h,
+      name,
+      color: DET_COLORS[idx % DET_COLORS.length],
+      confirmed: false
+    };
+    currentDetections.push(det);
+    renderOneDetection(det, idx);
+    updateProgress();
+    showToast('已手動新增一個框');
+  });
 
   document.addEventListener('click', () => closeAllTips());
 
   finishRecognizeBtn.addEventListener('click', () => {
     const total = currentDetections.length;
+    if (total === 0){
+      showToast('請先在照片上拖曳框出至少一道菜');
+      return;
+    }
     const done = currentDetections.filter(d => d.confirmed).length;
     if (done < total){
       showToast(`還有 ${total - done} 道菜還沒確認,點圓點確認一下`);
