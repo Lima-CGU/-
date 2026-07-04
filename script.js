@@ -276,6 +276,66 @@
     if (det.dotEl) det.dotEl.classList.remove('loading');
   }
 
+  // Ask the backend to auto-detect every dish (position + name) in one go
+  async function callDetectAPI(photoDataUrl, dishCountHint, attempt){
+    attempt = attempt || 1;
+    const res = await fetch(`${BACKEND_URL}/api/detect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: photoDataUrl, dishCountHint })
+    });
+    const data = await res.json();
+
+    if (!res.ok){
+      if (res.status === 503 && data.estimated_time && attempt < 3){
+        await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
+        return callDetectAPI(photoDataUrl, dishCountHint, attempt + 1);
+      }
+      throw new Error(data.error || '自動辨識失敗');
+    }
+    return data;
+  }
+
+  async function autoDetectDishes(photoDataUrl, dishCount){
+    if (!backendWarned){
+      backendWarned = true;
+      showToast('第一次辨識可能要等後端伺服器醒過來,約 30-50 秒');
+    }
+    recognizeHint.textContent = 'AI 正在自動框出並辨識菜色…';
+    finishRecognizeBtn.disabled = true;
+
+    try {
+      const hint = dishCount === 6 ? '6+' : dishCount;
+      const data = await callDetectAPI(photoDataUrl, hint);
+      const dishes = data.dishes || [];
+
+      if (!dishes.length){
+        recognizeHint.textContent = '沒有自動辨識到菜色,你可以在照片上拖曳自己框一個';
+      } else {
+        dishes.forEach((d, i) => {
+          const det = {
+            id: `auto${i}`,
+            x: d.x, y: d.y, w: d.w, h: d.h,
+            name: `${d.name}(${d.confidence}%)`,
+            loading: false,
+            color: DET_COLORS[i % DET_COLORS.length],
+            confirmed: true
+          };
+          currentDetections.push(det);
+          renderOneDetection(det, i);
+        });
+        recognizeHint.textContent = `AI 自動辨識出 ${dishes.length} 道菜 — 辨識錯的按框上的「×」刪掉,漏掉的可以自己拖曳框一個`;
+      }
+    } catch (err){
+      console.error(err);
+      recognizeHint.textContent = '自動辨識失敗,你可以在照片上拖曳自己框出每一道菜';
+      showToast('自動辨識失敗,請改用手動框選');
+    }
+
+    finishRecognizeBtn.disabled = false;
+    updateProgress();
+  }
+
   const recognizeHint    = document.getElementById('recognizeHint');
 
   let currentDetections = [];
@@ -298,10 +358,9 @@
     recognizePhoto.src = photoDataUrl;
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
-    finishRecognizeBtn.disabled = false;
-    const n = dishCount === 6 ? '6+' : dishCount;
-    recognizeHint.textContent = `這餐標記了大概 ${n} 道菜 — 在照片上拖曳,框出每一道菜,框好會自動送去辨識`;
+    finishRecognizeBtn.disabled = true;
     updateProgress();
+    autoDetectDishes(photoDataUrl, dishCount);
   }
 
   function renderOneDetection(det, i){
@@ -372,6 +431,9 @@
       e.stopPropagation();
       confirmThis();
     });
+
+    // 自動辨識回來的框已經算確認過了,不用使用者手動點一次
+    if (det.confirmed) confirmThis();
 
     dot.addEventListener('click', e => {
       e.stopPropagation();
