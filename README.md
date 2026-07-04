@@ -1,46 +1,76 @@
-# 香互 · AI 飲食紀錄(階段 1:拍照上傳)
+# 香互後端(Hugging Face 食物辨識代理伺服器)
 
-參考 [PICTAMEAL](https://mhealth.jmir.org/2025/1/e60070) 研究中的「AI 影像辨識飲食回報」流程,重製前三格畫面(A 開始 → B 拍照 → C 確認上傳),用手機外框呈現。
+這是一個小型 Node.js/Express 伺服器,唯一的工作是:接收前端傳來的照片,
+代替瀏覽器呼叫 Hugging Face 上的食物辨識模型(`nateraw/food`,訓練在
+Food-101 資料集,101 種常見食物,準確度約 89%),把辨識結果整理成簡單
+的 JSON 傳回前端。**Hugging Face 的 token 只存在這個伺服器裡,前端拿不到。**
 
-**目前狀態**:純前端展示。邊界框改成使用者自己拖曳畫出來(位置一定準確),菜名辨識仍是假資料模擬;`backend/` 資料夾裡有一個對接 Clarifai 食物辨識 API 的後端,尚未接進前端。
-
-## 檔案結構
+## 檔案
 
 ```
-photo-upload-site/
-├── index.html   # 手機外框四格畫面 + 下方上傳紀錄
-├── style.css    # 香互活力主題樣式(手機外框、畫面切換、邊界框/圓點/泡泡)
-├── script.js    # 畫面導覽、拍照、手動框選、辨識確認、寫入上傳紀錄
-├── backend/     # Node.js 後端,代理呼叫 Clarifai 食物辨識 API(尚未接進前端)
+backend/
+├── server.js       # Express 伺服器本體
+├── package.json    # 依賴套件(express、cors)
+├── .env.example    # 環境變數範例(token 放這裡,不要真的填進這個檔案)
 └── README.md
 ```
 
-## 目前的使用者旅程
+## API
 
-1. **A 開始**:品牌畫面,按「開始拍照」
-2. **B 拍照**:開啟裝置鏡頭,可拍照或改用「從相簿選」上傳既有照片
-3. **C 確認上傳**:預覽照片、用圓形標籤選這餐大概幾道菜(1–6+)、按「確認上傳」
-4. **D 辨識菜色**:在照片上**拖曳畫框**,框出每一道菜;框好會自動配一個可能的菜名(目前是假資料),點圓點看提示泡泡,按「✓」確認後圓點變綠;框錯的按框上的「×」刪掉;全部確認完才能按「完成 · 存入日記」
-5. 完成的餐點會出現在頁面下方「上傳紀錄」清單,顯示辨識出的菜名清單
+**POST `/api/recognize`**
 
-**為什麼邊界框改成手動,不用自動偵測?**
-一開始試過用 OpenCV.js 的 Hough Circle Transform 自動抓圓盤/圓碗位置,但遇到真實照片(盤子大小不一、重疊擺放、光影雜訊)常常框錯或抓到一堆假的圓,調參數也無法穩定解決——這是傳統影像處理方法的本質限制。後來改成讓使用者自己拖曳畫框,位置一定準確,也更貼近「AI 給建議、人來確認/修正」的實際產品設計。
+Request body(JSON):
+```json
+{ "imageBase64": "data:image/jpeg;base64,......" }
+```
 
-**菜名還是假資料,不是真的食物辨識結果**——目前從一個固定清單隨機配對。要接上真的辨識,計畫是:使用者框出一塊區域後,把「那一小塊裁切下來」單獨送給食物辨識 API(見下方 `backend/`),因為只有單一道菜,辨識準確度會比整張照片一起辨識更好。
+Response(成功):
+```json
+{
+  "dishes": [
+    { "name": "fried rice", "confidence": 87 },
+    { "name": "steak", "confidence": 42 }
+  ]
+}
+```
 
-## `backend/` 是做什麼的
+Response(模型正在暖機,503):
+```json
+{ "error": "模型正在啟動,請稍等幾秒後再試一次", "estimated_time": 20 }
+```
+Hugging Face 的免費模型如果一段時間沒人用,會先「休眠」,第一次呼叫要
+等它啟動(通常 10-30 秒),之後就會正常快速回應。
 
-一個小的 Node.js/Express 伺服器,接收照片後代替瀏覽器呼叫 [Clarifai](https://www.clarifai.com/) 的 `food-item-recognition` 模型(金鑰不能放前端,必須由伺服器代呼叫)。詳細部署步驟見 `backend/README.md`。**目前這個後端還沒有被前端呼叫**,是準備要接的下一步。
-
-## 本機預覽
+## 本機測試
 
 ```bash
-cd photo-upload-site
-python3 -m http.server 8000
+cd backend
+npm install
+cp .env.example .env
+# 打開 .env,把 HF_TOKEN 換成你自己申請到的 token
+npm start
 ```
-瀏覽器打開 `http://localhost:8000`(拍照功能需要在 `http://localhost` 或 `https://` 下才會拿到鏡頭權限)。
+伺服器預設跑在 `http://localhost:3000`。
 
-## 下一階段規劃(尚未實作)
+## 部署到 Render(免費方案示範)
 
-- **真的食物辨識**:把 D 畫面裡使用者框出的每個區域裁切出來,呼叫 `backend/` 的 `/api/recognize`,拿真的菜名預測結果取代目前的隨機假資料
-- **日記彙總頁**:對照原始參考截圖的 J、L 畫面,顯示整餐熱量/營養素,允許修改單一菜色的名稱或份量
+1. 到 [render.com](https://render.com) 註冊帳號,可以直接用 GitHub 帳號登入
+2. 先把這個 `backend` 資料夾(連同整個 repo)推上 GitHub(如果還沒推的話)
+3. Render 儀表板點 **New** → **Web Service**
+4. 選擇連結你的 GitHub repo
+5. **Root Directory** 填 `backend`(告訴 Render 只跑這個子資料夾)
+6. **Build Command** 填 `npm install`
+7. **Start Command** 填 `npm start`
+8. **Environment Variables** 那邊新增一個變數:
+   - Key: `HF_TOKEN`
+   - Value: 你的 Hugging Face token
+9. 選免費方案(Free),點 **Create Web Service**
+10. 部署完成後,Render 會給你一個網址,例如 `https://xianghu-backend.onrender.com`
+
+**注意**:免費方案通常會在閒置一段時間後「睡眠」,第一次請求要等它醒過來
+(可能要等 30 秒~1 分鐘),之後的請求就正常快。
+
+## 部署好之後
+
+把拿到的後端網址(例如 `https://xianghu-backend.onrender.com`)交給我,
+我會把前端的辨識邏輯改成呼叫這個網址,取代現在的假資料。
