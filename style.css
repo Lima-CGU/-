@@ -417,6 +417,13 @@ body{
   z-index: 2;
 }
 .det-dot:hover, .det-dot:focus-visible{ transform: scale(1.12); outline: none; }
+.det-dot.loading{
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+@keyframes dot-pulse{
+  0%,100%{ opacity: 1; }
+  50%{ opacity: 0.45; }
+}
 
 .det-tip{
   position: absolute;

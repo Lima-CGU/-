@@ -108,7 +108,7 @@
     <!-- Screen D: Recognize -->
     <section class="screen" data-screen="recognize">
       <div class="screen-body recognize-body">
-        <p class="recognize-hint" id="recognizeHint">在照片上拖曳,框出每一道菜,框好會自動配一個可能的菜名讓你確認</p>
+        <p class="recognize-hint" id="recognizeHint">在照片上拖曳,框出每一道菜,框好會自動送去辨識,跳出結果讓你確認</p>
         <div class="recognize-photo-wrap drawable" id="recognizeWrap">
           <img id="recognizePhoto" alt="辨識中的餐點照片">
           <div class="recognize-overlay" id="recognizeOverlay"></div>
@@ -132,7 +132,7 @@
   <div id="strip" class="strip">
     <p class="empty-state" id="emptyState">還沒有上傳紀錄 — 完成一次拍照上傳,會顯示在這裡,狀態是「等待辨識」。</p>
   </div>
-  <p class="log-note">邊界框現在改成使用者自己在照片上拖曳畫出來,位置一定準確;菜名仍是展示用的假資料(隨機配對),還沒有接真的食物辨識模型。</p>
+  <p class="log-note">邊界框由使用者拖曳畫出來,位置準確;菜名由後端呼叫 Hugging Face 的食物辨識模型(訓練於 Food-101,101 種常見食物,以英文標籤呈現)辨識,非中文菜名時可能不夠準確,持續改善中。</p>
 </section>
 
 <footer class="site-footer">
