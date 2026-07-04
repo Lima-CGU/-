@@ -273,6 +273,7 @@
     }
     det.loading = false;
     if (det.tipNameEl) det.tipNameEl.textContent = det.name;
+    if (det.labelEl) det.labelEl.textContent = det.name;
     if (det.dotEl) det.dotEl.classList.remove('loading');
   }
 
@@ -373,6 +374,12 @@
     box.style.height = det.h + '%';
     box.style.borderColor = det.color;
     box.style.background = colorToRgba(det.color, 0.08);
+
+    const label = document.createElement('span');
+    label.className = 'det-label';
+    label.textContent = det.loading ? '辨識中…' : det.name;
+    det.labelEl = label;
+    box.appendChild(label);
 
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
