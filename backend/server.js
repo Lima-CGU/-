@@ -23,7 +23,7 @@ app.use(express.json({ limit: '15mb' }));
 app.use(cors());
 
 const HF_TOKEN = process.env.HF_TOKEN;
-const HF_MODEL_URL = 'https://api-inference.huggingface.co/models/nateraw/food';
+const HF_MODEL_URL = 'https://router.huggingface.co/hf-inference/models/nateraw/food';
 
 app.get('/', (req, res) => {
   res.send('香互後端運作中。POST /api/recognize 來辨識食物照片。');
