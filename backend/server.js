@@ -32,15 +32,12 @@ const RECOGNIZE_PROMPT = `你是食物辨識助手。請判斷這張照片裡的
 {"dishes":[{"name":"菜名","confidence":90}]}
 最多列出 3 個候選菜名,依可能性由高到低排序,confidence 是你自己估計的信心百分比(0-100 整數)。`;
 
-function detectPrompt(dishCountHint){
-  const hint = dishCountHint ? `使用者說這餐大概有 ${dishCountHint} 道菜,可以參考但不用完全照這個數字。` : '';
-  return `你是食物辨識與定位助手。這是一張餐點照片,裡面可能有好幾道不同的菜(不同容器、不同菜色算不同的一道)。${hint}
+const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照片,裡面可能有好幾道不同的菜(不同容器、不同菜色算不同的一道)。
 請找出照片中每一道個別的菜,用繁體中文取名,並估計它在照片中的邊界框位置。
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
 {"dishes":[{"name":"菜名","confidence":90,"x":10,"y":15,"w":30,"h":25}]}
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜,依畫面由左到右、由上到下排序。`;
-}
 
 async function callOpenAIVision(imageUrl, prompt, maxTokens){
   const aiRes = await fetch(OPENAI_URL, {
@@ -135,13 +132,13 @@ app.post('/api/detect', async (req, res) => {
     });
   }
 
-  const { imageBase64, dishCountHint } = req.body || {};
+  const { imageBase64 } = req.body || {};
   if (!imageBase64) {
     return res.status(400).json({ error: '缺少 imageBase64 欄位。' });
   }
 
   try {
-    const parsed = await callOpenAIVision(toDataUrl(imageBase64), detectPrompt(dishCountHint), 1000);
+    const parsed = await callOpenAIVision(toDataUrl(imageBase64), DETECT_PROMPT, 1000);
 
     const dishes = (Array.isArray(parsed.dishes) ? parsed.dishes : [])
       .slice(0, 8)

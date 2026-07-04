@@ -19,7 +19,6 @@
   const fileInput     = document.getElementById('fileInput');
 
   const reviewImg   = document.getElementById('reviewImg');
-  const dishChips   = document.getElementById('dishChips');
 
   const recognizeWrap    = document.getElementById('recognizeWrap');
   const recognizePhoto   = document.getElementById('recognizePhoto');
@@ -34,7 +33,6 @@
 
   let stream = null;
   let currentPhotoData = null;
-  let selectedDishCount = 4;
   let mealCount = 0;
 
   /* ---------- toast ---------- */
@@ -118,15 +116,6 @@
     reader.readAsDataURL(file);
   });
 
-  /* ---------- dish count chips ---------- */
-  dishChips.addEventListener('click', e => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    dishChips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    selectedDishCount = Number(chip.dataset.count);
-  });
-
   /* ---------- confirm upload -> log entry ---------- */
   function timestamp(){
     const d = new Date();
@@ -150,7 +139,7 @@
     const meta = document.createElement('div');
     meta.className = 'meal-meta';
     meta.innerHTML = `
-      <span class="meal-dishes">${dishCount === 6 ? '6+' : dishCount} 道菜</span>
+      <span class="meal-dishes">${dishCount} 道菜</span>
       <span class="meal-time">${timestamp()}</span>
     `;
 
@@ -181,7 +170,7 @@
   confirmUploadBtn.addEventListener('click', () => {
     if (!currentPhotoData) return;
     goToScreen('recognize');
-    setupRecognizeScreen(currentPhotoData, selectedDishCount);
+    setupRecognizeScreen(currentPhotoData);
   });
 
   /* ---------- mock recognition (demo data, no real AI) ---------- */
@@ -278,26 +267,26 @@
   }
 
   // Ask the backend to auto-detect every dish (position + name) in one go
-  async function callDetectAPI(photoDataUrl, dishCountHint, attempt){
+  async function callDetectAPI(photoDataUrl, attempt){
     attempt = attempt || 1;
     const res = await fetch(`${BACKEND_URL}/api/detect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: photoDataUrl, dishCountHint })
+      body: JSON.stringify({ imageBase64: photoDataUrl })
     });
     const data = await res.json();
 
     if (!res.ok){
       if (res.status === 503 && data.estimated_time && attempt < 3){
         await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
-        return callDetectAPI(photoDataUrl, dishCountHint, attempt + 1);
+        return callDetectAPI(photoDataUrl, attempt + 1);
       }
       throw new Error(data.error || '自動辨識失敗');
     }
     return data;
   }
 
-  async function autoDetectDishes(photoDataUrl, dishCount){
+  async function autoDetectDishes(photoDataUrl){
     if (!backendWarned){
       backendWarned = true;
       showToast('第一次辨識可能要等後端伺服器醒過來,約 30-50 秒');
@@ -306,8 +295,7 @@
     finishRecognizeBtn.disabled = true;
 
     try {
-      const hint = dishCount === 6 ? '6+' : dishCount;
-      const data = await callDetectAPI(photoDataUrl, hint);
+      const data = await callDetectAPI(photoDataUrl);
       const dishes = data.dishes || [];
 
       if (!dishes.length){
@@ -355,13 +343,13 @@
     });
   }
 
-  function setupRecognizeScreen(photoDataUrl, dishCount){
+  function setupRecognizeScreen(photoDataUrl){
     recognizePhoto.src = photoDataUrl;
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
     finishRecognizeBtn.disabled = true;
     updateProgress();
-    autoDetectDishes(photoDataUrl, dishCount);
+    autoDetectDishes(photoDataUrl);
   }
 
   function renderOneDetection(det, i){

@@ -291,37 +291,6 @@ body{
 .corner.bl{ bottom:8px; left:8px; border-bottom:2px solid; border-left:2px solid; }
 .corner.br{ bottom:8px; right:8px; border-bottom:2px solid; border-right:2px solid; }
 
-.dish-count-label{
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--ink-soft);
-  margin: 0 0 10px;
-}
-.chip-row{
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-.chip{
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  border: 1.5px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.chip:hover{ border-color: var(--teal); }
-.chip.active{
-  background: var(--purple);
-  border-color: var(--purple);
-  color: #fff;
-}
-
 .review-controls{
   display: flex;
   gap: 10px;
