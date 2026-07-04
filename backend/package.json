@@ -1,7 +1,7 @@
 {
   "name": "xianghu-backend",
   "version": "1.0.0",
-  "description": "香互後端,代理呼叫 Clarifai 食物辨識 API",
+  "description": "香互後端,代理呼叫 OpenAI GPT-4o 食物辨識",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
   }
 }
