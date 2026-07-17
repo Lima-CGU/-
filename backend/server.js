@@ -1,8 +1,8 @@
 /**
  * 香互 · 後端小伺服器
  *
- * 功能:接收前端傳來的照片(base64),代替瀏覽器去呼叫 OpenAI 的
- * GPT-4o 多模態模型辨識照片裡的菜色,整理辨識結果後回傳給前端。
+ * 功能:接收前端傳來的照片(base64)或文字,代替瀏覽器去呼叫 OpenAI 的
+ * GPT-4o,辨識照片裡的菜色、或把長者口語的飲食回饋轉譯成烹調建議。
  *
  * 為什麼需要這個中間層(不能讓前端直接打 OpenAI)?
  * OpenAI 的 API Key 如果直接寫在網站的 JS 裡,任何人打開瀏覽器
@@ -46,27 +46,42 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 {"dishes":[{"name":"菜名","confidence":90,"x":10,"y":15,"w":30,"h":25}]}
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜,依畫面由左到右、由上到下排序。`;
 
-async function callOpenAIVision(imageUrl, prompt, maxTokens){
+function translateFeedbackPrompt(dishName, feedbackText){
+  return `你是照護飲食轉譯助手。長者對「${dishName}」這道菜的原始回饋是:「${feedbackText}」,
+請將這句模糊的感受,轉譯成看護可以直接執行的具體烹調調整建議,用簡短的繁體中文條列說明(例如切法、烹調時間、調味調整等)。
+如果原始回饋看起來只是稱讚或沒有需要調整的地方,就回覆「這道菜很合適,不需調整」。
+請「只」回傳如下格式的 JSON,不要加任何說明文字:
+{"suggestion":"具體建議文字"}`;
+}
+
+// imageUrl 可傳 null,這時只送純文字給 GPT-4o(不需要 vision)
+// temperature 可選:不傳就用 API 預設值,傳低一點的值(例如 0.2)可以讓短文字建議類的
+// 輸出更穩定一致,不會像預設溫度那樣偶爾給出敷衍、跟原始回饋對不上的答案
+async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
+  const content = imageUrl
+    ? [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: imageUrl } }
+      ]
+    : prompt;
+
+  const body = {
+    model: OPENAI_MODEL,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'user', content }
+    ],
+    max_tokens: maxTokens
+  };
+  if (temperature !== undefined) body.temperature = temperature;
+
   const aiRes = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: imageUrl } }
-          ]
-        }
-      ],
-      max_tokens: maxTokens
-    })
+    body: JSON.stringify(body)
   });
 
   const data = await aiRes.json();
@@ -116,7 +131,7 @@ function padBox(x, y, w, h){
 }
 
 app.get('/', (req, res) => {
-  res.send('香互後端運作中。POST /api/recognize 或 /api/detect 來辨識食物照片。');
+  res.send('香互後端運作中。POST /api/recognize、/api/detect 辨識食物照片,POST /api/translate-feedback 轉譯飲食回饋。');
 });
 
 app.post('/api/recognize', async (req, res) => {
@@ -182,6 +197,31 @@ app.post('/api/detect', async (req, res) => {
       .filter(d => d.name);
 
     res.json({ dishes });
+  } catch (err){
+    console.error(err);
+    res.status(err.status || 500).json({ error: err.message, detail: err.detail || String(err) });
+  }
+});
+
+// 飲食回饋轉譯:把長者口語的模糊感受,轉成看護可以執行的具體烹調建議
+app.post('/api/translate-feedback', async (req, res) => {
+  if (!OPENAI_API_KEY) {
+    return res.status(500).json({
+      error: '伺服器還沒設定 OPENAI_API_KEY 環境變數,請先在部署平台設定金鑰。'
+    });
+  }
+
+  const { dishName, feedbackText } = req.body || {};
+  if (!feedbackText) {
+    return res.status(400).json({ error: '缺少 feedbackText 欄位。' });
+  }
+
+  try {
+    const prompt = translateFeedbackPrompt(dishName || '這道菜', feedbackText);
+    const parsed = await callOpenAIVision(null, prompt, 300, 0.2);
+    const suggestion = String(parsed.suggestion || '').trim();
+
+    res.json({ suggestion });
   } catch (err){
     console.error(err);
     res.status(err.status || 500).json({ error: err.message, detail: err.detail || String(err) });
