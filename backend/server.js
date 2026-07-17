@@ -39,6 +39,7 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 - 邊界框要盡可能涵蓋該道菜「完整」的範圍,不要只框住食物的一部分(例如只框到半碗飯、或只框到局部食材)
 - 請以「該道菜所在的碗或盤子的邊緣」作為框選依據,讓框盡量貼齊碗盤的外緣,確保同一個碗/盤裡的食物都完整包在框內
 - 如果同一個碗/盤裡有多種食材混合或並排在一起(例如玉米、豌豆、紅椒混炒),仍然算作同一道菜,框選整個碗/盤區域,不要切割成多個框
+- 如果不確定邊界確切在哪裡,寧可框大一點、讓框稍微超出碗盤邊緣包到一點背景,也不要框小了切到食物本身
 
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
@@ -96,6 +97,24 @@ function clampPct(n){
   return Math.max(0, Math.min(100, Number(n) || 0));
 }
 
+// GPT-4o 估計的框常常偏小、切到碗盤邊緣,主動往外擴一點當作補償
+const BOX_PAD_RATIO = 0.15;
+function padBox(x, y, w, h){
+  const padW = w * BOX_PAD_RATIO;
+  const padH = h * BOX_PAD_RATIO;
+  let nx = x - padW;
+  let ny = y - padH;
+  let nw = w + padW * 2;
+  let nh = h + padH * 2;
+
+  if (nx < 0){ nw += nx; nx = 0; }
+  if (ny < 0){ nh += ny; ny = 0; }
+  if (nx + nw > 100) nw = 100 - nx;
+  if (ny + nh > 100) nh = 100 - ny;
+
+  return { x: nx, y: ny, w: nw, h: nh };
+}
+
 app.get('/', (req, res) => {
   res.send('香互後端運作中。POST /api/recognize 或 /api/detect 來辨識食物照片。');
 });
@@ -148,14 +167,18 @@ app.post('/api/detect', async (req, res) => {
 
     const dishes = (Array.isArray(parsed.dishes) ? parsed.dishes : [])
       .slice(0, 8)
-      .map(d => ({
-        name: String(d.name || '').trim(),
-        confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
-        x: clampPct(d.x),
-        y: clampPct(d.y),
-        w: Math.max(2, Math.min(100, Number(d.w) || 20)),
-        h: Math.max(2, Math.min(100, Number(d.h) || 20))
-      }))
+      .map(d => {
+        const x = clampPct(d.x);
+        const y = clampPct(d.y);
+        const w = Math.max(2, Math.min(100, Number(d.w) || 20));
+        const h = Math.max(2, Math.min(100, Number(d.h) || 20));
+        const padded = padBox(x, y, w, h);
+        return {
+          name: String(d.name || '').trim(),
+          confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
+          ...padded
+        };
+      })
       .filter(d => d.name);
 
     res.json({ dishes });
