@@ -108,6 +108,34 @@
       </div>
     </section>
 
+    <!-- Voice correction modal, shared by every detection box -->
+    <div class="voice-modal" id="voiceModal" hidden>
+      <div class="voice-modal-card">
+        <button class="voice-modal-close" id="voiceModalClose" aria-label="關閉">×</button>
+
+        <div class="voice-state" id="voiceStateListening">
+          <p class="voice-mic-pulse" aria-hidden="true">🎤</p>
+          <p class="voice-modal-text">請說出菜名…</p>
+          <button class="btn btn-ghost btn-full" id="voiceCancelBtn">取消</button>
+        </div>
+
+        <div class="voice-state" id="voiceStateResult" hidden>
+          <p class="voice-modal-label">聽到的是</p>
+          <p class="voice-result-text" id="voiceResultText"></p>
+          <div class="voice-result-actions">
+            <button type="button" class="voice-btn-confirm" id="voiceConfirmBtn">✓ 確認</button>
+            <button type="button" class="voice-btn-retry" id="voiceRetryBtn">↺ 重新錄</button>
+          </div>
+        </div>
+
+        <div class="voice-state" id="voiceStateFallback" hidden>
+          <p class="voice-modal-text voice-fallback-notice">此瀏覽器不支援語音輸入,請改用文字輸入</p>
+          <input type="text" class="voice-fallback-input" id="voiceFallbackInput" placeholder="輸入菜名">
+          <button type="button" class="voice-btn-confirm" id="voiceFallbackConfirmBtn">✓ 確認</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </main>

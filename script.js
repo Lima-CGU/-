@@ -421,6 +421,7 @@
       tip.classList.remove('show');
       updateProgress();
     }
+    det.confirmFn = confirmThis;
 
     tipConfirm.addEventListener('click', e => {
       e.stopPropagation();
@@ -437,7 +438,19 @@
       tip.classList.toggle('show', willShow);
     });
 
-    box.append(removeBtn, dot);
+    const micBtn = document.createElement('button');
+    micBtn.type = 'button';
+    micBtn.className = 'det-mic';
+    micBtn.style.left = (det.x + det.w / 2) + '%';
+    micBtn.style.top = (det.y + det.h / 2) + '%';
+    micBtn.textContent = '🎤';
+    micBtn.setAttribute('aria-label', '用語音修正菜名');
+    micBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openVoiceModal(det);
+    });
+
+    box.append(removeBtn, dot, micBtn);
     recognizeOverlay.appendChild(box);
   }
 
@@ -459,7 +472,7 @@
   }
 
   recognizeWrap.addEventListener('pointerdown', e => {
-    if (e.target.closest('.det-dot') || e.target.closest('.det-remove')) return;
+    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic')) return;
     const p = clientToPct(e.clientX, e.clientY);
     const tempBox = document.createElement('div');
     tempBox.className = 'det-box drawing';
@@ -535,5 +548,126 @@
 
   window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t => t.stop());
+  });
+
+  /* ---------- voice correction (Web Speech API) ---------- */
+  const voiceModal            = document.getElementById('voiceModal');
+  const voiceModalClose       = document.getElementById('voiceModalClose');
+  const voiceStateListening   = document.getElementById('voiceStateListening');
+  const voiceStateResult      = document.getElementById('voiceStateResult');
+  const voiceStateFallback    = document.getElementById('voiceStateFallback');
+  const voiceCancelBtn        = document.getElementById('voiceCancelBtn');
+  const voiceResultText       = document.getElementById('voiceResultText');
+  const voiceRetryBtn         = document.getElementById('voiceRetryBtn');
+  const voiceConfirmBtn       = document.getElementById('voiceConfirmBtn');
+  const voiceFallbackInput    = document.getElementById('voiceFallbackInput');
+  const voiceFallbackConfirmBtn = document.getElementById('voiceFallbackConfirmBtn');
+
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  let voiceTargetDet = null;
+  let recognition = null;
+  let recognizedText = '';
+
+  function showVoiceState(name){
+    voiceStateListening.hidden = name !== 'listening';
+    voiceStateResult.hidden = name !== 'result';
+    voiceStateFallback.hidden = name !== 'fallback';
+  }
+
+  function stopRecognition(){
+    if (!recognition) return;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    try { recognition.stop(); } catch (err){ /* already stopped */ }
+    recognition = null;
+  }
+
+  function closeVoiceModal(){
+    voiceModal.hidden = true;
+    stopRecognition();
+    voiceTargetDet = null;
+  }
+
+  function startListening(){
+    recognizedText = '';
+    showVoiceState('listening');
+    stopRecognition();
+
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'zh-TW';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || '';
+      recognizedText = transcript.trim();
+      if (recognizedText){
+        voiceResultText.textContent = recognizedText;
+        showVoiceState('result');
+      } else {
+        showToast('沒聽清楚,再說一次看看');
+      }
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === 'no-speech'){
+        showToast('沒聽到聲音,再試一次');
+        showVoiceState('listening');
+      } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+        showToast('沒有麥克風權限,改用文字輸入');
+        showVoiceState('fallback');
+        voiceFallbackInput.value = '';
+        voiceFallbackInput.focus();
+      } else {
+        showToast('語音辨識發生問題,改用文字輸入');
+        showVoiceState('fallback');
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (err){
+      showVoiceState('fallback');
+    }
+  }
+
+  function openVoiceModal(det){
+    voiceTargetDet = det;
+    voiceModal.hidden = false;
+
+    if (!SpeechRecognitionCtor){
+      showVoiceState('fallback');
+      voiceFallbackInput.value = '';
+      setTimeout(() => voiceFallbackInput.focus(), 50);
+      return;
+    }
+    startListening();
+  }
+
+  function applyVoiceResult(text){
+    const det = voiceTargetDet;
+    if (!det || !text) return;
+    det.name = text;
+    det.loading = false;
+    if (det.labelEl) det.labelEl.textContent = det.name;
+    if (det.tipNameEl) det.tipNameEl.textContent = det.name;
+    if (det.dotEl) det.dotEl.classList.remove('loading');
+    closeVoiceModal();
+    if (det.confirmFn) det.confirmFn();
+    showToast('菜名已更新');
+  }
+
+  voiceModalClose.addEventListener('click', closeVoiceModal);
+  voiceCancelBtn.addEventListener('click', closeVoiceModal);
+  voiceRetryBtn.addEventListener('click', startListening);
+  voiceConfirmBtn.addEventListener('click', () => applyVoiceResult(recognizedText));
+  voiceFallbackConfirmBtn.addEventListener('click', () => {
+    applyVoiceResult(voiceFallbackInput.value.trim());
+  });
+  voiceFallbackInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') voiceFallbackConfirmBtn.click();
   });
 })();
