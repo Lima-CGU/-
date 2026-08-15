@@ -204,15 +204,15 @@ body{
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 10px 0 8px;
+  padding: 8px 0 12px;
+}
+.start-illustration-wrap img{
+  display: block;
+  margin: 0 auto;
+  filter: drop-shadow(0 12px 18px rgba(109,79,224,0.12));
 }
 .start-illustration{
-  display: block;
-  width: min(100%, 290px);
-  max-width: 100%;
-  height: auto;
-  object-fit: contain;
-  filter: drop-shadow(0 12px 18px rgba(109,79,224,0.12));
+  display: none;
 }
 .start-screen-foot{
   display: flex;
