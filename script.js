@@ -356,6 +356,73 @@
     return data;
   }
 
+  function normalizeDetectionBox(raw){
+    const w = Number(raw?.w ?? 0);
+    const h = Number(raw?.h ?? 0);
+    let x = Number(raw?.x ?? 0);
+    let y = Number(raw?.y ?? 0);
+    let width = Number.isFinite(w) ? w : 0;
+    let height = Number.isFinite(h) ? h : 0;
+
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { x: 0, y: 0, w: 10, h: 10 };
+
+    x = Math.max(0, Math.min(100, x));
+    y = Math.max(0, Math.min(100, y));
+    width = Math.max(8, Math.min(100, width));
+    height = Math.max(8, Math.min(100, height));
+
+    const originalX = x;
+    const originalY = y;
+    const originalWidth = width;
+    const originalHeight = height;
+
+    if (x + width > 100) width = Math.max(8, 100 - x);
+    if (y + height > 100) height = Math.max(8, 100 - y);
+
+    // 這裡要保留整道菜的主要範圍，不要把框縮得只剩一小塊食材。
+    // 只在明顯超大時做收斂，讓它能覆蓋整道菜但不會把整個容器都當進去。
+    const maxDimension = 72;
+    if (width > maxDimension || height > maxDimension){
+      const scale = Math.min(maxDimension / width, maxDimension / height, 1);
+      width *= scale;
+      height *= scale;
+    }
+
+    const area = width * height;
+    if (area > 4200){
+      const scale = Math.sqrt(4200 / area);
+      width *= scale;
+      height *= scale;
+    }
+
+    // 如果仍過大，最多縮到約 68% 左右，避免把整個盤/背景都框進去
+    if (width > 68 || height > 68){
+      const scale = Math.min(68 / width, 68 / height, 1);
+      width *= scale;
+      height *= scale;
+    }
+
+    // 如果框太小，代表模型只抓到局部食材，補足到整道菜的主體範圍
+    if (width < 18 || height < 18){
+      const expandFactor = Math.max(1.4, 28 / Math.max(width, 1), 28 / Math.max(height, 1));
+      width *= expandFactor;
+      height *= expandFactor;
+    }
+
+    // 保底防止長寬過大或過小，讓 box 更像整道菜的主體區塊
+    width = Math.max(18, Math.min(68, width));
+    height = Math.max(18, Math.min(68, height));
+
+    // 以原本中心點為基準縮放，避免框被擠到邊緣
+    x = originalX + (originalWidth - width) / 2;
+    y = originalY + (originalHeight - height) / 2;
+
+    x = Math.max(0, Math.min(100 - width, x));
+    y = Math.max(0, Math.min(100 - height, y));
+
+    return { x, y, w: width, h: height };
+  }
+
   async function autoDetectDishes(photoDataUrl){
     if (!backendWarned){
       backendWarned = true;
@@ -372,9 +439,10 @@
         recognizeHint.textContent = '沒有自動辨識到菜色,你可以在照片上拖曳自己框一個';
       } else {
         dishes.forEach((d, i) => {
+          const box = normalizeDetectionBox(d);
           const det = {
             id: `auto${i}`,
-            x: d.x, y: d.y, w: d.w, h: d.h,
+            x: box.x, y: box.y, w: box.w, h: box.h,
             name: `${d.name}(${d.confidence}%)`,
             loading: false,
             color: DET_COLORS[i % DET_COLORS.length],
@@ -587,9 +655,10 @@
     if (!box || box.w < 4 || box.h < 4) return; // too small, treat as accidental tap
 
     const idx = currentDetections.length;
+    const safeBox = normalizeDetectionBox(box);
     const det = {
       id: `manual${Date.now()}`,
-      x: box.x, y: box.y, w: box.w, h: box.h,
+      x: safeBox.x, y: safeBox.y, w: safeBox.w, h: safeBox.h,
       name: null,
       loading: true,
       color: DET_COLORS[idx % DET_COLORS.length],
@@ -824,6 +893,7 @@
   let recognition = null;
   let recognizedText = '';
   let renameWarningPending = null;
+  let renameRequiresExplicitOverride = false;
 
   function normalizeRenameText(value){
     return String(value || '')
@@ -857,6 +927,7 @@
 
   function clearRenameWarningState(){
     renameWarningPending = null;
+    renameRequiresExplicitOverride = false;
     voiceRenameWarning.hidden = true;
     voiceRenameWarning.textContent = '';
     voiceConfirmBtn.textContent = '✓ 確認';
@@ -878,9 +949,10 @@
     }
 
     renameWarningPending = candidateText.trim();
-    voiceRenameWarning.textContent = `原本辨識為「${originalName}」,確定要改成「${candidateText.trim()}」嗎?`;
+    renameRequiresExplicitOverride = true;
+    voiceRenameWarning.textContent = `你想把這道菜改成「${candidateText.trim()}」，但目前辨識結果更像是「${originalName}」。這兩個名稱差異很大，若你確認是系統誤判，請點「我確認是誤判」；若不確定，請保留目前結果。`;
     voiceRenameWarning.hidden = false;
-    voiceConfirmBtn.textContent = '✓ 確定修改';
+    voiceConfirmBtn.textContent = '我確認是誤判';
     return true;
   }
 
@@ -1004,12 +1076,20 @@
     const normalizedCandidate = normalizeRenameText(candidate);
 
     if (renameWarningPending && normalizedCandidate === normalizeRenameText(renameWarningPending)) {
+      if (renameRequiresExplicitOverride) {
+        applyVoiceResult(candidate);
+        return;
+      }
       applyVoiceResult(candidate);
       return;
     }
 
     if (normalizedOriginal && normalizedCandidate && normalizedOriginal !== normalizedCandidate) {
       if (isRenameDifferenceLarge(originalName, candidate)) {
+        if (renameRequiresExplicitOverride) {
+          applyVoiceResult(candidate);
+          return;
+        }
         maybeShowRenameWarning(candidate);
         return;
       }
@@ -1032,10 +1112,11 @@
       }
 
       voiceResultText.textContent = text;
-      voiceRenameWarning.textContent = `原本辨識為「${originalName}」,確定要改成「${text}」嗎?`;
-      voiceRenameWarning.hidden = false;
       renameWarningPending = text;
-      voiceConfirmBtn.textContent = '✓ 確定修改';
+      renameRequiresExplicitOverride = true;
+      voiceRenameWarning.textContent = `你想把這道菜改成「${text}」，但目前辨識結果更像是「${originalName}」。這兩個名稱差異很大，若你確認是系統誤判，請點「我確認是誤判」；若不確定，請保留目前結果。`;
+      voiceRenameWarning.hidden = false;
+      voiceConfirmBtn.textContent = '我確認是誤判';
       showVoiceState('result');
       return;
     }
