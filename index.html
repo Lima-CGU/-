@@ -163,6 +163,40 @@
       </div>
     </div>
 
+    <div class="detail-modal" id="detailAdjustModal" hidden>
+      <div class="detail-modal-card">
+        <button class="detail-modal-close" id="detailAdjustClose" aria-label="關閉">×</button>
+        <h3 class="detail-modal-title">食物屬性細部調整</h3>
+
+        <div class="detail-section">
+          <div class="detail-section-head">份量</div>
+
+          <div class="detail-option-group">
+            <p class="detail-option-label">容器類型</p>
+            <div class="detail-option-list" id="detailContainerList"></div>
+          </div>
+
+          <div class="detail-option-group">
+            <p class="detail-option-label">尺寸</p>
+            <div class="detail-option-list" id="detailSizeList"></div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-section-head">烹調方式</div>
+          <div class="detail-scroll-wrap">
+            <div class="detail-option-list detail-cooking-list" id="detailCookingList"></div>
+            <div class="detail-scroll-hint" aria-hidden="true">›</div>
+          </div>
+        </div>
+
+        <div class="detail-actions">
+          <button type="button" class="detail-btn-cancel" id="detailAdjustCancelBtn">取消</button>
+          <button type="button" class="detail-btn-confirm" id="detailAdjustConfirmBtn">確認</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </main>

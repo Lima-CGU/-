@@ -123,6 +123,23 @@
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function formatDishDetail(detail){
+    if (!detail) return '';
+    const containerMap = { plate: '盤子', bowl: '碗', cup: '杯子' };
+    const parts = [];
+
+    if (detail.containerType) {
+      parts.push(containerMap[detail.containerType] || detail.containerType);
+    }
+    if (detail.size) {
+      parts.push(detail.size);
+    }
+    if (detail.cookingMethod) {
+      parts.push(detail.cookingMethod);
+    }
+    return parts.join('・');
+  }
+
   function addMealCard(dataUrl, dishCount, dishes){
     emptyState.style.display = 'none';
     mealCount += 1;
@@ -154,6 +171,14 @@
         nameEl.className = 'meal-dish-name';
         nameEl.textContent = d.name;
         row.appendChild(nameEl);
+
+        const detailText = formatDishDetail(d.detail);
+        if (detailText){
+          const detailEl = document.createElement('span');
+          detailEl.className = 'meal-dish-detail';
+          detailEl.textContent = detailText;
+          row.appendChild(detailEl);
+        }
 
         if (d.feedbackSuggestion){
           const fb = document.createElement('span');
@@ -478,7 +503,17 @@
       openVoiceModal(det, 'feedback');
     });
 
-    box.append(removeBtn, dot, micBtn, feedbackBtn);
+    const detailBtn = document.createElement('button');
+    detailBtn.type = 'button';
+    detailBtn.className = 'det-detail';
+    detailBtn.textContent = '⚙ 細部調整';
+    detailBtn.setAttribute('aria-label', '細部調整這道菜的份量與烹調方式');
+    detailBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openDetailAdjustModal(det);
+    });
+
+    box.append(removeBtn, dot, micBtn, feedbackBtn, detailBtn);
     recognizeOverlay.appendChild(box);
   }
 
@@ -570,7 +605,8 @@
     const dishes = currentDetections.map(d => ({
       name: d.name,
       feedbackText: d.feedbackText,
-      feedbackSuggestion: d.feedbackSuggestion
+      feedbackSuggestion: d.feedbackSuggestion,
+      detail: d.detail ? { ...d.detail } : null
     }));
     addMealCard(currentPhotoData, currentDetections.length, dishes);
     showToast('這餐記錄好了!');
@@ -581,6 +617,115 @@
   window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t => t.stop());
   });
+
+  /* ---------- detail adjustment panel ---------- */
+  const detailAdjustModal = document.getElementById('detailAdjustModal');
+  const detailAdjustClose = document.getElementById('detailAdjustClose');
+  const detailAdjustCancelBtn = document.getElementById('detailAdjustCancelBtn');
+  const detailAdjustConfirmBtn = document.getElementById('detailAdjustConfirmBtn');
+  const detailContainerList = document.getElementById('detailContainerList');
+  const detailSizeList = document.getElementById('detailSizeList');
+  const detailCookingList = document.getElementById('detailCookingList');
+
+  const containerOptions = [
+    { value: 'plate', icon: '🍽️', label: '盤子' },
+    { value: 'bowl', icon: '🥣', label: '碗' },
+    { value: 'cup', icon: '🥤', label: '杯子' }
+  ];
+  const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
+  const cookingOptions = [
+    { value: '沙拉', icon: '🥗' },
+    { value: '水煮', icon: '🍲' },
+    { value: '蒸', icon: '♨️' },
+    { value: '炒', icon: '🥘' },
+    { value: '煎', icon: '🍳' },
+    { value: '炸', icon: '🍟' },
+    { value: '烤', icon: '🥖' },
+    { value: '燒烤', icon: '🍖' },
+    { value: '烘焙', icon: '🍰' }
+  ];
+
+  let detailAdjustTarget = null;
+  let detailDraft = {};
+
+  function renderDetailSelectorButtons(){
+    detailContainerList.innerHTML = containerOptions.map(option => `
+      <button type="button" class="detail-choice detail-container-choice" data-kind="containerType" data-value="${option.value}" aria-label="${option.label}">
+        <span class="detail-choice-icon">${option.icon}</span>
+        <span class="detail-choice-label">${option.label}</span>
+      </button>
+    `).join('');
+
+    detailSizeList.innerHTML = sizeOptions.map(size => `
+      <button type="button" class="detail-choice detail-size-choice" data-kind="size" data-value="${size}" aria-label="尺寸 ${size}">${size}</button>
+    `).join('');
+
+    detailCookingList.innerHTML = cookingOptions.map(option => `
+      <button type="button" class="detail-choice detail-cooking-choice" data-kind="cookingMethod" data-value="${option.value}" aria-label="${option.value}">
+        <span class="detail-choice-icon">${option.icon}</span>
+        <span class="detail-choice-label">${option.value}</span>
+      </button>
+    `).join('');
+
+    detailContainerList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.containerType = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
+
+    detailSizeList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.size = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
+
+    detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.cookingMethod = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
+  }
+
+  function syncDetailSelectionState(){
+    const selected = detailDraft;
+    detailContainerList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === selected.containerType);
+    });
+    detailSizeList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === selected.size);
+    });
+    detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === selected.cookingMethod);
+    });
+  }
+
+  function closeDetailAdjustModal(){
+    detailAdjustModal.hidden = true;
+    detailAdjustTarget = null;
+    detailDraft = {};
+  }
+
+  function openDetailAdjustModal(det){
+    detailAdjustTarget = det;
+    detailDraft = { ...(det.detail || {}) };
+    syncDetailSelectionState();
+    detailAdjustModal.hidden = false;
+  }
+
+  function confirmDetailAdjust(){
+    if (!detailAdjustTarget) return;
+    detailAdjustTarget.detail = { ...detailDraft };
+    closeDetailAdjustModal();
+    showToast('細部調整已更新');
+  }
+
+  renderDetailSelectorButtons();
+  detailAdjustClose.addEventListener('click', closeDetailAdjustModal);
+  detailAdjustCancelBtn.addEventListener('click', closeDetailAdjustModal);
+  detailAdjustConfirmBtn.addEventListener('click', confirmDetailAdjust);
 
   /* ---------- voice correction + feedback translation (Web Speech API) ---------- */
   const voiceModal            = document.getElementById('voiceModal');
