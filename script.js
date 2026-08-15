@@ -6,6 +6,10 @@
   const screens      = document.querySelectorAll('.screen');
 
   const toCameraBtn      = document.getElementById('toCameraBtn');
+  const usageLink        = document.getElementById('usageLink');
+  const usageModal       = document.getElementById('usageModal');
+  const usageModalClose  = document.getElementById('usageModalClose');
+  const usageConfirmBtn  = document.getElementById('usageConfirmBtn');
   const backToStartBtn   = document.getElementById('backToStartBtn');
   const retakeBtn        = document.getElementById('retakeBtn');
   const confirmUploadBtn = document.getElementById('confirmUploadBtn');
@@ -56,6 +60,20 @@
     else closeCamera();
   }
 
+  function openUsageModal(){
+    usageModal.hidden = false;
+  }
+
+  function closeUsageModal(){
+    usageModal.hidden = true;
+  }
+
+  usageLink.addEventListener('click', e => {
+    e.preventDefault();
+    openUsageModal();
+  });
+  usageModalClose.addEventListener('click', closeUsageModal);
+  usageConfirmBtn.addEventListener('click', closeUsageModal);
   toCameraBtn.addEventListener('click', () => goToScreen('camera'));
   backToStartBtn.addEventListener('click', () => goToScreen('start'));
   retakeBtn.addEventListener('click', () => goToScreen('camera'));
