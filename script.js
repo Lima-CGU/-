@@ -11,6 +11,8 @@
   const usageModalClose  = document.getElementById('usageModalClose');
   const usageConfirmBtn  = document.getElementById('usageConfirmBtn');
   const backToStartBtn   = document.getElementById('backToStartBtn');
+  const startHomeBtn     = document.getElementById('startHomeBtn');
+  const cameraHomeBtn    = document.getElementById('cameraHomeBtn');
   const retakeBtn        = document.getElementById('retakeBtn');
   const confirmUploadBtn = document.getElementById('confirmUploadBtn');
 
@@ -76,6 +78,9 @@
   usageConfirmBtn.addEventListener('click', closeUsageModal);
   toCameraBtn.addEventListener('click', () => goToScreen('camera'));
   backToStartBtn.addEventListener('click', () => goToScreen('start'));
+  startHomeBtn?.addEventListener('click', () => goToScreen('start'));
+  cameraHomeBtn?.addEventListener('click', () => goToScreen('start'));
+  document.getElementById('cameraCloseBtn')?.addEventListener('click', () => goToScreen('start'));
   retakeBtn.addEventListener('click', () => goToScreen('camera'));
 
   /* ---------- camera ---------- */
