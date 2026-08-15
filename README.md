@@ -1,4 +1,4 @@
-# 香互 · AI 飲食紀錄(階段 1:拍照上傳 + 真實菜色辨識)
+# PICTAMEAL · AI 飲食紀錄(階段 1:拍照上傳 + 真實菜色辨識)
 
 參考 [PICTAMEAL](https://mhealth.jmir.org/2025/1/e60070) 研究中的「AI 影像辨識飲食回報」流程,重製前四格畫面(A 開始 → B 拍照 → C 確認上傳 → D 辨識菜色),用手機外框呈現。
 
@@ -9,7 +9,7 @@
 ```
 photo-upload-site/
 ├── index.html   # 手機外框四格畫面 + 下方上傳紀錄
-├── style.css    # 香互活力主題樣式(手機外框、畫面切換、邊界框/圓點/泡泡)
+├── style.css    # PICTAMEAL 活力主題樣式(手機外框、畫面切換、邊界框/圓點/泡泡)
 ├── script.js    # 畫面導覽、拍照、自動辨識框選、手動補框、寫入上傳紀錄
 ├── backend/     # Node.js 後端,代理呼叫 OpenAI GPT-4o 辨識菜色
 └── README.md

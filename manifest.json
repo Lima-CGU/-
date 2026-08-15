@@ -1,7 +1,7 @@
 {
-  "name": "香互",
-  "short_name": "香互",
-  "description": "香互 · AI 飲食紀錄",
+  "name": "PICTAMEAL",
+  "short_name": "PICTAMEAL",
+  "description": "PICTAMEAL · AI 飲食紀錄",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
