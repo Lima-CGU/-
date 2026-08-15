@@ -158,7 +158,16 @@
     if (detail.sugar) {
       parts.push(detail.sugar);
     }
+    if (detail.salt) {
+      parts.push(detail.salt.replace(/\s+/g, ''));
+    }
     return parts.join('・');
+  }
+
+  function getDishDisplayText(det){
+    const base = det && !det.loading && det.name ? det.name : '辨識中…';
+    const detailText = det ? formatDishDetail(det.detail) : '';
+    return detailText ? `${base} · ${detailText}` : base;
   }
 
   function addMealCard(dataUrl, dishCount, dishes){
@@ -421,7 +430,7 @@
 
     const label = document.createElement('span');
     label.className = 'det-label';
-    label.textContent = det.loading ? '辨識中…' : det.name;
+    label.textContent = getDishDisplayText(det);
     det.labelEl = label;
     box.appendChild(label);
 
@@ -453,7 +462,7 @@
     if (det.y < 22) tip.classList.add('below');
     const tipName = document.createElement('span');
     tipName.className = 'det-tip-name';
-    tipName.textContent = det.loading ? '辨識中…' : det.name;
+    tipName.textContent = getDishDisplayText(det);
     det.tipNameEl = tipName;
     const tipConfirm = document.createElement('button');
     tipConfirm.type = 'button';
@@ -538,7 +547,7 @@
   }
 
   recognizeWrap.addEventListener('pointerdown', e => {
-    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic')) return;
+    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic') || e.target.closest('.det-detail')) return;
     const p = clientToPct(e.clientX, e.clientY);
     const tempBox = document.createElement('div');
     tempBox.className = 'det-box drawing';
@@ -628,6 +637,7 @@
   const detailSizeList = document.getElementById('detailSizeList');
   const detailCookingList = document.getElementById('detailCookingList');
   const detailSugarList = document.getElementById('detailSugarList');
+  const detailSaltList = document.getElementById('detailSaltList');
 
   const containerOptions = [
     { value: 'plate', icon: '🍽️', label: '盤子' },
@@ -652,6 +662,13 @@
     { value: '半糖', level: 50 },
     { value: '少糖(四分之三)', level: 75 },
     { value: '全糖', level: 100 }
+  ];
+  const saltOptions = [
+    { value: '無鹽', icon: '🥄' },
+    { value: '1/4 茶匙', icon: '🥄' },
+    { value: '1/2 茶匙', icon: '🥄' },
+    { value: '3/4 茶匙', icon: '🥄' },
+    { value: '1 茶匙', icon: '🥄' }
   ];
 
   let detailAdjustTarget = null;
@@ -685,6 +702,13 @@
       </button>
     `).join('');
 
+    detailSaltList.innerHTML = saltOptions.map(option => `
+      <button type="button" class="detail-choice detail-salt-choice" data-kind="salt" data-value="${option.value}" aria-label="鹽 ${option.value}">
+        <span class="detail-choice-icon">${option.icon}</span>
+        <span class="detail-choice-label">${option.value}</span>
+      </button>
+    `).join('');
+
     detailContainerList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
         detailDraft.containerType = btn.dataset.value;
@@ -712,6 +736,13 @@
         syncDetailSelectionState();
       });
     });
+
+    detailSaltList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.salt = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
   }
 
   function syncDetailSelectionState(){
@@ -727,6 +758,9 @@
     });
     detailSugarList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.value === selected.sugar);
+    });
+    detailSaltList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === selected.salt);
     });
   }
 
@@ -746,6 +780,12 @@
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     detailAdjustTarget.detail = { ...detailDraft };
+    if (detailAdjustTarget.labelEl) {
+      detailAdjustTarget.labelEl.textContent = getDishDisplayText(detailAdjustTarget);
+    }
+    if (detailAdjustTarget.tipNameEl) {
+      detailAdjustTarget.tipNameEl.textContent = getDishDisplayText(detailAdjustTarget);
+    }
     closeDetailAdjustModal();
     showToast('細部調整已更新');
   }
@@ -764,22 +804,86 @@
   const voiceListeningText    = document.getElementById('voiceListeningText');
   const voiceCancelBtn        = document.getElementById('voiceCancelBtn');
   const voiceResultText       = document.getElementById('voiceResultText');
+  const voiceRenameWarning    = document.getElementById('voiceRenameWarning');
   const voiceRetryBtn         = document.getElementById('voiceRetryBtn');
   const voiceConfirmBtn       = document.getElementById('voiceConfirmBtn');
   const voiceFallbackInput    = document.getElementById('voiceFallbackInput');
   const voiceFallbackConfirmBtn = document.getElementById('voiceFallbackConfirmBtn');
 
-  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function getSpeechRecognitionCtor(){
+    return window.SpeechRecognition || window.webkitSpeechRecognition;
+  }
 
   let voiceTargetDet = null;
   let voiceMode = 'name';
   let recognition = null;
   let recognizedText = '';
+  let renameWarningPending = null;
+
+  function normalizeRenameText(value){
+    return String(value || '')
+      .replace(/\(\d+%\)$/g, '')
+      .replace(/[（()）]/g, '')
+      .replace(/[，、。！？]/g, '')
+      .replace(/\s+/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function isRenameDifferenceLarge(originalValue, candidateValue){
+    const originalName = normalizeRenameText(originalValue);
+    const candidateName = normalizeRenameText(candidateValue);
+
+    if (!originalName || !candidateName || originalName === candidateName) return false;
+    if (originalName.includes(candidateName) || candidateName.includes(originalName)) return false;
+
+    const originalChars = [...new Set(originalName)];
+    const candidateChars = [...new Set(candidateName)];
+    const sharedChars = originalChars.filter(ch => candidateChars.includes(ch));
+    const sharedRatio = sharedChars.length / Math.max(originalChars.length, candidateChars.length, 1);
+    const lengthGap = Math.abs(originalName.length - candidateName.length);
+
+    return sharedRatio < 0.35 || lengthGap >= 3;
+  }
+
+  function stripConfidenceText(value){
+    return String(value || '').replace(/\(\d+%\)$/g, '').trim();
+  }
+
+  function clearRenameWarningState(){
+    renameWarningPending = null;
+    voiceRenameWarning.hidden = true;
+    voiceRenameWarning.textContent = '';
+    voiceConfirmBtn.textContent = '✓ 確認';
+  }
+
+  function maybeShowRenameWarning(candidateText){
+    const originalName = voiceTargetDet ? stripConfidenceText(voiceTargetDet.name || '') : '';
+    const normalizedOriginal = normalizeRenameText(originalName);
+    const normalizedCandidate = normalizeRenameText(candidateText || '');
+
+    if (!normalizedOriginal || !normalizedCandidate || normalizedOriginal === normalizedCandidate){
+      clearRenameWarningState();
+      return false;
+    }
+
+    if (!isRenameDifferenceLarge(originalName, candidateText)) {
+      clearRenameWarningState();
+      return false;
+    }
+
+    renameWarningPending = candidateText.trim();
+    voiceRenameWarning.textContent = `原本辨識為「${originalName}」,確定要改成「${candidateText.trim()}」嗎?`;
+    voiceRenameWarning.hidden = false;
+    voiceConfirmBtn.textContent = '✓ 確定修改';
+    return true;
+  }
 
   function showVoiceState(name){
     voiceStateListening.hidden = name !== 'listening';
     voiceStateResult.hidden = name !== 'result';
     voiceStateFallback.hidden = name !== 'fallback';
+    if (name !== 'result') clearRenameWarningState();
   }
 
   function stopRecognition(){
@@ -795,12 +899,21 @@
     voiceModal.hidden = true;
     stopRecognition();
     voiceTargetDet = null;
+    clearRenameWarningState();
   }
 
   function startListening(){
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor();
     recognizedText = '';
     showVoiceState('listening');
     stopRecognition();
+
+    if (!SpeechRecognitionCtor){
+      showVoiceState('fallback');
+      voiceFallbackInput.value = '';
+      setTimeout(() => voiceFallbackInput.focus(), 50);
+      return;
+    }
 
     recognition = new SpeechRecognitionCtor();
     recognition.lang = 'zh-TW';
@@ -816,6 +929,10 @@
         return;
       }
       voiceResultText.textContent = recognizedText;
+      if (maybeShowRenameWarning(recognizedText)) {
+        showVoiceState('result');
+        return;
+      }
       showVoiceState('result');
     };
 
@@ -848,7 +965,7 @@
     voiceFallbackInput.placeholder = '輸入菜名';
     voiceModal.hidden = false;
 
-    if (!SpeechRecognitionCtor){
+    if (!getSpeechRecognitionCtor()){
       showVoiceState('fallback');
       voiceFallbackInput.value = '';
       setTimeout(() => voiceFallbackInput.focus(), 50);
@@ -862,8 +979,8 @@
     if (!det || !text) return;
     det.name = text;
     det.loading = false;
-    if (det.labelEl) det.labelEl.textContent = det.name;
-    if (det.tipNameEl) det.tipNameEl.textContent = det.name;
+    if (det.labelEl) det.labelEl.textContent = getDishDisplayText(det);
+    if (det.tipNameEl) det.tipNameEl.textContent = getDishDisplayText(det);
     if (det.dotEl) det.dotEl.classList.remove('loading');
     closeVoiceModal();
     if (det.confirmFn) det.confirmFn();
@@ -873,10 +990,51 @@
   voiceModalClose.addEventListener('click', closeVoiceModal);
   voiceCancelBtn.addEventListener('click', closeVoiceModal);
   voiceRetryBtn.addEventListener('click', startListening);
-  voiceConfirmBtn.addEventListener('click', () => applyVoiceResult(recognizedText));
+  voiceConfirmBtn.addEventListener('click', () => {
+    const candidate = recognizedText.trim();
+    if (!candidate) return;
+
+    const originalName = voiceTargetDet ? stripConfidenceText(voiceTargetDet.name || '') : '';
+    const normalizedOriginal = normalizeRenameText(originalName);
+    const normalizedCandidate = normalizeRenameText(candidate);
+
+    if (renameWarningPending && normalizedCandidate === normalizeRenameText(renameWarningPending)) {
+      applyVoiceResult(candidate);
+      return;
+    }
+
+    if (normalizedOriginal && normalizedCandidate && normalizedOriginal !== normalizedCandidate) {
+      if (isRenameDifferenceLarge(originalName, candidate)) {
+        maybeShowRenameWarning(candidate);
+        return;
+      }
+    }
+
+    applyVoiceResult(candidate);
+  });
   voiceFallbackConfirmBtn.addEventListener('click', () => {
     const text = voiceFallbackInput.value.trim();
     if (!text) return;
+    const originalName = voiceTargetDet ? stripConfidenceText(voiceTargetDet.name || '') : '';
+    const normalizedOriginal = normalizeRenameText(originalName);
+    const normalizedCandidate = normalizeRenameText(text);
+    recognizedText = text;
+
+    if (normalizedOriginal && normalizedCandidate && normalizedOriginal !== normalizedCandidate) {
+      if (!isRenameDifferenceLarge(originalName, text)) {
+        applyVoiceResult(text);
+        return;
+      }
+
+      voiceResultText.textContent = text;
+      voiceRenameWarning.textContent = `原本辨識為「${originalName}」,確定要改成「${text}」嗎?`;
+      voiceRenameWarning.hidden = false;
+      renameWarningPending = text;
+      voiceConfirmBtn.textContent = '✓ 確定修改';
+      showVoiceState('result');
+      return;
+    }
+
     applyVoiceResult(text);
   });
   voiceFallbackInput.addEventListener('keydown', e => {

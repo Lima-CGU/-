@@ -131,6 +131,7 @@
         <div class="voice-state" id="voiceStateResult" hidden>
           <p class="voice-modal-label">聽到的是</p>
           <p class="voice-result-text" id="voiceResultText"></p>
+          <p class="voice-warning-text" id="voiceRenameWarning" hidden></p>
           <div class="voice-result-actions">
             <button type="button" class="voice-btn-confirm" id="voiceConfirmBtn">✓ 確認</button>
             <button type="button" class="voice-btn-retry" id="voiceRetryBtn">↺ 重新錄</button>
@@ -185,6 +186,11 @@
         <div class="detail-section">
           <div class="detail-section-head">糖</div>
           <div class="detail-option-list detail-sugar-list" id="detailSugarList"></div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-section-head">鹽</div>
+          <div class="detail-option-list detail-salt-list" id="detailSaltList"></div>
         </div>
 
         <div class="detail-actions">
