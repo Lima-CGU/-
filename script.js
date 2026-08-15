@@ -201,13 +201,6 @@
           row.appendChild(detailEl);
         }
 
-        if (d.feedbackSuggestion){
-          const fb = document.createElement('span');
-          fb.className = 'meal-dish-feedback';
-          fb.textContent = `💬 ${d.feedbackText} → ${d.feedbackSuggestion}`;
-          row.appendChild(fb);
-        }
-
         status.appendChild(row);
       });
     } else {
@@ -513,17 +506,6 @@
       openVoiceModal(det, 'name');
     });
 
-    // 只有確認過的菜才能留口感/份量回饋(靠 .det-box.confirmed 的 CSS 規則顯示)
-    const feedbackBtn = document.createElement('button');
-    feedbackBtn.type = 'button';
-    feedbackBtn.className = 'det-feedback';
-    feedbackBtn.textContent = '💬 這道菜如何?';
-    feedbackBtn.setAttribute('aria-label', '用語音留下這道菜的口感或份量回饋');
-    feedbackBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      openVoiceModal(det, 'feedback');
-    });
-
     const detailBtn = document.createElement('button');
     detailBtn.type = 'button';
     detailBtn.className = 'det-detail';
@@ -534,7 +516,7 @@
       openDetailAdjustModal(det);
     });
 
-    box.append(removeBtn, dot, micBtn, feedbackBtn, detailBtn);
+    box.append(removeBtn, dot, micBtn, detailBtn);
     recognizeOverlay.appendChild(box);
   }
 
@@ -556,7 +538,7 @@
   }
 
   recognizeWrap.addEventListener('pointerdown', e => {
-    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic') || e.target.closest('.det-feedback')) return;
+    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic')) return;
     const p = clientToPct(e.clientX, e.clientY);
     const tempBox = document.createElement('div');
     tempBox.className = 'det-box drawing';
@@ -625,8 +607,6 @@
     }
     const dishes = currentDetections.map(d => ({
       name: d.name,
-      feedbackText: d.feedbackText,
-      feedbackSuggestion: d.feedbackSuggestion,
       detail: d.detail ? { ...d.detail } : null
     }));
     addMealCard(currentPhotoData, currentDetections.length, dishes);
@@ -781,8 +761,6 @@
   const voiceStateListening   = document.getElementById('voiceStateListening');
   const voiceStateResult      = document.getElementById('voiceStateResult');
   const voiceStateFallback    = document.getElementById('voiceStateFallback');
-  const voiceStateTranslating    = document.getElementById('voiceStateTranslating');
-  const voiceStateFeedbackResult = document.getElementById('voiceStateFeedbackResult');
   const voiceListeningText    = document.getElementById('voiceListeningText');
   const voiceCancelBtn        = document.getElementById('voiceCancelBtn');
   const voiceResultText       = document.getElementById('voiceResultText');
@@ -790,26 +768,18 @@
   const voiceConfirmBtn       = document.getElementById('voiceConfirmBtn');
   const voiceFallbackInput    = document.getElementById('voiceFallbackInput');
   const voiceFallbackConfirmBtn = document.getElementById('voiceFallbackConfirmBtn');
-  const voiceFeedbackQuote      = document.getElementById('voiceFeedbackQuote');
-  const voiceFeedbackSuggestion = document.getElementById('voiceFeedbackSuggestion');
-  const voiceFeedbackConfirmBtn = document.getElementById('voiceFeedbackConfirmBtn');
-  const voiceFeedbackRetryBtn   = document.getElementById('voiceFeedbackRetryBtn');
 
   const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   let voiceTargetDet = null;
-  let voiceMode = 'name'; // 'name' 修正菜名 | 'feedback' 收集口感/份量回饋
+  let voiceMode = 'name';
   let recognition = null;
   let recognizedText = '';
-  let pendingFeedbackText = '';
-  let pendingFeedbackSuggestion = '';
 
   function showVoiceState(name){
     voiceStateListening.hidden = name !== 'listening';
     voiceStateResult.hidden = name !== 'result';
     voiceStateFallback.hidden = name !== 'fallback';
-    voiceStateTranslating.hidden = name !== 'translating';
-    voiceStateFeedbackResult.hidden = name !== 'feedbackResult';
   }
 
   function stopRecognition(){
@@ -825,30 +795,6 @@
     voiceModal.hidden = true;
     stopRecognition();
     voiceTargetDet = null;
-  }
-
-  // 把長者說的模糊感受送給後端,請 GPT-4o 轉譯成具體烹調建議
-  async function translateFeedback(det, feedbackText){
-    showVoiceState('translating');
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/translate-feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dishName: det.name, feedbackText })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '轉譯失敗');
-
-      pendingFeedbackText = feedbackText;
-      pendingFeedbackSuggestion = data.suggestion || '這道菜很合適,不需調整';
-      voiceFeedbackQuote.textContent = feedbackText;
-      voiceFeedbackSuggestion.textContent = pendingFeedbackSuggestion;
-      showVoiceState('feedbackResult');
-    } catch (err){
-      console.error(err);
-      showToast('AI 轉譯失敗,再說一次看看');
-      showVoiceState('listening');
-    }
   }
 
   function startListening(){
@@ -869,12 +815,8 @@
         showToast('沒聽清楚,再說一次看看');
         return;
       }
-      if (voiceMode === 'feedback'){
-        translateFeedback(voiceTargetDet, recognizedText);
-      } else {
-        voiceResultText.textContent = recognizedText;
-        showVoiceState('result');
-      }
+      voiceResultText.textContent = recognizedText;
+      showVoiceState('result');
     };
 
     recognition.onerror = (event) => {
@@ -902,12 +844,8 @@
   function openVoiceModal(det, mode){
     voiceTargetDet = det;
     voiceMode = mode;
-    pendingFeedbackText = '';
-    pendingFeedbackSuggestion = '';
-    voiceListeningText.textContent = mode === 'feedback'
-      ? '請說說這道菜的口感或份量,例如太硬、太鹹、吃不下'
-      : '請說出菜名…';
-    voiceFallbackInput.placeholder = mode === 'feedback' ? '輸入這道菜的口感或份量回饋' : '輸入菜名';
+    voiceListeningText.textContent = '請說出菜名…';
+    voiceFallbackInput.placeholder = '輸入菜名';
     voiceModal.hidden = false;
 
     if (!SpeechRecognitionCtor){
@@ -932,29 +870,14 @@
     showToast('菜名已更新');
   }
 
-  function applyFeedbackResult(){
-    const det = voiceTargetDet;
-    if (!det) return;
-    det.feedbackText = pendingFeedbackText;
-    det.feedbackSuggestion = pendingFeedbackSuggestion;
-    closeVoiceModal();
-    showToast('回饋已記錄');
-  }
-
   voiceModalClose.addEventListener('click', closeVoiceModal);
   voiceCancelBtn.addEventListener('click', closeVoiceModal);
   voiceRetryBtn.addEventListener('click', startListening);
   voiceConfirmBtn.addEventListener('click', () => applyVoiceResult(recognizedText));
-  voiceFeedbackRetryBtn.addEventListener('click', startListening);
-  voiceFeedbackConfirmBtn.addEventListener('click', applyFeedbackResult);
   voiceFallbackConfirmBtn.addEventListener('click', () => {
     const text = voiceFallbackInput.value.trim();
     if (!text) return;
-    if (voiceMode === 'feedback'){
-      translateFeedback(voiceTargetDet, text);
-    } else {
-      applyVoiceResult(text);
-    }
+    applyVoiceResult(text);
   });
   voiceFallbackInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') voiceFallbackConfirmBtn.click();
