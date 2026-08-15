@@ -155,6 +155,9 @@
     if (detail.cookingMethod) {
       parts.push(detail.cookingMethod);
     }
+    if (detail.sugar) {
+      parts.push(detail.sugar);
+    }
     return parts.join('・');
   }
 
@@ -644,6 +647,7 @@
   const detailContainerList = document.getElementById('detailContainerList');
   const detailSizeList = document.getElementById('detailSizeList');
   const detailCookingList = document.getElementById('detailCookingList');
+  const detailSugarList = document.getElementById('detailSugarList');
 
   const containerOptions = [
     { value: 'plate', icon: '🍽️', label: '盤子' },
@@ -661,6 +665,13 @@
     { value: '烤', icon: '🥖' },
     { value: '燒烤', icon: '🍖' },
     { value: '烘焙', icon: '🍰' }
+  ];
+  const sugarOptions = [
+    { value: '無糖', level: 0 },
+    { value: '微糖(四分之一)', level: 25 },
+    { value: '半糖', level: 50 },
+    { value: '少糖(四分之三)', level: 75 },
+    { value: '全糖', level: 100 }
   ];
 
   let detailAdjustTarget = null;
@@ -685,6 +696,15 @@
       </button>
     `).join('');
 
+    detailSugarList.innerHTML = sugarOptions.map(option => `
+      <button type="button" class="detail-choice detail-sugar-choice" data-kind="sugar" data-value="${option.value}" aria-label="糖 ${option.value}">
+        <span class="detail-sugar-cup" aria-hidden="true">
+          <span class="detail-sugar-fill" style="height:${option.level}%"></span>
+        </span>
+        <span class="detail-choice-label">${option.value}</span>
+      </button>
+    `).join('');
+
     detailContainerList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
         detailDraft.containerType = btn.dataset.value;
@@ -705,6 +725,13 @@
         syncDetailSelectionState();
       });
     });
+
+    detailSugarList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.sugar = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
   }
 
   function syncDetailSelectionState(){
@@ -717,6 +744,9 @@
     });
     detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.value === selected.cookingMethod);
+    });
+    detailSugarList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === selected.sugar);
     });
   }
 
