@@ -189,6 +189,34 @@
     return detailText ? `${base} · ${detailText}` : base;
   }
 
+  // Split "菜名(97%)" into the dish name and the confidence number, so the
+  // bounding-box label can show the name as the primary text and the
+  // confidence as a smaller, secondary detail.
+  function splitNameConfidence(fullName){
+    const match = /^(.*?)\((\d+%)\)$/.exec(fullName || '');
+    return match ? { name: match[1], confidence: match[2] } : { name: fullName || '', confidence: '' };
+  }
+
+  function renderDetLabel(labelEl, det){
+    const base = det && !det.loading && det.name ? det.name : '辨識中…';
+    const { name, confidence } = splitNameConfidence(base);
+    const detailText = det ? formatDishDetail(det.detail) : '';
+
+    labelEl.innerHTML = '';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'det-label-name';
+    nameEl.textContent = name;
+    labelEl.appendChild(nameEl);
+
+    const metaText = [confidence, detailText].filter(Boolean).join(' · ');
+    if (metaText){
+      const metaEl = document.createElement('span');
+      metaEl.className = 'det-label-meta';
+      metaEl.textContent = metaText;
+      labelEl.appendChild(metaEl);
+    }
+  }
+
   function addMealCard(dataUrl, dishCount, dishes){
     emptyState.style.display = 'none';
     mealCount += 1;
@@ -454,8 +482,8 @@
 
     const label = document.createElement('span');
     label.className = 'det-label';
-    label.textContent = getDishDisplayText(det);
     det.labelEl = label;
+    renderDetLabel(label, det);
     box.appendChild(label);
 
     const removeBtn = document.createElement('button');
@@ -503,7 +531,7 @@
       }
       det.confirmed = true;
       box.classList.add('confirmed');
-      box.style.borderColor = '#12a981';
+      box.style.borderColor = colorToRgba('#12a981', 0.55);
       box.style.background = colorToRgba('#12a981', 0.1);
       dot.style.background = '#12a981';
       dot.textContent = '✓';
@@ -737,7 +765,7 @@
     if (!detailAdjustTarget) return;
     detailAdjustTarget.detail = { ...detailDraft };
     if (detailAdjustTarget.labelEl) {
-      detailAdjustTarget.labelEl.textContent = getDishDisplayText(detailAdjustTarget);
+      renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
     }
     if (detailAdjustTarget.tipNameEl) {
       detailAdjustTarget.tipNameEl.textContent = getDishDisplayText(detailAdjustTarget);
@@ -938,7 +966,7 @@
     if (!det || !text) return;
     det.name = text;
     det.loading = false;
-    if (det.labelEl) det.labelEl.textContent = getDishDisplayText(det);
+    if (det.labelEl) renderDetLabel(det.labelEl, det);
     if (det.tipNameEl) det.tipNameEl.textContent = getDishDisplayText(det);
     if (det.dotEl) det.dotEl.classList.remove('loading');
     closeVoiceModal();
