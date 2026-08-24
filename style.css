@@ -1,22 +1,22 @@
 /* ---------- tokens ---------- */
 :root{
-  --bg: #faf8ff;
+  --bg: #f6f4fb;
   --surface: #ffffff;
   --ink: #221c35;
   --ink-soft: #6b6480;
   --purple: #6d4fe0;
   --purple-deep: #4e2fc9;
-  --purple-soft: #efe9ff;
+  --purple-soft: #eeeaff;
   --teal: #12a981;
   --teal-soft: #dcf5ec;
   --coral: #ff6f59;
   --sunshine: #ffc857;
-  --line: #ece8fb;
+  --line: #e4e0f0;
 
   --font-display: "Baloo 2", sans-serif;
   --font-body: "Inter", sans-serif;
 
-  --radius-card: 14px;
+  --radius-card: 12px;
 }
 
 *{ box-sizing: border-box; }
@@ -35,8 +35,8 @@ html,body{
 
 body{
   background-image:
-    radial-gradient(ellipse at 15% -10%, rgba(109,79,224,0.10), transparent 50%),
-    radial-gradient(ellipse at 95% 5%, rgba(18,169,129,0.10), transparent 45%);
+    radial-gradient(ellipse at 15% -10%, rgba(109,79,224,0.08), transparent 50%),
+    radial-gradient(ellipse at 95% 5%, rgba(18,169,129,0.07), transparent 45%);
 }
 
 ::selection{ background: var(--purple); color: #fff; }
@@ -144,9 +144,9 @@ body{
   width: 320px;
   height: 620px;
   background: var(--surface);
-  border: 8px solid var(--purple-deep);
-  border-radius: 34px;
-  box-shadow: 0 30px 60px rgba(78,47,201,0.25), 0 0 0 1px rgba(109,79,224,0.08);
+  border: 6px solid var(--purple-deep);
+  border-radius: 30px;
+  box-shadow: 0 24px 50px rgba(48,36,92,0.18), 0 0 0 1px rgba(109,79,224,0.08);
   overflow: hidden;
 }
 .phone::before{
@@ -205,8 +205,8 @@ body{
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 10px;
-  padding-top: 8px;
+  gap: 8px;
+  padding: 18px 8px 8px;
 }
 .start-topbar{
   position: relative;
@@ -259,7 +259,7 @@ body{
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 4px 0 8px;
+  padding: 2px 0 8px;
 }
 .start-illustration-wrap img{
   display: block;
@@ -267,8 +267,8 @@ body{
   max-width: 100%;
   height: auto;
   margin: 0 auto;
-  filter: drop-shadow(0 12px 18px rgba(109,79,224,0.12));
-  transform: translateY(2px);
+  filter: drop-shadow(0 10px 16px rgba(78,47,201,0.10));
+  transform: translateY(0);
 }
 .start-illustration{
   display: none;
@@ -469,8 +469,8 @@ body{
   min-height: 150px;
   max-height: 150px;
   padding: 0 16px 0 14px;
-  background: linear-gradient(180deg, #f3f0ff 0%, #7a66dd 100%);
-  border-top: 1px solid rgba(109,79,224,0.24);
+  background: var(--purple-soft);
+  border-top: 1px solid var(--line);
 }
 .camera-back-btn{
   color: var(--purple);
@@ -1240,11 +1240,11 @@ body{
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 13px;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 11px 16px;
   border: 1.5px solid transparent;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.18s ease, border-color 0.18s ease;
+  transition: transform 0.12s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1253,7 +1253,7 @@ body{
 .btn:active{ transform: scale(0.97); }
 .btn:disabled{ opacity: 0.4; cursor: not-allowed; }
 
-.btn-primary{ background: var(--purple); color: #fff; }
+.btn-primary{ background: var(--purple); color: #fff; box-shadow: 0 8px 16px rgba(109,79,224,0.20); }
 .btn-primary:hover:not(:disabled){ background: var(--purple-deep); }
 .btn-full{ width: 100%; }
 
@@ -1269,6 +1269,7 @@ body{
   background: transparent;
   color: var(--ink);
   border-color: var(--line);
+  background: rgba(255,255,255,0.72);
 }
 .btn-outline:hover:not(:disabled){ border-color: var(--teal); color: var(--teal); }
 
@@ -1292,9 +1293,9 @@ body{
 /* ---------- log section ---------- */
 .log-section{
   max-width: 1040px;
-  margin: 30px auto 0;
-  padding: 32px 6vw 0;
-  border-top: 1.5px solid var(--line);
+  margin: 42px auto 0;
+  padding: 28px 6vw 0;
+  border-top: 1px solid var(--line);
 }
 .log-heading{
   display: flex;
@@ -1349,8 +1350,8 @@ body{
   background: var(--surface);
   padding: 10px 10px 14px;
   border-radius: var(--radius-card);
-  box-shadow: 0 12px 26px rgba(78,47,201,0.12);
-  border: 1.5px solid var(--line);
+  box-shadow: 0 10px 24px rgba(48,36,92,0.09);
+  border: 1px solid var(--line);
   animation: develop 0.5s ease both;
   position: relative;
 }
