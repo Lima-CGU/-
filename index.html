@@ -38,7 +38,7 @@
 
 <main class="stage-main">
 
-  <div class="phone" id="phone">
+  <div class="phone" id="phone" data-screen="start">
 
     <!-- Screen A: Start -->
     <section class="screen active" data-screen="start">
@@ -124,6 +124,35 @@
         <button class="btn btn-primary" id="finishRecognizeBtn">完成 · 存入日記</button>
       </div>
     </section>
+
+    <!-- Screen Diary: saved meal records, lives inside the app -->
+    <section class="screen" data-screen="diary">
+      <div class="screen-body diary-body">
+        <div class="diary-heading">
+          <h2>日記</h2>
+          <span class="count-tag" id="countTag">0 筆</span>
+        </div>
+        <div id="strip" class="diary-list">
+          <p class="empty-state" id="emptyState">還沒有任何紀錄 — 點下方「拍照」記錄這一餐吧。</p>
+        </div>
+      </div>
+    </section>
+
+    <nav class="app-tabbar" aria-label="主要導覽">
+      <button class="tabbar-btn" id="tabDiaryBtn" data-tab="diary" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <path d="M5 6h14M5 12h14M5 18h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <span>日記</span>
+      </button>
+      <button class="tabbar-btn active" id="tabCameraBtn" data-tab="camera" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <path d="M4 8.5C4 7.67 4.67 7 5.5 7H8l1.2-1.8c.2-.3.5-.5.85-.5h4.9c.35 0 .65.2.85.5L16 7h2.5c.83 0 1.5.67 1.5 1.5v9c0 .83-.67 1.5-1.5 1.5h-13C4.67 19 4 18.33 4 17.5v-9Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          <circle cx="12" cy="13" r="3" stroke="currentColor" stroke-width="1.4"/>
+        </svg>
+        <span>拍照</span>
+      </button>
+    </nav>
 
     <!-- Voice correction modal, shared by every detection box -->
     <div class="voice-modal" id="voiceModal" hidden>
@@ -211,21 +240,6 @@
   </div>
 
 </main>
-
-<section class="log-section" aria-label="上傳紀錄">
-  <div class="log-heading">
-    <h2>上傳紀錄</h2>
-    <span class="count-tag" id="countTag">0 筆</span>
-  </div>
-  <div id="strip" class="strip">
-    <p class="empty-state" id="emptyState">還沒有上傳紀錄 — 完成一次拍照上傳,會顯示在這裡,狀態是「等待辨識」。</p>
-  </div>
-  <p class="log-note">照片上傳後,後端會呼叫 OpenAI GPT-4o 自動框出並辨識每一道菜,以繁體中文呈現菜名;辨識錯的框可以刪除,漏掉的菜也能自己拖曳補框。</p>
-</section>
-
-<footer class="site-footer">
-  <p>PICTAMEAL · AI 飲食紀錄流程 · 階段 1:拍照上傳(純前端展示)</p>
-</footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

@@ -4,6 +4,9 @@
   /* ---------- elements ---------- */
   const steps       = document.querySelectorAll('.flow-steps li');
   const screens      = document.querySelectorAll('.screen');
+  const phone        = document.getElementById('phone');
+  const tabDiaryBtn  = document.getElementById('tabDiaryBtn');
+  const tabCameraBtn = document.getElementById('tabCameraBtn');
 
   const toCameraBtn      = document.getElementById('toCameraBtn');
   const usageLink        = document.getElementById('usageLink');
@@ -58,9 +61,15 @@
       const order = ['start', 'camera', 'review', 'recognize'];
       li.classList.toggle('done', order.indexOf(li.dataset.step) < order.indexOf(name));
     });
+    phone.dataset.screen = name;
+    tabDiaryBtn.classList.toggle('active', name === 'diary');
+    tabCameraBtn.classList.toggle('active', name === 'start');
     if (name === 'camera') openCamera();
     else closeCamera();
   }
+
+  tabDiaryBtn.addEventListener('click', () => goToScreen('diary'));
+  tabCameraBtn.addEventListener('click', () => goToScreen('start'));
 
   function openUsageModal(){
     usageModal.hidden = false;
@@ -695,7 +704,7 @@
     addMealCard(currentPhotoData, currentDetections.length, dishes);
     showToast('這餐記錄好了!');
     currentPhotoData = null;
-    goToScreen('start');
+    goToScreen('diary');
   });
 
   window.addEventListener('beforeunload', () => {

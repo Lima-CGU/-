@@ -1290,23 +1290,18 @@ body{
   opacity: 0.6;
 }
 
-/* ---------- log section ---------- */
-.log-section{
-  max-width: 1040px;
-  margin: 42px auto 0;
-  padding: 28px 6vw 0;
-  border-top: 1px solid var(--line);
-}
-.log-heading{
+/* ---------- diary screen (in-app, replaces the old below-page log) ---------- */
+.diary-body{ gap: 0; }
+.diary-heading{
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
-.log-heading h2{
+.diary-heading h2{
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 24px;
+  font-size: 22px;
   margin: 0;
   color: var(--purple-deep);
 }
@@ -1321,28 +1316,33 @@ body{
   border-radius: 20px;
 }
 
-.strip{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 24px 20px;
+.diary-list{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(109,79,224,0.35) transparent;
 }
+.diary-list::-webkit-scrollbar{ width: 6px; }
+.diary-list::-webkit-scrollbar-thumb{
+  background: rgba(109,79,224,0.35);
+  border-radius: 999px;
+}
+.diary-list::-webkit-scrollbar-track{ background: transparent; }
 
 .empty-state{
-  grid-column: 1 / -1;
   font-family: var(--font-body);
   font-size: 13px;
   color: var(--ink-soft);
-  padding: 30px 0;
+  padding: 30px 16px;
   text-align: center;
   border: 1.5px dashed var(--line);
   border-radius: 14px;
-}
-
-.log-note{
-  font-family: var(--font-body);
-  font-size: 11.5px;
-  color: var(--ink-soft);
-  margin: 22px 2px 40px;
 }
 
 /* meal card */
@@ -1463,14 +1463,42 @@ body{
 .meal-card:hover .meal-remove{ opacity: 1; }
 .meal-remove:hover{ background: var(--coral); }
 
-/* ---------- footer ---------- */
-.site-footer{
-  text-align: center;
-  padding: 30px 6vw 46px;
-  font-family: var(--font-body);
-  font-size: 11.5px;
-  color: var(--ink-soft);
+/* ---------- bottom tab bar (app-style nav, only on start/diary screens) ---------- */
+.app-tabbar{
+  display: none;
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 62px;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  z-index: 10;
 }
+.phone[data-screen="start"] .app-tabbar,
+.phone[data-screen="diary"] .app-tabbar{
+  display: flex;
+}
+.screen[data-screen="start"],
+.screen[data-screen="diary"]{
+  padding-bottom: calc(20px + 62px);
+}
+.tabbar-btn{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tabbar-btn.active{ color: var(--purple); }
 
 /* ---------- toast ---------- */
 .toast{
@@ -1497,6 +1525,11 @@ body{
 
 /* ---------- responsive ---------- */
 @media (max-width: 767px){
+  html, body{
+    height: 100%;
+    overflow: hidden;
+  }
+
   .page-head{
     display: none;
   }
