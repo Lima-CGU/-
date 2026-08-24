@@ -13,7 +13,6 @@
   const usageModal       = document.getElementById('usageModal');
   const usageModalClose  = document.getElementById('usageModalClose');
   const usageConfirmBtn  = document.getElementById('usageConfirmBtn');
-  const backToStartBtn   = document.getElementById('backToStartBtn');
   const startHomeBtn     = document.getElementById('startHomeBtn');
   const cameraHomeBtn    = document.getElementById('cameraHomeBtn');
   const retakeBtn        = document.getElementById('retakeBtn');
@@ -26,10 +25,11 @@
   const retryCamBtn  = document.getElementById('retryCamBtn');
   const shotBtn       = document.getElementById('shotBtn');
   const fileInput     = document.getElementById('fileInput');
+  const lastShotThumb = document.getElementById('lastShotThumb');
+  const cameraThumbPlaceholder = document.querySelector('.camera-thumb-placeholder');
 
   const reviewImg   = document.getElementById('reviewImg');
 
-  const recognizeWrap    = document.getElementById('recognizeWrap');
   const recognizePhoto   = document.getElementById('recognizePhoto');
   const recognizeOverlay = document.getElementById('recognizeOverlay');
   const confirmProgress  = document.getElementById('confirmProgress');
@@ -86,10 +86,8 @@
   usageModalClose.addEventListener('click', closeUsageModal);
   usageConfirmBtn.addEventListener('click', closeUsageModal);
   toCameraBtn.addEventListener('click', () => goToScreen('camera'));
-  backToStartBtn.addEventListener('click', () => goToScreen('start'));
   startHomeBtn?.addEventListener('click', () => goToScreen('start'));
   cameraHomeBtn?.addEventListener('click', () => goToScreen('start'));
-  document.getElementById('cameraCloseBtn')?.addEventListener('click', () => goToScreen('start'));
   retakeBtn.addEventListener('click', () => goToScreen('camera'));
 
   /* ---------- camera ---------- */
@@ -124,9 +122,16 @@
 
   retryCamBtn.addEventListener('click', openCamera);
 
+  function updateLastShotThumb(dataUrl){
+    lastShotThumb.src = dataUrl;
+    lastShotThumb.hidden = false;
+    if (cameraThumbPlaceholder) cameraThumbPlaceholder.hidden = true;
+  }
+
   function useDataUrl(dataUrl){
     currentPhotoData = dataUrl;
     reviewImg.src = dataUrl;
+    updateLastShotThumb(dataUrl);
     goToScreen('review');
   }
 
@@ -282,69 +287,6 @@
   const BACKEND_URL = 'https://xianghu-backend.onrender.com';
   let backendWarned = false;
 
-  // Crop just the boxed region out of the full photo, return a data URL of the crop
-  function cropRegionToDataUrl(photoDataUrl, xPct, yPct, wPct, hPct){
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const sx = (xPct / 100) * img.naturalWidth;
-        const sy = (yPct / 100) * img.naturalHeight;
-        const sw = (wPct / 100) * img.naturalWidth;
-        const sh = (hPct / 100) * img.naturalHeight;
-        const cnv = document.createElement('canvas');
-        cnv.width = Math.max(1, Math.round(sw));
-        cnv.height = Math.max(1, Math.round(sh));
-        cnv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cnv.width, cnv.height);
-        resolve(cnv.toDataURL('image/jpeg', 0.9));
-      };
-      img.onerror = reject;
-      img.src = photoDataUrl;
-    });
-  }
-
-  async function callRecognizeAPI(croppedDataUrl, attempt){
-    attempt = attempt || 1;
-    const res = await fetch(`${BACKEND_URL}/api/recognize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: croppedDataUrl })
-    });
-    const data = await res.json();
-
-    if (!res.ok){
-      // Hugging Face model waking up — wait and retry once
-      if (res.status === 503 && data.estimated_time && attempt < 3){
-        await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
-        return callRecognizeAPI(croppedDataUrl, attempt + 1);
-      }
-      throw new Error(data.error || '辨識失敗');
-    }
-    return data;
-  }
-
-  async function recognizeAndAssign(det){
-    if (!backendWarned){
-      backendWarned = true;
-      showToast('第一次辨識可能要等後端伺服器醒過來,約 30-50 秒');
-    }
-    try {
-      const cropped = await cropRegionToDataUrl(currentPhotoData, det.x, det.y, det.w, det.h);
-      const data = await callRecognizeAPI(cropped);
-      if (data.dishes && data.dishes.length){
-        det.name = `${data.dishes[0].name}(${data.dishes[0].confidence}%)`;
-      } else {
-        det.name = '沒認出來,自己填';
-      }
-    } catch (err){
-      console.error(err);
-      det.name = '辨識失敗,自己填';
-    }
-    det.loading = false;
-    if (det.tipNameEl) det.tipNameEl.textContent = det.name;
-    if (det.labelEl) det.labelEl.textContent = det.name;
-    if (det.dotEl) det.dotEl.classList.remove('loading');
-  }
-
   // Ask the backend to auto-detect every dish (position + name) in one go
   async function callDetectAPI(photoDataUrl, attempt){
     attempt = attempt || 1;
@@ -445,7 +387,7 @@
       const dishes = data.dishes || [];
 
       if (!dishes.length){
-        recognizeHint.textContent = '沒有自動辨識到菜色,你可以在照片上拖曳自己框一個';
+        recognizeHint.textContent = '沒有辨識到菜色,請重新拍一張照片試試';
       } else {
         dishes.forEach((d, i) => {
           const box = normalizeDetectionBox(d);
@@ -460,12 +402,12 @@
           currentDetections.push(det);
           renderOneDetection(det, i);
         });
-        recognizeHint.textContent = `AI 自動辨識出 ${dishes.length} 道菜 — 辨識錯的按框上的「×」刪掉,漏掉的可以自己拖曳框一個`;
+        recognizeHint.textContent = '';
       }
     } catch (err){
       console.error(err);
-      recognizeHint.textContent = '自動辨識失敗,你可以在照片上拖曳自己框出每一道菜';
-      showToast('自動辨識失敗,請改用手動框選');
+      recognizeHint.textContent = '自動辨識失敗,請重新拍一張照片試試';
+      showToast('自動辨識失敗,請重新拍照');
     }
 
     finishRecognizeBtn.disabled = false;
@@ -480,7 +422,7 @@
     const total = currentDetections.length;
     const done = currentDetections.filter(d => d.confirmed).length;
     confirmProgress.textContent = total
-      ? `已確認 ${done} / ${total}`
+      ? `已確認 ${done}`
       : '還沒有框任何一道菜';
   }
 
@@ -611,81 +553,12 @@
     recognizeOverlay.appendChild(box);
   }
 
-  /* ---------- manual box drawing (fix AI misses / mistakes) ---------- */
-  let drawState = null;
-
-  function wrapRect(){
-    return recognizeWrap.getBoundingClientRect();
-  }
-
-  function clientToPct(clientX, clientY){
-    const r = wrapRect();
-    const x = ((clientX - r.left) / r.width) * 100;
-    const y = ((clientY - r.top) / r.height) * 100;
-    return {
-      x: Math.max(0, Math.min(100, x)),
-      y: Math.max(0, Math.min(100, y))
-    };
-  }
-
-  recognizeWrap.addEventListener('pointerdown', e => {
-    if (e.target.closest('.det-dot') || e.target.closest('.det-remove') || e.target.closest('.det-mic') || e.target.closest('.det-detail')) return;
-    const p = clientToPct(e.clientX, e.clientY);
-    const tempBox = document.createElement('div');
-    tempBox.className = 'det-box drawing';
-    tempBox.style.left = p.x + '%';
-    tempBox.style.top = p.y + '%';
-    tempBox.style.width = '0%';
-    tempBox.style.height = '0%';
-    recognizeOverlay.appendChild(tempBox);
-    drawState = { startX: p.x, startY: p.y, el: tempBox };
-    recognizeWrap.setPointerCapture(e.pointerId);
-  });
-
-  recognizeWrap.addEventListener('pointermove', e => {
-    if (!drawState) return;
-    const p = clientToPct(e.clientX, e.clientY);
-    const x = Math.min(drawState.startX, p.x);
-    const y = Math.min(drawState.startY, p.y);
-    const w = Math.abs(p.x - drawState.startX);
-    const h = Math.abs(p.y - drawState.startY);
-    drawState.el.style.left = x + '%';
-    drawState.el.style.top = y + '%';
-    drawState.el.style.width = w + '%';
-    drawState.el.style.height = h + '%';
-    drawState.current = { x, y, w, h };
-  });
-
-  recognizeWrap.addEventListener('pointerup', () => {
-    if (!drawState) return;
-    const box = drawState.current;
-    drawState.el.remove();
-    drawState = null;
-    if (!box || box.w < 4 || box.h < 4) return; // too small, treat as accidental tap
-
-    const idx = currentDetections.length;
-    const safeBox = normalizeDetectionBox(box);
-    const det = {
-      id: `manual${Date.now()}`,
-      x: safeBox.x, y: safeBox.y, w: safeBox.w, h: safeBox.h,
-      name: null,
-      loading: true,
-      color: DET_COLORS[idx % DET_COLORS.length],
-      confirmed: false
-    };
-    currentDetections.push(det);
-    renderOneDetection(det, idx);
-    updateProgress();
-    showToast('框好了,正在辨識這道菜…');
-    recognizeAndAssign(det);
-  });
-
   document.addEventListener('click', () => closeAllTips());
 
   finishRecognizeBtn.addEventListener('click', () => {
     const total = currentDetections.length;
     if (total === 0){
-      showToast('請先在照片上拖曳框出至少一道菜');
+      showToast('AI 沒有辨識到菜色,請重新拍一張照片');
       return;
     }
     if (currentDetections.some(d => d.loading)){
