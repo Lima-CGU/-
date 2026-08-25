@@ -53,9 +53,66 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
   }
 
-  /* ---------- screen navigation ---------- */
+  /* ---------- screen navigation: iOS-style push/pop slide ---------- */
+  // Order of screens along the main flow, used only to decide whether a
+  // transition is a forward "push" (slide from the right) or a backward
+  // "pop" (slide from the left) — diary sits after recognize since it's
+  // reached once a meal is saved, or from the tab bar.
+  const SCREEN_ORDER = ['start', 'camera', 'review', 'recognize', 'diary'];
+
+  function getScreenEl(name){
+    return document.querySelector(`.screen[data-screen="${name}"]`);
+  }
+
+  let pendingSlideCleanup = null;
+
+  function finishSlide(fromEl, toEl){
+    fromEl.classList.remove('active', 'slide-exit', 'slide-enter', 'slide-start');
+    toEl.classList.remove('slide-enter', 'slide-exit', 'slide-start');
+    toEl.classList.add('active');
+    phone.classList.remove('slide-push', 'slide-pop');
+  }
+
+  function slideToScreen(fromEl, toEl, isForward){
+    // If a previous transition is still in flight (rapid navigation),
+    // snap it straight to its end state before starting the new one.
+    if (pendingSlideCleanup){
+      pendingSlideCleanup();
+      pendingSlideCleanup = null;
+    }
+
+    phone.classList.remove('slide-push', 'slide-pop');
+    phone.classList.add(isForward ? 'slide-push' : 'slide-pop');
+
+    fromEl.classList.remove('active');
+    fromEl.classList.add('slide-exit');
+    toEl.classList.add('slide-enter', 'slide-start');
+
+    // Commit the entering screen's off-screen starting position before
+    // moving it, so the browser has a real "before" frame to animate from.
+    void toEl.offsetWidth;
+
+    const cleanup = () => {
+      toEl.removeEventListener('transitionend', onTransitionEnd);
+      clearTimeout(fallbackTimer);
+      finishSlide(fromEl, toEl);
+      pendingSlideCleanup = null;
+    };
+    function onTransitionEnd(e){
+      if (e.target === toEl && e.propertyName === 'transform') cleanup();
+    }
+    toEl.addEventListener('transitionend', onTransitionEnd);
+    const fallbackTimer = setTimeout(cleanup, 420);
+    pendingSlideCleanup = cleanup;
+
+    requestAnimationFrame(() => {
+      toEl.classList.remove('slide-start');
+    });
+  }
+
   function goToScreen(name){
-    screens.forEach(s => s.classList.toggle('active', s.dataset.screen === name));
+    const fromName = phone.dataset.screen;
+
     steps.forEach(li => {
       li.classList.toggle('active', li.dataset.step === name);
       const order = ['start', 'camera', 'review', 'recognize'];
@@ -66,6 +123,18 @@
     tabCameraBtn.classList.toggle('active', name === 'start');
     if (name === 'camera') openCamera();
     else closeCamera();
+
+    if (name === fromName) return;
+
+    const fromEl = getScreenEl(fromName);
+    const toEl = getScreenEl(name);
+    if (!fromEl || !toEl){
+      screens.forEach(s => s.classList.toggle('active', s.dataset.screen === name));
+      return;
+    }
+
+    const isForward = SCREEN_ORDER.indexOf(name) > SCREEN_ORDER.indexOf(fromName);
+    slideToScreen(fromEl, toEl, isForward);
   }
 
   tabDiaryBtn.addEventListener('click', () => goToScreen('diary'));

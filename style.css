@@ -178,17 +178,29 @@ body{
   display: none;
   flex-direction: column;
   padding: 34px 20px 20px;
-  opacity: 0;
 }
 .screen.active{
   display: flex;
-  opacity: 1;
-  animation: screen-in 0.35s ease both;
 }
-@keyframes screen-in{
-  from{ opacity: 0; transform: translateX(14px); }
-  to{ opacity: 1; transform: translateX(0); }
+
+/* ---------- iOS-style horizontal push/pop transition ----------
+   Both the entering and leaving screen are displayed at once and
+   driven purely by transform + transition; nothing is set to
+   display:none until the animation finishes (handled in JS). */
+.screen.slide-enter,
+.screen.slide-exit{
+  display: flex;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
 }
+.screen.slide-enter{ z-index: 1; }
+
+.phone.slide-push .screen.slide-enter{ transform: translateX(0); }
+.phone.slide-push .screen.slide-enter.slide-start{ transform: translateX(100%); }
+.phone.slide-push .screen.slide-exit{ transform: translateX(-100%); }
+
+.phone.slide-pop .screen.slide-enter{ transform: translateX(0); }
+.phone.slide-pop .screen.slide-enter.slide-start{ transform: translateX(-100%); }
+.phone.slide-pop .screen.slide-exit{ transform: translateX(100%); }
 
 .screen-body{
   flex: 1;
