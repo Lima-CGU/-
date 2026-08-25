@@ -447,7 +447,7 @@ body{
   height: 52px;
   min-width: 44px;
   min-height: 44px;
-  border-radius: 14px;
+  border-radius: 50%;
   border: 2px solid rgba(255,255,255,0.9);
   background: rgba(255,255,255,0.55);
   color: var(--purple-deep);
@@ -621,18 +621,19 @@ body{
   width: 26px; height: 26px;
   margin-left: -13px; margin-top: -13px;
   border-radius: 50%;
-  border: none;
-  background: var(--purple);
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  background: rgba(255,255,255,0.2);
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
-  box-shadow: 0 0 0 4px rgba(255,255,255,0.55);
-  transition: background 0.2s ease, transform 0.15s ease;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.35);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   z-index: 2;
 }
 .det-dot:hover, .det-dot:focus-visible{ transform: scale(1.12); outline: none; }
@@ -644,64 +645,19 @@ body{
   50%{ opacity: 0.45; }
 }
 
-.det-tip{
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  transform: translateX(-50%) translateY(4px);
-  background: var(--ink);
-  color: #fff;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-family: var(--font-body);
-  font-size: 12px;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-  z-index: 3;
+/* three ✓-indicator states: pending (hollow) / editing (thin outline) / confirmed (solid green) */
+.det-dot.state-pending{
+  background: rgba(255,255,255,0.2);
+  border-color: #fff;
 }
-.det-tip::after{
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: var(--ink);
+.det-dot.state-editing{
+  background: transparent;
+  border: 1.5px solid var(--purple);
 }
-.det-tip.below{
-  bottom: auto;
-  top: calc(100% + 10px);
+.det-dot.state-confirmed{
+  background: #12a981;
+  border-color: #12a981;
 }
-.det-tip.below::after{
-  top: auto;
-  bottom: 100%;
-  border-top-color: transparent;
-  border-bottom-color: var(--ink);
-}
-.det-dot:hover .det-tip,
-.det-tip.show{
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
-}
-.det-tip-name{ font-weight: 600; }
-.det-tip-confirm{
-  background: var(--teal);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  width: 20px; height: 20px;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.det-tip-confirm:hover{ background: #0e8f6c; }
 
 .det-mic{
   position: absolute;
@@ -725,7 +681,7 @@ body{
 .det-box.confirmed .det-mic{ color: var(--teal); }
 
 .det-detail{
-  display: none;
+  display: inline-flex;
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -749,7 +705,6 @@ body{
   z-index: 2;
 }
 .det-detail:hover{ background: var(--purple-soft); }
-.det-box.confirmed .det-detail{ display: inline-flex; }
 
 .recognize-controls{
   display: flex;

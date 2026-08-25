@@ -425,7 +425,7 @@
             name: `${d.name}(${d.confidence}%)`,
             loading: false,
             color: DET_COLORS[i % DET_COLORS.length],
-            confirmed: true
+            confirmState: 'pending'
           };
           currentDetections.push(det);
           renderOneDetection(det, i);
@@ -448,16 +448,37 @@
 
   function updateProgress(){
     const total = currentDetections.length;
-    const done = currentDetections.filter(d => d.confirmed).length;
+    const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
     confirmProgress.textContent = total
       ? `已確認 ${done}`
       : '還沒有框任何一道菜';
   }
 
-  function closeAllTips(exceptEl){
-    recognizeOverlay.querySelectorAll('.det-tip.show').forEach(tip => {
-      if (tip !== exceptEl) tip.classList.remove('show');
-    });
+  // Drives the three-state ✓ indicator: pending (hollow) -> editing (thin
+  // outline, while a voice/detail edit is open) -> confirmed (solid green).
+  function setConfirmState(det, state){
+    det.confirmState = state;
+    const box = det.boxEl;
+    const dot = det.dotEl;
+
+    if (box){
+      box.classList.toggle('confirmed', state === 'confirmed');
+      if (state === 'confirmed'){
+        box.style.borderColor = colorToRgba('#12a981', 0.55);
+        box.style.background = colorToRgba('#12a981', 0.1);
+      } else {
+        box.style.borderColor = det.color;
+        box.style.background = colorToRgba(det.color, 0.08);
+      }
+    }
+
+    if (dot){
+      dot.classList.remove('state-pending', 'state-editing', 'state-confirmed');
+      dot.classList.add(`state-${state}`);
+      dot.textContent = state === 'confirmed' ? '✓' : '';
+    }
+
+    updateProgress();
   }
 
   function setupRecognizeScreen(photoDataUrl){
@@ -504,55 +525,19 @@
     if (det.loading) dot.classList.add('loading');
     dot.style.left = (det.x + det.w / 2) + '%';
     dot.style.top = (det.y + det.h / 2) + '%';
-    dot.style.background = det.color;
-    dot.setAttribute('aria-label', `第 ${i + 1} 道菜,點看看是什麼`);
-    dot.textContent = i + 1;
+    dot.setAttribute('aria-label', `確認第 ${i + 1} 道菜`);
     det.dotEl = dot;
+    det.boxEl = box;
 
-    const tip = document.createElement('span');
-    tip.className = 'det-tip';
-    if (det.y < 22) tip.classList.add('below');
-    const tipName = document.createElement('span');
-    tipName.className = 'det-tip-name';
-    tipName.textContent = getDishDisplayText(det);
-    det.tipNameEl = tipName;
-    const tipConfirm = document.createElement('button');
-    tipConfirm.type = 'button';
-    tipConfirm.className = 'det-tip-confirm';
-    tipConfirm.setAttribute('aria-label', '確認這個菜名');
-    tipConfirm.textContent = '✓';
-    tip.append(tipName, tipConfirm);
-    dot.appendChild(tip);
-
-    function confirmThis(){
+    dot.addEventListener('click', e => {
+      e.stopPropagation();
       if (det.loading){
         showToast('還在辨識中,等結果出來再確認');
         return;
       }
-      det.confirmed = true;
-      box.classList.add('confirmed');
-      box.style.borderColor = colorToRgba('#12a981', 0.55);
-      box.style.background = colorToRgba('#12a981', 0.1);
-      dot.style.background = '#12a981';
-      dot.textContent = '✓';
-      tip.classList.remove('show');
-      updateProgress();
-    }
-    det.confirmFn = confirmThis;
-
-    tipConfirm.addEventListener('click', e => {
-      e.stopPropagation();
-      confirmThis();
-    });
-
-    // 自動辨識回來的框已經算確認過了,不用使用者手動點一次
-    if (det.confirmed) confirmThis();
-
-    dot.addEventListener('click', e => {
-      e.stopPropagation();
-      const willShow = !tip.classList.contains('show');
-      closeAllTips();
-      tip.classList.toggle('show', willShow);
+      if (det.confirmState === 'pending'){
+        setConfirmState(det, 'confirmed');
+      }
     });
 
     const micBtn = document.createElement('button');
@@ -564,6 +549,8 @@
     micBtn.setAttribute('aria-label', '用語音修正菜名');
     micBtn.addEventListener('click', e => {
       e.stopPropagation();
+      det.preEditState = det.confirmState;
+      setConfirmState(det, 'editing');
       openVoiceModal(det, 'name');
     });
 
@@ -579,9 +566,9 @@
 
     box.append(removeBtn, dot, micBtn, detailBtn);
     recognizeOverlay.appendChild(box);
-  }
 
-  document.addEventListener('click', () => closeAllTips());
+    setConfirmState(det, det.confirmState);
+  }
 
   finishRecognizeBtn.addEventListener('click', () => {
     const total = currentDetections.length;
@@ -593,7 +580,7 @@
       showToast('還有菜色在辨識中,等一下再試');
       return;
     }
-    const done = currentDetections.filter(d => d.confirmed).length;
+    const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
     if (done < total){
       showToast(`還有 ${total - done} 道菜還沒確認,點圓點確認一下`);
       return;
@@ -754,8 +741,17 @@
     detailDraft = {};
   }
 
+  function cancelDetailAdjust(){
+    if (detailAdjustTarget && detailAdjustTarget.confirmState === 'editing'){
+      setConfirmState(detailAdjustTarget, detailAdjustTarget.preEditState || 'pending');
+    }
+    closeDetailAdjustModal();
+  }
+
   function openDetailAdjustModal(det){
     detailAdjustTarget = det;
+    det.preEditState = det.confirmState;
+    setConfirmState(det, 'editing');
     detailDraft = { ...(det.detail || {}) };
     syncDetailSelectionState();
     detailAdjustModal.hidden = false;
@@ -767,16 +763,14 @@
     if (detailAdjustTarget.labelEl) {
       renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
     }
-    if (detailAdjustTarget.tipNameEl) {
-      detailAdjustTarget.tipNameEl.textContent = getDishDisplayText(detailAdjustTarget);
-    }
+    setConfirmState(detailAdjustTarget, 'confirmed');
     closeDetailAdjustModal();
     showToast('細部調整已更新');
   }
 
   renderDetailSelectorButtons();
-  detailAdjustClose.addEventListener('click', closeDetailAdjustModal);
-  detailAdjustCancelBtn.addEventListener('click', closeDetailAdjustModal);
+  detailAdjustClose.addEventListener('click', cancelDetailAdjust);
+  detailAdjustCancelBtn.addEventListener('click', cancelDetailAdjust);
   detailAdjustConfirmBtn.addEventListener('click', confirmDetailAdjust);
 
   /* ---------- voice correction + feedback translation (Web Speech API) ---------- */
@@ -967,15 +961,21 @@
     det.name = text;
     det.loading = false;
     if (det.labelEl) renderDetLabel(det.labelEl, det);
-    if (det.tipNameEl) det.tipNameEl.textContent = getDishDisplayText(det);
     if (det.dotEl) det.dotEl.classList.remove('loading');
     closeVoiceModal();
-    if (det.confirmFn) det.confirmFn();
+    setConfirmState(det, 'confirmed');
     showToast('菜名已更新');
   }
 
-  voiceModalClose.addEventListener('click', closeVoiceModal);
-  voiceCancelBtn.addEventListener('click', closeVoiceModal);
+  function cancelVoiceEditing(){
+    if (voiceTargetDet && voiceTargetDet.confirmState === 'editing'){
+      setConfirmState(voiceTargetDet, voiceTargetDet.preEditState || 'pending');
+    }
+    closeVoiceModal();
+  }
+
+  voiceModalClose.addEventListener('click', cancelVoiceEditing);
+  voiceCancelBtn.addEventListener('click', cancelVoiceEditing);
   voiceRetryBtn.addEventListener('click', startListening);
   voiceConfirmBtn.addEventListener('click', () => {
     const candidate = recognizedText.trim();
