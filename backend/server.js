@@ -417,6 +417,32 @@ app.get('/', (req, res) => {
   res.send('香互後端運作中。POST /api/recognize、/api/detect 辨識食物照片。');
 });
 
+// Relying on a single call to both commit to a first guess AND brainstorm
+// alternatives is unreliable — GPT sometimes just doesn't bother generating
+// a genuinely different second guess even when told to. When that happens
+// (exactly one low-confidence dish came back), ask a second, independent
+// question specifically for "something different from X" and fold the
+// result in, so a low-confidence result reliably ends up with >= 2 options
+// instead of depending on one call's compliance.
+async function fetchAlternateCandidate(imageUrl, excludeName){
+  const prompt = `你是食物辨識助手。這張照片裡的食物,已經有人猜測是「${excludeName}」,但信心不高。
+請你用繁體中文想出「另一個不同的」合理猜測——外觀、顏色或質地上合理,但必須是跟「${excludeName}」不同的菜名,不能只是同義詞或文字上的小變化。
+如果你真的想不出任何合理的不同猜測,name 請填跟「${excludeName}」一樣,confidence 填 0。
+請「只」回傳如下格式的 JSON,不要加任何說明文字:
+{"name":"備選菜名","confidence":40}`;
+
+  try {
+    const parsed = await callOpenAIVision(imageUrl, prompt, 150);
+    const name = String(parsed.name || '').trim();
+    const confidence = Math.max(0, Math.min(100, Math.round(Number(parsed.confidence) || 0)));
+    if (!name || name === excludeName || name === '看不出來' || confidence <= 0) return null;
+    return { name, confidence };
+  } catch (err){
+    console.error('[recognize] alternate-candidate call failed:', err.message);
+    return null;
+  }
+}
+
 app.post('/api/recognize', async (req, res) => {
   if (!OPENAI_API_KEY) {
     return res.status(500).json({
@@ -447,6 +473,10 @@ app.post('/api/recognize', async (req, res) => {
 
     if (!dishes.length){
       console.warn('[recognize] GPT could not identify anything usable in this crop (raw dishes=%s)', JSON.stringify(parsed.dishes));
+    } else if (dishes.length === 1 && dishes[0].confidence < 80){
+      console.log('[recognize] only one low-confidence dish (%s, %s%%) — asking for a second opinion', dishes[0].name, dishes[0].confidence);
+      const alt = await fetchAlternateCandidate(toDataUrl(imageBase64), dishes[0].name);
+      if (alt) dishes.push(alt);
     }
 
     res.json({ dishes });
