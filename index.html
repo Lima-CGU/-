@@ -118,14 +118,29 @@
     <section class="screen" data-screen="recognize">
       <div class="screen-body recognize-body">
         <p class="recognize-hint" id="recognizeHint">AI 正在自動框出並辨識菜色…</p>
-        <div class="recognize-photo-wrap">
+        <div class="recognize-photo-wrap" id="recognizeWrap">
           <img id="recognizePhoto" alt="辨識中的餐點照片">
           <div class="recognize-overlay" id="recognizeOverlay"></div>
+          <button type="button" class="manual-box-spawner" id="manualBoxSpawner" aria-label="拖曳到照片上,手動補框一道菜">
+            <span class="manual-box-spawner-icon" aria-hidden="true">+</span>
+          </button>
         </div>
       </div>
       <div class="screen-foot recognize-controls">
-        <span class="confirm-progress" id="confirmProgress">已確認 0 / 0</span>
+        <span class="confirm-progress" id="confirmProgress">還沒有框任何一道菜</span>
         <button class="btn btn-primary" id="finishRecognizeBtn">完成 · 存入日記</button>
+      </div>
+
+      <!-- Candidate-name bottom sheet: only shown when AI confidence is below the threshold -->
+      <div class="candidate-sheet" id="candidateSheet" hidden>
+        <div class="candidate-sheet-card">
+          <p class="candidate-sheet-title">Meal you report is :</p>
+          <div class="candidate-list" id="candidateList"></div>
+          <div class="candidate-actions">
+            <button type="button" class="btn btn-outline candidate-btn-cancel" id="candidateCancelBtn">Cancel</button>
+            <button type="button" class="btn btn-primary candidate-btn-confirm" id="candidateConfirmBtn">Confirm</button>
+          </div>
+        </div>
       </div>
     </section>
 

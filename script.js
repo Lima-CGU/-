@@ -30,8 +30,10 @@
 
   const reviewImg   = document.getElementById('reviewImg');
 
+  const recognizeWrap    = document.getElementById('recognizeWrap');
   const recognizePhoto   = document.getElementById('recognizePhoto');
   const recognizeOverlay = document.getElementById('recognizeOverlay');
+  const manualBoxSpawner = document.getElementById('manualBoxSpawner');
   const confirmProgress  = document.getElementById('confirmProgress');
   const finishRecognizeBtn = document.getElementById('finishRecognizeBtn');
 
@@ -360,16 +362,6 @@
     '涼拌小黃瓜', '紅燒豆腐', '糖醋排骨', '蒜炒地瓜葉', '蒸魚',
     '木耳炒肉絲', '滷豆干', '玉米濃湯', '煎鮭魚', '芹菜炒豆包'
   ];
-  const DET_COLORS = ['#6d4fe0', '#ff6f59', '#ffc857', '#3b82f6', '#ec4899', '#8b5cf6'];
-
-  function colorToRgba(hex, alpha){
-    const h = hex.replace('#', '');
-    const r = parseInt(h.substring(0,2), 16);
-    const g = parseInt(h.substring(2,4), 16);
-    const b = parseInt(h.substring(4,6), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
-  }
-
   function pickRandomNames(n){
     const pool = [...DISH_NAME_POOL];
     const picked = [];
@@ -383,6 +375,81 @@
   /* ---------- real recognition via backend (Hugging Face food model) ---------- */
   const BACKEND_URL = 'https://xianghu-backend.onrender.com';
   let backendWarned = false;
+
+  // Design decision: the original spec always popped a candidate-name dialog
+  // after AI recognition. In practice GPT-4.1's confidence is usually high
+  // enough that showing the result directly is faster for the user, so the
+  // dialog now only appears when confidence falls below this threshold —
+  // everything else still goes through the existing pending/editing/confirmed
+  // flow (voice correction, detail adjustment, manual box) unchanged.
+  const CONFIDENCE_DIALOG_THRESHOLD = 0.85;
+
+  // Crop just the boxed region out of the full photo, return a data URL of the crop
+  function cropRegionToDataUrl(photoDataUrl, xPct, yPct, wPct, hPct){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const sx = (xPct / 100) * img.naturalWidth;
+        const sy = (yPct / 100) * img.naturalHeight;
+        const sw = (wPct / 100) * img.naturalWidth;
+        const sh = (hPct / 100) * img.naturalHeight;
+        const cnv = document.createElement('canvas');
+        cnv.width = Math.max(1, Math.round(sw));
+        cnv.height = Math.max(1, Math.round(sh));
+        cnv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cnv.width, cnv.height);
+        resolve(cnv.toDataURL('image/jpeg', 0.9));
+      };
+      img.onerror = reject;
+      img.src = photoDataUrl;
+    });
+  }
+
+  async function callRecognizeAPI(croppedDataUrl, attempt){
+    attempt = attempt || 1;
+    const res = await fetch(`${BACKEND_URL}/api/recognize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: croppedDataUrl })
+    });
+    const data = await res.json();
+
+    if (!res.ok){
+      if (res.status === 503 && data.estimated_time && attempt < 3){
+        await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
+        return callRecognizeAPI(croppedDataUrl, attempt + 1);
+      }
+      throw new Error(data.error || '辨識失敗');
+    }
+    return data;
+  }
+
+  // Crop a det's own region out of the current photo and ask /api/recognize
+  // for up to 3 ranked name candidates — used both to re-check a low
+  // confidence auto-detected dish and to name a freshly manual-drawn box.
+  async function fetchCandidatesForDet(det){
+    try {
+      const cropped = await cropRegionToDataUrl(currentPhotoData, det.x, det.y, det.w, det.h);
+      const data = await callRecognizeAPI(cropped);
+      console.log('[fetchCandidatesForDet] raw /api/recognize dishes for det %s:', det.id, data.dishes);
+      const candidates = (data.dishes || [])
+        .map(d => ({
+          name: String(d.name || '').trim(),
+          confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0)))
+        }))
+        // "看不出來" is GPT saying it couldn't identify anything — never show
+        // it as a pickable candidate (it can carry any confidence number).
+        .filter(d => d.name && d.name !== '看不出來')
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 3);
+      if (!candidates.length){
+        console.warn('[fetchCandidatesForDet] no usable candidates for det %s (raw:', det.id, data.dishes, ')');
+      }
+      return candidates;
+    } catch (err){
+      console.error('[fetchCandidatesForDet] recognize call failed for det', det.id, err);
+      return [];
+    }
+  }
 
   // Ask the backend to auto-detect every dish (position + name) in one go
   async function callDetectAPI(photoDataUrl, attempt){
@@ -484,22 +551,31 @@
       const dishes = data.dishes || [];
 
       if (!dishes.length){
-        recognizeHint.textContent = '沒有辨識到菜色,請重新拍一張照片試試';
+        recognizeHint.textContent = '沒有辨識到菜色,可以拖曳左下角的框自己補一個';
       } else {
+        const lowConfidenceDishes = [];
         dishes.forEach((d, i) => {
           const box = normalizeDetectionBox(d);
+          const confidence = Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0)));
           const det = {
             id: `auto${i}`,
             x: box.x, y: box.y, w: box.w, h: box.h,
-            name: `${d.name}(${d.confidence}%)`,
+            name: `${d.name}(${confidence}%)`,
+            confidence,
             loading: false,
-            color: DET_COLORS[i % DET_COLORS.length],
             confirmState: 'pending'
           };
           currentDetections.push(det);
           renderOneDetection(det, i);
+          if (confidence < CONFIDENCE_DIALOG_THRESHOLD * 100){
+            lowConfidenceDishes.push(det);
+          }
         });
         recognizeHint.textContent = '';
+        if (lowConfidenceDishes.length){
+          lowConfidenceQueue.push(...lowConfidenceDishes);
+          processLowConfidenceQueue();
+        }
       }
     } catch (err){
       console.error(err);
@@ -525,6 +601,8 @@
 
   // Drives the three-state ✓ indicator: pending (hollow) -> editing (thin
   // outline, while a voice/detail edit is open) -> confirmed (solid green).
+  // The box border itself stays a fixed, neutral color in every state —
+  // only the center dot signals where a dish stands.
   function setConfirmState(det, state){
     det.confirmState = state;
     const box = det.boxEl;
@@ -532,28 +610,122 @@
 
     if (box){
       box.classList.toggle('confirmed', state === 'confirmed');
-      if (state === 'confirmed'){
-        box.style.borderColor = colorToRgba('#12a981', 0.55);
-        box.style.background = colorToRgba('#12a981', 0.1);
-      } else {
-        box.style.borderColor = det.color;
-        box.style.background = colorToRgba(det.color, 0.08);
-      }
     }
 
     if (dot){
       dot.classList.remove('state-pending', 'state-editing', 'state-confirmed');
       dot.classList.add(`state-${state}`);
-      dot.textContent = state === 'confirmed' ? '✓' : '';
     }
 
     updateProgress();
+  }
+
+  /* ---------- candidate-name bottom sheet (only for low-confidence dishes) ---------- */
+  const candidateSheet      = document.getElementById('candidateSheet');
+  const candidateList       = document.getElementById('candidateList');
+  const candidateCancelBtn  = document.getElementById('candidateCancelBtn');
+  const candidateConfirmBtn = document.getElementById('candidateConfirmBtn');
+
+  let candidateTargetDet = null;
+  let candidateChoices = [];
+  let candidateSelectedIndex = 0;
+  let candidateOnClose = null;
+  let candidateHideTimer = null;
+
+  function renderCandidateList(){
+    candidateList.innerHTML = '';
+    candidateChoices.forEach((choice, i) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'candidate-row' + (i === candidateSelectedIndex ? ' selected' : '');
+      row.textContent = choice.confidence ? `${choice.name}(${choice.confidence}%)` : choice.name;
+      row.addEventListener('click', () => {
+        candidateSelectedIndex = i;
+        renderCandidateList();
+      });
+      candidateList.appendChild(row);
+    });
+  }
+
+  // onClose is called after the sheet fully closes, whether by Cancel or
+  // Confirm — the low-confidence queue uses it to chain to the next dish.
+  function openCandidateDialog(det, choices, onClose){
+    if (!choices.length){
+      if (onClose) onClose();
+      return;
+    }
+    clearTimeout(candidateHideTimer);
+
+    candidateTargetDet = det;
+    candidateChoices = choices;
+    candidateSelectedIndex = 0;
+    candidateOnClose = onClose || null;
+
+    det.preEditState = det.confirmState;
+    setConfirmState(det, 'editing');
+
+    renderCandidateList();
+    candidateSheet.hidden = false;
+    document.body.classList.add('candidate-sheet-open');
+    requestAnimationFrame(() => candidateSheet.classList.add('show'));
+  }
+
+  // silent=true skips the onClose callback — used when the recognize screen
+  // resets for a new photo and any in-flight dialog must just disappear.
+  function closeCandidateDialog(silent){
+    const cb = candidateOnClose;
+    candidateSheet.classList.remove('show');
+    document.body.classList.remove('candidate-sheet-open');
+    clearTimeout(candidateHideTimer);
+    candidateHideTimer = setTimeout(() => { candidateSheet.hidden = true; }, 320);
+    candidateTargetDet = null;
+    candidateChoices = [];
+    candidateOnClose = null;
+    if (!silent && cb) cb();
+  }
+
+  candidateCancelBtn.addEventListener('click', () => {
+    if (candidateTargetDet){
+      setConfirmState(candidateTargetDet, candidateTargetDet.preEditState || 'pending');
+    }
+    closeCandidateDialog();
+  });
+
+  candidateConfirmBtn.addEventListener('click', () => {
+    const det = candidateTargetDet;
+    const choice = candidateChoices[candidateSelectedIndex];
+    if (det && choice){
+      det.name = `${choice.name}(${choice.confidence}%)`;
+      det.confidence = choice.confidence;
+      if (det.labelEl) renderDetLabel(det.labelEl, det);
+      setConfirmState(det, 'confirmed');
+    }
+    closeCandidateDialog();
+  });
+
+  // Low-confidence auto-detected dishes queue up here and are reviewed one
+  // dialog at a time, instead of stacking several sheets at once.
+  let lowConfidenceQueue = [];
+
+  async function processLowConfidenceQueue(){
+    if (!lowConfidenceQueue.length) return;
+    const det = lowConfidenceQueue.shift();
+    if (!currentDetections.includes(det)){
+      processLowConfidenceQueue();
+      return;
+    }
+    const candidates = await fetchCandidatesForDet(det);
+    const fallback = { name: splitNameConfidence(det.name).name || det.name, confidence: det.confidence };
+    const choices = candidates.length ? candidates : [fallback];
+    openCandidateDialog(det, choices, () => processLowConfidenceQueue());
   }
 
   function setupRecognizeScreen(photoDataUrl){
     recognizePhoto.src = photoDataUrl;
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
+    lowConfidenceQueue = [];
+    closeCandidateDialog(true);
     finishRecognizeBtn.disabled = true;
     updateProgress();
     autoDetectDishes(photoDataUrl);
@@ -567,8 +739,6 @@
     box.style.top = det.y + '%';
     box.style.width = det.w + '%';
     box.style.height = det.h + '%';
-    box.style.borderColor = det.color;
-    box.style.background = colorToRgba(det.color, 0.08);
 
     const label = document.createElement('span');
     label.className = 'det-label';
@@ -592,8 +762,6 @@
     dot.type = 'button';
     dot.className = 'det-dot';
     if (det.loading) dot.classList.add('loading');
-    dot.style.left = (det.x + det.w / 2) + '%';
-    dot.style.top = (det.y + det.h / 2) + '%';
     dot.setAttribute('aria-label', `確認第 ${i + 1} 道菜`);
     det.dotEl = dot;
     det.boxEl = box;
@@ -604,6 +772,10 @@
         showToast('還在辨識中,等結果出來再確認');
         return;
       }
+      if (det.manualPendingSubmit){
+        showToast('請先拖曳調整範圍,再按「✓ 確認範圍」送出辨識');
+        return;
+      }
       if (det.confirmState === 'pending'){
         setConfirmState(det, 'confirmed');
       }
@@ -612,8 +784,6 @@
     const micBtn = document.createElement('button');
     micBtn.type = 'button';
     micBtn.className = 'det-mic';
-    micBtn.style.left = (det.x + det.w / 2) + '%';
-    micBtn.style.top = (det.y + det.h / 2) + '%';
     micBtn.textContent = '🎤';
     micBtn.setAttribute('aria-label', '用語音修正菜名');
     micBtn.addEventListener('click', e => {
@@ -636,13 +806,159 @@
     box.append(removeBtn, dot, micBtn, detailBtn);
     recognizeOverlay.appendChild(box);
 
+    if (det.manualPendingSubmit){
+      addManualBoxControls(det, box);
+    }
+
     setConfirmState(det, det.confirmState);
   }
+
+  /* ---------- manual box: drag the corner spawner onto the photo ---------- */
+  const MANUAL_BOX_DEFAULT_SIZE = 24; // percent of the photo, a reasonable default dish size
+
+  function wrapRect(){
+    return recognizeWrap.getBoundingClientRect();
+  }
+
+  function clientToPct(clientX, clientY){
+    const r = wrapRect();
+    return {
+      x: Math.max(0, Math.min(100, ((clientX - r.left) / r.width) * 100)),
+      y: Math.max(0, Math.min(100, ((clientY - r.top) / r.height) * 100))
+    };
+  }
+
+  function addManualBoxControls(det, box){
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'det-box-resize-handle';
+    handle.setAttribute('aria-label', '拖曳調整這個框的大小');
+
+    const confirmRangeBtn = document.createElement('button');
+    confirmRangeBtn.type = 'button';
+    confirmRangeBtn.className = 'det-box-confirm-range';
+    confirmRangeBtn.textContent = '✓ 確認範圍';
+    confirmRangeBtn.setAttribute('aria-label', '確認框選範圍,送出辨識');
+
+    handle.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+
+      function onMove(ev){
+        const p = clientToPct(ev.clientX, ev.clientY);
+        det.w = Math.max(8, Math.min(100 - det.x, p.x - det.x));
+        det.h = Math.max(8, Math.min(100 - det.y, p.y - det.y));
+        box.style.width = det.w + '%';
+        box.style.height = det.h + '%';
+      }
+      function onUp(){
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      }
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+
+    confirmRangeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      handle.remove();
+      confirmRangeBtn.remove();
+      det.manualPendingSubmit = false;
+      submitManualBoxForRecognition(det);
+    });
+
+    box.append(handle, confirmRangeBtn);
+  }
+
+  async function submitManualBoxForRecognition(det){
+    det.loading = true;
+    det.name = null;
+    if (det.labelEl) renderDetLabel(det.labelEl, det);
+    if (det.dotEl) det.dotEl.classList.add('loading');
+    showToast('框好了,正在辨識這道菜…');
+
+    const candidates = await fetchCandidatesForDet(det);
+
+    det.loading = false;
+    if (det.dotEl) det.dotEl.classList.remove('loading');
+
+    if (!candidates.length){
+      det.name = '辨識失敗,自己填';
+      det.confidence = 0;
+      if (det.labelEl) renderDetLabel(det.labelEl, det);
+      updateProgress();
+      showToast('辨識失敗,可以用語音或細部調整自己填菜名');
+      return;
+    }
+
+    const top = candidates[0];
+    det.name = `${top.name}(${top.confidence}%)`;
+    det.confidence = top.confidence;
+    if (det.labelEl) renderDetLabel(det.labelEl, det);
+    updateProgress();
+
+    if (top.confidence < CONFIDENCE_DIALOG_THRESHOLD * 100){
+      openCandidateDialog(det, candidates, null);
+    }
+  }
+
+  function createManualBox(centerXPct, centerYPct){
+    let w = MANUAL_BOX_DEFAULT_SIZE;
+    let h = MANUAL_BOX_DEFAULT_SIZE;
+    let x = Math.max(0, Math.min(100 - w, centerXPct - w / 2));
+    let y = Math.max(0, Math.min(100 - h, centerYPct - h / 2));
+
+    const idx = currentDetections.length;
+    const det = {
+      id: `manual${Date.now()}`,
+      x, y, w, h,
+      name: '拖曳邊角調整範圍,再按 ✓ 確認',
+      confidence: 0,
+      loading: false,
+      confirmState: 'pending',
+      manualPendingSubmit: true
+    };
+    currentDetections.push(det);
+    renderOneDetection(det, idx);
+    updateProgress();
+  }
+
+  manualBoxSpawner.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const ghost = document.createElement('div');
+    ghost.className = 'manual-box-ghost';
+    document.body.appendChild(ghost);
+
+    function positionGhost(clientX, clientY){
+      ghost.style.left = clientX + 'px';
+      ghost.style.top = clientY + 'px';
+    }
+    positionGhost(e.clientX, e.clientY);
+
+    function onMove(ev){
+      positionGhost(ev.clientX, ev.clientY);
+    }
+    function onUp(ev){
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      ghost.remove();
+
+      const r = wrapRect();
+      if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom){
+        return; // dropped outside the photo — do nothing, spawner stays put
+      }
+      const p = clientToPct(ev.clientX, ev.clientY);
+      createManualBox(p.x, p.y);
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
 
   finishRecognizeBtn.addEventListener('click', () => {
     const total = currentDetections.length;
     if (total === 0){
-      showToast('AI 沒有辨識到菜色,請重新拍一張照片');
+      showToast('AI 沒有辨識到菜色,可以拖曳左下角的框自己補一個,或重新拍一張照片');
       return;
     }
     if (currentDetections.some(d => d.loading)){

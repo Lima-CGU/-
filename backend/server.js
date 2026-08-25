@@ -29,11 +29,15 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const SEGMENTATION_API_URL = process.env.SEGMENTATION_API_URL || '';
 const SEGMENTATION_API_KEY = process.env.SEGMENTATION_API_KEY || '';
 
-const RECOGNIZE_PROMPT = `你是食物辨識助手。請判斷這張照片裡的主要食物是什麼,用繁體中文回答菜名(例如「滷雞腿」「蕃茄炒蛋」)。
-如果完全看不出來是什麼食物,name 請填「看不出來」。
+const RECOGNIZE_PROMPT = `你是食物辨識助手。請判斷這張照片裡的食物,列出最多 3 個「不同的」最可能菜名候選,依信心度由高到低排序,用繁體中文回答(例如「滷雞腿」「蕃茄炒蛋」)。
+
+- 候選數量由你自己的確定程度決定:如果你非常確定答案,只回傳 1 個候選就好,不要為了湊到 3 個而硬掰其他不像的答案。
+- 只有在真的有幾種不同的合理猜測時,才列出 2~3 個候選;每個候選必須是實際不同的菜名猜測,不能是同一個答案重複或只是文字上的小變化。
+- 如果完全看不出來是什麼食物,只回傳 1 個候選,name 填「看不出來」,confidence 必須填 0。
+
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
-{"dishes":[{"name":"菜名","confidence":90}]}
-最多列出 3 個候選菜名,依可能性由高到低排序,confidence 是你自己估計的信心百分比(0-100 整數)。`;
+{"dishes":[{"name":"菜名1","confidence":90},{"name":"菜名2","confidence":40}]}
+confidence 是你自己估計的信心百分比(0-100 整數)。`;
 
 const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照片,裡面可能有好幾道不同的菜(不同容器、不同菜色算不同的一道)。
 請找出照片中每一道個別的菜,用繁體中文取名,並估計它在照片中的邊界框位置。
@@ -84,6 +88,9 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
   };
   if (temperature !== undefined) body.temperature = temperature;
 
+  console.log('[OpenAI request] model=%s maxTokens=%s temperature=%s hasImage=%s\nprompt:\n%s',
+    OPENAI_MODEL, maxTokens, temperature, !!imageUrl, prompt);
+
   const aiRes = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
@@ -95,15 +102,23 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
 
   const data = await aiRes.json();
   if (!aiRes.ok){
+    // Log the raw OpenAI error body here — this is the one place that
+    // actually sees it; callers only get err.message unless they dig into
+    // err.detail themselves, which historically nobody did.
+    console.error('[OpenAI request FAILED] status=%s raw body=%s', aiRes.status, JSON.stringify(data));
     const err = new Error('OpenAI 回傳錯誤');
     err.status = aiRes.status;
     err.detail = data;
     throw err;
   }
 
+  const rawContent = data.choices?.[0]?.message?.content || '{}';
+  console.log('[OpenAI raw response content]\n%s', rawContent);
+
   try {
-    return JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    return JSON.parse(rawContent);
   } catch (parseErr){
+    console.error('[OpenAI response is not valid JSON] parseErr=%s raw=%s', parseErr.message, rawContent);
     const err = new Error('OpenAI 回傳的內容不是有效 JSON');
     err.status = 502;
     err.detail = data;
@@ -417,13 +432,22 @@ app.post('/api/recognize', async (req, res) => {
   try {
     const parsed = await callOpenAIVision(toDataUrl(imageBase64), RECOGNIZE_PROMPT, 300);
 
+    // "看不出來" means GPT itself couldn't identify anything — never let it
+    // through as a normal candidate (it can carry any confidence number GPT
+    // felt like attaching, including a misleadingly high one). Treat "no
+    // usable dishes" as an empty list instead, so the caller's own
+    // failure-handling kicks in rather than a fake candidate.
     const dishes = (Array.isArray(parsed.dishes) ? parsed.dishes : [])
       .slice(0, 5)
       .map(d => ({
         name: String(d.name || '').trim(),
         confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0)))
       }))
-      .filter(d => d.name);
+      .filter(d => d.name && d.name !== '看不出來');
+
+    if (!dishes.length){
+      console.warn('[recognize] GPT could not identify anything usable in this crop (raw dishes=%s)', JSON.stringify(parsed.dishes));
+    }
 
     res.json({ dishes });
   } catch (err){

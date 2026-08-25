@@ -560,14 +560,10 @@ body{
 
 .det-box{
   position: absolute;
-  border: 1.5px dashed var(--purple);
+  border: 1.5px dashed var(--ink-soft);
   border-radius: 8px;
-  background: rgba(109,79,224,0.08);
+  background: rgba(107,100,128,0.07);
   pointer-events: none;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-.det-box.confirmed{
-  border-style: solid;
 }
 
 .det-label{
@@ -630,21 +626,19 @@ body{
 
 .det-dot{
   position: absolute;
+  left: 50%; top: 50%;
   width: 26px; height: 26px;
   margin-left: -13px; margin-top: -13px;
   border-radius: 50%;
   box-sizing: border-box;
   border: 2px solid #fff;
   background: rgba(255,255,255,0.2);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
-  box-shadow: 0 0 0 4px rgba(255,255,255,0.35);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.28);
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   z-index: 2;
 }
@@ -657,13 +651,13 @@ body{
   50%{ opacity: 0.45; }
 }
 
-/* three ✓-indicator states: pending (hollow) / editing (thin outline) / confirmed (solid green) */
+/* three ✓-indicator states: pending (hollow) / editing (thin outline) / confirmed (solid green dot) */
 .det-dot.state-pending{
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.22);
   border-color: #fff;
 }
 .det-dot.state-editing{
-  background: transparent;
+  background: rgba(255,255,255,0.18);
   border: 1.5px solid var(--purple);
 }
 .det-dot.state-confirmed{
@@ -673,6 +667,7 @@ body{
 
 .det-mic{
   position: absolute;
+  left: 50%; top: 50%;
   width: 26px; height: 26px;
   margin-left: 15px; margin-top: -13px;
   border-radius: 50%;
@@ -731,6 +726,148 @@ body{
   color: var(--purple-deep);
   white-space: nowrap;
 }
+
+/* ---------- manual box: draggable spawner + resize/confirm controls ---------- */
+.manual-box-spawner{
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 44px;
+  height: 44px;
+  border: 2px dashed rgba(255,255,255,0.85);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  z-index: 4;
+  touch-action: none;
+}
+.manual-box-spawner:active{ cursor: grabbing; }
+.manual-box-spawner-icon{
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.manual-box-ghost{
+  position: fixed;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  margin-top: -22px;
+  border: 2px dashed rgba(255,255,255,0.95);
+  border-radius: 10px;
+  background: rgba(109,79,224,0.25);
+  pointer-events: none;
+  z-index: 999;
+}
+
+.det-box-resize-handle{
+  position: absolute;
+  right: -9px;
+  bottom: -9px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--purple);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  z-index: 3;
+}
+
+.det-box-confirm-range{
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--teal);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  z-index: 3;
+}
+.det-box-confirm-range:hover{ background: #0e8f6c; }
+
+/* ---------- candidate-name bottom sheet ---------- */
+.candidate-sheet{
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+.candidate-sheet[hidden]{ display: none; }
+.candidate-sheet-card{
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-height: 58%;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 28px rgba(0,0,0,0.22);
+  padding: 18px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  pointer-events: auto;
+}
+.candidate-sheet.show .candidate-sheet-card{
+  transform: translateY(0);
+}
+.candidate-sheet-title{
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0 0 12px;
+}
+.candidate-list{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.candidate-row{
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.candidate-row.selected{
+  background: var(--purple-soft);
+  border-color: var(--purple);
+  color: var(--purple-deep);
+  box-shadow: inset 0 0 0 1px rgba(109,79,224,0.25);
+}
+.candidate-actions{
+  display: flex;
+  gap: 10px;
+}
+.candidate-actions .btn{ flex: 1; }
 
 /* ---------- detail adjustment modal ---------- */
 .detail-modal{
@@ -1497,6 +1634,10 @@ body{
 .toast.show{
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+/* keep the toast clear of the candidate bottom sheet's Cancel/Confirm row */
+body.candidate-sheet-open .toast{
+  bottom: 46vh;
 }
 
 /* ---------- responsive ---------- */
