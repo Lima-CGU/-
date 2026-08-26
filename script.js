@@ -1207,25 +1207,28 @@
     { value: 'cup', icon: '🥤', label: '杯子' }
   ];
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
+  // Same reasoning as DIARY_ICON_* above: these were emoji and rendered as a
+  // garbled glyph on some devices/fonts. Every cooking-method icon — both the
+  // fixed Diary-row one and this per-option picker set — is now inline SVG.
   const FOOD_COOKING_METHODS = [
-    { value: '沙拉', icon: '🥗' },
-    { value: '水煮', icon: '🍲' },
-    { value: '蒸', icon: '♨️' },
-    { value: '炒', icon: '🥘' },
-    { value: '煎', icon: '🍳' },
-    { value: '炸', icon: '🍟' },
-    { value: '烤', icon: '🥖' },
-    { value: '燒烤', icon: '🍖' },
-    { value: '烘焙', icon: '🍰' }
+    { value: '沙拉', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 12h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12c0-3 1-6 1-6M15 12c0-3-1-6-1-6M12 12c0-4 .5-7 .5-7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '水煮', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 11h14v3a7 7 0 0 1-14 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 8c0-1.2.8-1.2.8-2.4S9 4.2 9 3M13 8c0-1.2.8-1.2.8-2.4S13 4.2 13 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '蒸', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="13" width="14" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 10c0-1.2.9-1.2.9-2.4S9 5.2 9 4M12.5 10c0-1.2.9-1.2.9-2.4S12.5 5.2 12.5 4M16 10c0-1.2.9-1.2.9-2.4S16 5.2 16 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '炒', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10" cy="13" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="15" y1="10" x2="20" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 13c1-1.5 3-1.5 4 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '煎', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><ellipse cx="10" cy="13" rx="6" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="14.5" y1="10" x2="20" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>' },
+    { value: '炸', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 11h14v3a7 7 0 0 1-14 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="6" r="1" fill="currentColor"/><circle cx="12.5" cy="4.5" r="1" fill="currentColor"/><circle cx="16" cy="6" r="1" fill="currentColor"/></svg>' },
+    { value: '烤', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="4" y="6" width="16" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="11" x2="20" y2="11" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="15.5" r="1" fill="currentColor"/><circle cx="12" cy="15.5" r="1" fill="currentColor"/><circle cx="17" cy="15.5" r="1" fill="currentColor"/></svg>' },
+    { value: '燒烤', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="4" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 20c-1.5-2 1-3 0-5M12 20c-1.5-2 1-3 0-5M17 20c-1.5-2 1-3 0-5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '烘焙', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4c1.5 2-1 3 0 5s2.5 2.5 2.5 4.5A2.5 2.5 0 0 1 12 16a2.5 2.5 0 0 1-2.5-2.5c0-2 2.5-3.5 2.5-4.5s-1.5-3 0-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 20c0-3 2.7-5 6-5s6 2 6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' }
   ];
   const BEVERAGE_COOKING_METHODS = [
-    { value: '沖泡', icon: '☕' },
-    { value: '現煮', icon: '🍵' },
-    { value: '現榨', icon: '🧃' },
-    { value: '冰鎮', icon: '🧊' },
-    { value: '熱飲', icon: '🔥' },
-    { value: '調製', icon: '🍹' },
-    { value: '不適用', icon: '🚫' }
+    { value: '沖泡', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9h12l-1.5 10a2 2 0 0 1-2 1.7h-5a2 2 0 0 1-2-1.7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 4c1 1-1 2 0 3M13 4c1 1-1 2 0 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '現煮', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h10v3a5 5 0 0 1-10 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 13h2a2.5 2.5 0 0 1 0 5h-2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="9" x2="7" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' },
+    { value: '現榨', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v16M12 4 8 8M12 4l4 4M12 20l-4-4M12 20l4-4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>' },
+    { value: '冰鎮', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="1.3"/><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="1.3"/></svg>' },
+    { value: '熱飲', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 11h12v3a6 6 0 0 1-12 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M17 12h1.5a2 2 0 0 1 0 4H17" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9 8c0-1.2.9-1.2.9-2.4S9 3.2 9 2M13 8c0-1.2.9-1.2.9-2.4S13 3.2 13 2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' },
+    { value: '調製', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 5h14l-7 8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="12" y1="13" x2="12" y2="20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="8.5" y1="20" x2="15.5" y2="20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' },
+    { value: '不適用', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="6.5" y1="17.5" x2="17.5" y2="6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' }
   ];
   const sugarOptions = [
     { value: '無糖', level: 0 },

@@ -1039,6 +1039,18 @@ body{
   line-height: 1;
 }
 
+/* Cooking-method icons are inline SVG (not emoji, which ignore CSS color and
+   render inconsistently across devices) — give them explicit box/centering
+   and let them pick up the pill's own text color via currentColor. */
+.detail-cooking-choice .detail-choice-icon{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.detail-cooking-choice .detail-choice-icon svg{ display: block; }
+
 .detail-choice.selected{
   background: var(--purple-soft);
   border-color: var(--purple);
