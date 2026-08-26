@@ -128,7 +128,7 @@
       </div>
       <div class="screen-foot recognize-controls">
         <span class="confirm-progress" id="confirmProgress">還沒有框任何一道菜</span>
-        <button class="btn btn-primary" id="finishRecognizeBtn">完成 · 存入日記</button>
+        <button class="btn btn-outline" id="finishRecognizeBtn" disabled hidden></button>
       </div>
 
       <!-- Candidate-name bottom sheet: only shown when AI confidence is below the threshold -->
@@ -216,6 +216,11 @@
       <div class="detail-modal-card">
         <button class="detail-modal-close" id="detailAdjustClose" aria-label="關閉">×</button>
         <h3 class="detail-modal-title">食物屬性細部調整</h3>
+
+        <div class="detail-name-field" id="detailNameField" hidden>
+          <p class="detail-option-label">菜名</p>
+          <input type="text" class="detail-name-input" id="detailNameInput" placeholder="輸入菜名">
+        </div>
 
         <div class="detail-section">
           <div class="detail-section-head">份量</div>

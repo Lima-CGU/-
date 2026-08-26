@@ -115,6 +115,13 @@
   function goToScreen(name){
     const fromName = phone.dataset.screen;
 
+    // Leaving the recognize screen for any reason (tab bar, home icon, the
+    // auto-advance itself) should drop a pending auto-advance — it must
+    // never fire later while the user is looking at some other screen.
+    if (fromName === 'recognize' && name !== 'recognize' && typeof cancelAutoAdvance === 'function'){
+      cancelAutoAdvance();
+    }
+
     steps.forEach(li => {
       li.classList.toggle('active', li.dataset.step === name);
       const order = ['start', 'camera', 'review', 'recognize'];
@@ -254,12 +261,6 @@
     return parts.join('・');
   }
 
-  function getDishDisplayText(det){
-    const base = det && !det.loading && det.name ? det.name : '辨識中…';
-    const detailText = det ? formatDishDetail(det.detail) : '';
-    return detailText ? `${base} · ${detailText}` : base;
-  }
-
   // Split "菜名(97%)" into the dish name and the confidence number, so the
   // bounding-box label can show the name as the primary text and the
   // confidence as a smaller, secondary detail.
@@ -288,6 +289,114 @@
     }
   }
 
+  // The paper's AI only recognizes the dish name — portion/cooking/sugar/
+  // salt are always filled in by the user by hand, for every dish, not as
+  // an occasional correction. Since that makes it a mandatory per-dish step
+  // rather than a rare fix, the spec's separate "Edit" (name) and "Expand"
+  // (attributes) entries are merged into one ✏️ editor here, instead of
+  // making the user open two different places to describe one dish.
+  const DIARY_ATTR_FIELDS = [
+    { icon: '🍳', get: d => d.cookingMethod || '' },
+    { icon: '🍽️', get: d => {
+      const containerMap = { plate: '盤子', bowl: '碗', cup: '杯子' };
+      const parts = [];
+      if (d.containerType) parts.push(containerMap[d.containerType] || d.containerType);
+      if (d.size) parts.push(d.size);
+      return parts.join('・');
+    } },
+    { icon: '🍯', get: d => d.sugar || '' },
+    { icon: '🧂', get: d => d.salt ? d.salt.replace(/\s+/g, '') : '' }
+  ];
+
+  // One row per saved dish in the Diary: its own bounding-box crop thumbnail,
+  // name, a bordered block listing cooking method / portion / sugar / salt
+  // (blank until the user fills them in — no placeholder example text), and
+  // three actions: 🎤 voice-correct the name, ✏️ open the merged name +
+  // attributes editor, 🗑️ delete this dish.
+  function renderDiaryDishRow(dish, meta){
+    const row = document.createElement('div');
+    row.className = 'meal-dish-row';
+
+    const thumb = document.createElement('img');
+    thumb.className = 'meal-dish-thumb';
+    thumb.src = dish.thumbUrl || '';
+    thumb.alt = dish.name || '';
+    row.appendChild(thumb);
+
+    const body = document.createElement('div');
+    body.className = 'meal-dish-body';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'meal-dish-name';
+    nameEl.textContent = dish.name;
+    body.appendChild(nameEl);
+
+    const attrsBox = document.createElement('div');
+    attrsBox.className = 'meal-dish-attrs';
+    const attrValueEls = DIARY_ATTR_FIELDS.map(field => {
+      const attrRow = document.createElement('div');
+      attrRow.className = 'meal-dish-attr';
+      const iconEl = document.createElement('span');
+      iconEl.className = 'meal-dish-attr-icon';
+      iconEl.textContent = field.icon;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'meal-dish-attr-value';
+      valueEl.textContent = field.get(dish.detail || {});
+      attrRow.append(iconEl, valueEl);
+      attrsBox.appendChild(attrRow);
+      return valueEl;
+    });
+    body.appendChild(attrsBox);
+    row.appendChild(body);
+
+    // Recognize-screen dets refresh their own labelEl; a Diary dish has no
+    // labelEl, so applyVoiceResult/confirmDetailAdjust call this instead.
+    dish.refreshRow = () => {
+      nameEl.textContent = dish.name;
+      DIARY_ATTR_FIELDS.forEach((field, i) => {
+        attrValueEls[i].textContent = field.get(dish.detail || {});
+      });
+    };
+
+    const actions = document.createElement('div');
+    actions.className = 'meal-dish-actions';
+
+    const actionsTop = document.createElement('div');
+    actionsTop.className = 'meal-dish-actions-top';
+
+    const micBtn = document.createElement('button');
+    micBtn.type = 'button';
+    micBtn.className = 'meal-dish-mic-btn';
+    micBtn.textContent = '🎤';
+    micBtn.setAttribute('aria-label', `用語音修正「${dish.name}」的菜名`);
+    micBtn.addEventListener('click', () => openVoiceModal(dish, 'name'));
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'meal-dish-edit-btn';
+    editBtn.textContent = '✏️';
+    editBtn.setAttribute('aria-label', `編輯「${dish.name}」的菜名與細部屬性`);
+    editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
+
+    actionsTop.append(micBtn, editBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'meal-dish-delete-btn';
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.setAttribute('aria-label', `刪除「${dish.name}」這道菜`);
+    deleteBtn.addEventListener('click', () => {
+      row.remove();
+      if (meta) meta.dishCount = Math.max(0, meta.dishCount - 1);
+      if (meta && meta.dishesEl) meta.dishesEl.textContent = `${meta.dishCount} 道菜`;
+    });
+
+    actions.append(actionsTop, deleteBtn);
+    row.appendChild(actions);
+
+    return row;
+  }
+
   function addMealCard(dataUrl, dishCount, dishes){
     emptyState.style.display = 'none';
     mealCount += 1;
@@ -301,34 +410,24 @@
     img.src = dataUrl;
     img.alt = `餐點照片,標記 ${dishCount} 道菜`;
 
+    const dishesEl = document.createElement('span');
+    dishesEl.className = 'meal-dishes';
+    dishesEl.textContent = `${dishCount} 道菜`;
     const meta = document.createElement('div');
     meta.className = 'meal-meta';
-    meta.innerHTML = `
-      <span class="meal-dishes">${dishCount} 道菜</span>
-      <span class="meal-time">${timestamp()}</span>
-    `;
+    meta.append(dishesEl);
+    const timeEl = document.createElement('span');
+    timeEl.className = 'meal-time';
+    timeEl.textContent = timestamp();
+    meta.append(timeEl);
+
+    const dishCountMeta = { dishCount, dishesEl };
 
     const status = document.createElement('div');
     if (dishes && dishes.length){
       status.className = 'meal-status done';
-      dishes.forEach(d => {
-        const row = document.createElement('div');
-        row.className = 'meal-dish-row';
-
-        const nameEl = document.createElement('span');
-        nameEl.className = 'meal-dish-name';
-        nameEl.textContent = d.name;
-        row.appendChild(nameEl);
-
-        const detailText = formatDishDetail(d.detail);
-        if (detailText){
-          const detailEl = document.createElement('span');
-          detailEl.className = 'meal-dish-detail';
-          detailEl.textContent = detailText;
-          row.appendChild(detailEl);
-        }
-
-        status.appendChild(row);
+      dishes.forEach(dish => {
+        status.appendChild(renderDiaryDishRow(dish, dishCountMeta));
       });
     } else {
       status.className = 'meal-status';
@@ -583,7 +682,6 @@
       showToast('自動辨識失敗,請重新拍照');
     }
 
-    finishRecognizeBtn.disabled = false;
     updateProgress();
   }
 
@@ -591,12 +689,64 @@
 
   let currentDetections = [];
 
+  // Once every dish is confirmed (and none is mid-edit, mid-recognition, or a
+  // freshly-dropped manual box still awaiting its "✓ 確認範圍"), the screen
+  // auto-advances to Diary after a short pause so the all-green state is
+  // actually visible before it navigates away. Any state change that makes
+  // "all confirmed" untrue again (e.g. dragging in a new manual box during
+  // that pause) must cancel the pending timer — checkAutoAdvance() re-derives
+  // this from currentDetections every time updateProgress() runs, so that
+  // just falls out naturally rather than needing separate bookkeeping.
+  let autoAdvanceTimer = null;
+
+  function cancelAutoAdvance(){
+    if (autoAdvanceTimer){
+      clearTimeout(autoAdvanceTimer);
+      autoAdvanceTimer = null;
+    }
+  }
+
+  function allDishesConfirmed(){
+    return currentDetections.length > 0 && currentDetections.every(d => d.confirmState === 'confirmed');
+  }
+
+  function checkAutoAdvance(){
+    if (!allDishesConfirmed()){
+      cancelAutoAdvance();
+      return;
+    }
+    if (autoAdvanceTimer) return; // already scheduled
+    showToast('全部確認完成,即將進入日記…');
+    // Aim for the whole pause (this wait + the thumbnail-cropping work
+    // performFinishRecognize does before the screen actually changes) to
+    // land within ~0.5-0.8s, not just this timer in isolation.
+    autoAdvanceTimer = setTimeout(() => {
+      autoAdvanceTimer = null;
+      if (allDishesConfirmed()) performFinishRecognize();
+    }, 550);
+  }
+
   function updateProgress(){
     const total = currentDetections.length;
     const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
     confirmProgress.textContent = total
       ? `已確認 ${done}`
       : '還沒有框任何一道菜';
+
+    // Nothing to say here when there's nothing detected yet (confirmProgress
+    // above already covers that with "還沒有框任何一道菜") or once every dish
+    // is confirmed (auto-advance is about to take over) — only show this as
+    // a status label for the one state in between: some dishes exist, not
+    // all confirmed yet.
+    if (total === 0 || done === total){
+      finishRecognizeBtn.hidden = true;
+    } else {
+      finishRecognizeBtn.hidden = false;
+      finishRecognizeBtn.disabled = true;
+      finishRecognizeBtn.textContent = `還有 ${total - done} 道菜未確認`;
+    }
+
+    checkAutoAdvance();
   }
 
   // Drives the three-state ✓ indicator: pending (hollow) -> editing (thin
@@ -617,7 +767,12 @@
       dot.classList.add(`state-${state}`);
     }
 
-    updateProgress();
+    // Only a recognize-screen det has a box/dot; a saved Diary dish reusing
+    // this same state machinery shouldn't touch the recognize screen's
+    // "已確認 N" progress readout.
+    if (box || dot){
+      updateProgress();
+    }
   }
 
   /* ---------- candidate-name bottom sheet (only for low-confidence dishes) ---------- */
@@ -725,6 +880,7 @@
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
     lowConfidenceQueue = [];
+    cancelAutoAdvance();
     closeCandidateDialog(true);
     finishRecognizeBtn.disabled = true;
     updateProgress();
@@ -781,29 +937,10 @@
       }
     });
 
-    const micBtn = document.createElement('button');
-    micBtn.type = 'button';
-    micBtn.className = 'det-mic';
-    micBtn.textContent = '🎤';
-    micBtn.setAttribute('aria-label', '用語音修正菜名');
-    micBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      det.preEditState = det.confirmState;
-      setConfirmState(det, 'editing');
-      openVoiceModal(det, 'name');
-    });
-
-    const detailBtn = document.createElement('button');
-    detailBtn.type = 'button';
-    detailBtn.className = 'det-detail';
-    detailBtn.textContent = '⚙ 細部調整';
-    detailBtn.setAttribute('aria-label', '細部調整這道菜的份量與烹調方式');
-    detailBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      openDetailAdjustModal(det);
-    });
-
-    box.append(removeBtn, dot, micBtn, detailBtn);
+    // Voice-correct and detail-adjust now live only behind Diary's unified
+    // ✏️ editor (see renderDiaryDishRow) — this screen just needs the ✓
+    // confirm indicator, so there's no mic/⚙ button here anymore.
+    box.append(removeBtn, dot);
     recognizeOverlay.appendChild(box);
 
     if (det.manualPendingSubmit){
@@ -955,30 +1092,39 @@
     document.addEventListener('pointerup', onUp);
   });
 
-  finishRecognizeBtn.addEventListener('click', () => {
+  // Shared by the auto-advance timer once every dish is confirmed. The
+  // button itself is now a non-interactive status label (see
+  // updateProgress) — it's hidden exactly when this would be reachable, so
+  // there's no click path into this anymore, only the auto-advance one.
+  async function performFinishRecognize(){
     const total = currentDetections.length;
-    if (total === 0){
-      showToast('AI 沒有辨識到菜色,可以拖曳左下角的框自己補一個,或重新拍一張照片');
+    if (total === 0 || currentDetections.some(d => d.loading) || !allDishesConfirmed()){
       return;
     }
-    if (currentDetections.some(d => d.loading)){
-      showToast('還有菜色在辨識中,等一下再試');
-      return;
-    }
-    const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
-    if (done < total){
-      showToast(`還有 ${total - done} 道菜還沒確認,點圓點確認一下`);
-      return;
-    }
-    const dishes = currentDetections.map(d => ({
-      name: d.name,
-      detail: d.detail ? { ...d.detail } : null
+    cancelAutoAdvance();
+
+    const photoDataUrl = currentPhotoData;
+    // Each Diary dish gets its own thumbnail — the actual bounding-box crop,
+    // not the whole plate photo — so cards stay recognizable at a glance.
+    const dishes = await Promise.all(currentDetections.map(async d => {
+      let thumbUrl = photoDataUrl;
+      try {
+        thumbUrl = await cropRegionToDataUrl(photoDataUrl, d.x, d.y, d.w, d.h);
+      } catch (err){
+        console.error('[finishRecognize] crop failed for dish thumbnail:', err);
+      }
+      return {
+        name: d.name,
+        detail: d.detail ? { ...d.detail } : null,
+        thumbUrl
+      };
     }));
-    addMealCard(currentPhotoData, currentDetections.length, dishes);
+
+    addMealCard(photoDataUrl, currentDetections.length, dishes);
     showToast('這餐記錄好了!');
     currentPhotoData = null;
     goToScreen('diary');
-  });
+  }
 
   window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t => t.stop());
@@ -989,6 +1135,8 @@
   const detailAdjustClose = document.getElementById('detailAdjustClose');
   const detailAdjustCancelBtn = document.getElementById('detailAdjustCancelBtn');
   const detailAdjustConfirmBtn = document.getElementById('detailAdjustConfirmBtn');
+  const detailNameField = document.getElementById('detailNameField');
+  const detailNameInput = document.getElementById('detailNameInput');
   const detailContainerList = document.getElementById('detailContainerList');
   const detailSizeList = document.getElementById('detailSizeList');
   const detailCookingList = document.getElementById('detailCookingList');
@@ -1139,14 +1287,31 @@
     setConfirmState(det, 'editing');
     detailDraft = { ...(det.detail || {}) };
     syncDetailSelectionState();
+
+    // Only a Diary dish (identified by having a refreshRow hook) gets the
+    // merged name field — the recognize screen's own ⚙ button still edits
+    // attributes only, with 🎤 staying its separate name-correction entry.
+    const isDiaryDish = typeof det.refreshRow === 'function';
+    detailNameField.hidden = !isDiaryDish;
+    if (isDiaryDish){
+      detailNameInput.value = stripConfidenceText(det.name || '');
+    }
+
     detailAdjustModal.hidden = false;
   }
 
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     detailAdjustTarget.detail = { ...detailDraft };
+    if (!detailNameField.hidden){
+      const newName = detailNameInput.value.trim();
+      if (newName) detailAdjustTarget.name = newName;
+    }
     if (detailAdjustTarget.labelEl) {
       renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
+    }
+    if (typeof detailAdjustTarget.refreshRow === 'function') {
+      detailAdjustTarget.refreshRow();
     }
     setConfirmState(detailAdjustTarget, 'confirmed');
     closeDetailAdjustModal();
@@ -1347,6 +1512,7 @@
     det.loading = false;
     if (det.labelEl) renderDetLabel(det.labelEl, det);
     if (det.dotEl) det.dotEl.classList.remove('loading');
+    if (typeof det.refreshRow === 'function') det.refreshRow();
     closeVoiceModal();
     setConfirmState(det, 'confirmed');
     showToast('菜名已更新');

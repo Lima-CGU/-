@@ -305,9 +305,7 @@ body{
 .usage-link:focus-visible,
 .btn:focus-visible,
 .detail-choice:focus-visible,
-.det-mic:focus-visible,
 .det-dot:focus-visible,
-.det-detail:focus-visible,
 .voice-btn-confirm:focus-visible,
 .voice-btn-retry:focus-visible,
 .voice-modal-close:focus-visible,
@@ -665,54 +663,6 @@ body{
   border-color: #12a981;
 }
 
-.det-mic{
-  position: absolute;
-  left: 50%; top: 50%;
-  width: 26px; height: 26px;
-  margin-left: 15px; margin-top: -13px;
-  border-radius: 50%;
-  border: none;
-  background: #fff;
-  color: var(--purple-deep);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  pointer-events: auto;
-  box-shadow: 0 0 0 4px rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.15);
-  transition: transform 0.15s ease;
-  z-index: 2;
-}
-.det-mic:hover, .det-mic:focus-visible{ transform: scale(1.12); outline: none; }
-.det-box.confirmed .det-mic{ color: var(--teal); }
-
-.det-detail{
-  display: inline-flex;
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  max-width: calc(100% - 92px);
-  align-items: center;
-  gap: 4px;
-  background: var(--surface);
-  border: 1.5px solid var(--purple);
-  color: var(--purple-deep);
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 4px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  pointer-events: auto;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-  z-index: 2;
-}
-.det-detail:hover{ background: var(--purple-soft); }
-
 .recognize-controls{
   display: flex;
   align-items: center;
@@ -927,6 +877,23 @@ body{
   text-align: center;
   letter-spacing: 0.02em;
 }
+
+.detail-name-field{
+  margin-bottom: 14px;
+}
+.detail-name-field[hidden]{ display: none; }
+.detail-name-input{
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.detail-name-input:focus{ outline: none; border-color: var(--purple); }
 
 .detail-section{
   border: 1.5px solid var(--line);
@@ -1365,6 +1332,7 @@ body{
 }
 .btn:active{ transform: scale(0.97); }
 .btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+.btn[hidden]{ display: none; }
 
 .btn-primary{ background: var(--purple); color: #fff; box-shadow: 0 8px 16px rgba(109,79,224,0.20); }
 .btn-primary:hover:not(:disabled){ background: var(--purple-deep); }
@@ -1532,24 +1500,119 @@ body{
 
 .meal-dish-row{
   display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.meal-dish-row:last-child{ border-bottom: none; padding-bottom: 2px; }
+.meal-dish-thumb{
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--purple-soft);
+}
+.meal-dish-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 .meal-dish-name{
   font-family: var(--font-body);
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Attribute list is its own bordered block, visually separated from the
+   photo/name — each row blank until the user fills it in via ✏️. */
+.meal-dish-attrs{
+  border: 1px solid var(--line);
+  background: #faf9fd;
+  border-radius: 8px;
+  padding: 5px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.meal-dish-attr{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 13px;
+}
+.meal-dish-attr-icon{
   font-size: 10.5px;
-  color: var(--teal);
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  line-height: 1;
 }
-.meal-dish-detail{
+.meal-dish-attr-value{
   font-family: var(--font-body);
-  font-size: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--purple-deep);
-  background: var(--purple-soft);
-  border-radius: 6px;
-  padding: 3px 6px;
-  width: fit-content;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.meal-dish-actions{
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.meal-dish-actions-top{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* 🎤 stays a plain line icon, no fill — only ✏️ gets the solid brand circle,
+   so the one actionable "edit everything" entry point stands out. */
+.meal-dish-mic-btn{
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
+}
+.meal-dish-edit-btn{
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: var(--purple);
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+.meal-dish-edit-btn:hover{ background: var(--purple-deep); }
+.meal-dish-delete-btn{
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
+}
+.meal-dish-delete-btn:hover{ color: var(--coral); }
 .meal-dish-feedback{
   font-family: var(--font-body);
   font-size: 10px;
