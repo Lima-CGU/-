@@ -289,6 +289,14 @@
     }
   }
 
+  // Line icons (not emoji — emoji glyphs carry their own fixed colors and
+  // ignore CSS `color`, so a uniform purple line-icon look needs real SVG)
+  // for each attribute row, matching the reference UI's icon style.
+  const DIARY_ICON_COOKING = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><circle cx="10" cy="13" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="15" y1="10" x2="20" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const DIARY_ICON_PORTION = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 11c0-2.2 1.8-4 4-4s4 1.8 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const DIARY_ICON_SUGAR = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+  const DIARY_ICON_SALT = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M9.5 4h5l.9 2.5h-6.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.4 6.5h7.2L14.4 19a1 1 0 0 1-1 1h-2.8a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="10.8" cy="10" r=".6" fill="currentColor"/><circle cx="13.2" cy="10" r=".6" fill="currentColor"/><circle cx="12" cy="12.4" r=".6" fill="currentColor"/></svg>';
+
   // The paper's AI only recognizes the dish name — portion/cooking/sugar/
   // salt are always filled in by the user by hand, for every dish, not as
   // an occasional correction. Since that makes it a mandatory per-dish step
@@ -296,16 +304,16 @@
   // (attributes) entries are merged into one ✏️ editor here, instead of
   // making the user open two different places to describe one dish.
   const DIARY_ATTR_FIELDS = [
-    { icon: '🍳', get: d => d.cookingMethod || '' },
-    { icon: '🍽️', get: d => {
+    { icon: DIARY_ICON_COOKING, get: d => d.cookingMethod || '' },
+    { icon: DIARY_ICON_PORTION, get: d => {
       const containerMap = { plate: '盤子', bowl: '碗', cup: '杯子' };
       const parts = [];
       if (d.containerType) parts.push(containerMap[d.containerType] || d.containerType);
       if (d.size) parts.push(d.size);
       return parts.join('・');
     } },
-    { icon: '🍯', get: d => d.sugar || '' },
-    { icon: '🧂', get: d => d.salt ? d.salt.replace(/\s+/g, '') : '' }
+    { icon: DIARY_ICON_SUGAR, get: d => d.sugar || '' },
+    { icon: DIARY_ICON_SALT, get: d => d.salt ? d.salt.replace(/\s+/g, '') : '' }
   ];
 
   // One row per saved dish in the Diary: its own bounding-box crop thumbnail,
@@ -338,7 +346,7 @@
       attrRow.className = 'meal-dish-attr';
       const iconEl = document.createElement('span');
       iconEl.className = 'meal-dish-attr-icon';
-      iconEl.textContent = field.icon;
+      iconEl.innerHTML = field.icon;
       const valueEl = document.createElement('span');
       valueEl.className = 'meal-dish-attr-value';
       valueEl.textContent = field.get(dish.detail || {});
@@ -367,14 +375,14 @@
     const micBtn = document.createElement('button');
     micBtn.type = 'button';
     micBtn.className = 'meal-dish-mic-btn';
-    micBtn.textContent = '🎤';
+    micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
     micBtn.setAttribute('aria-label', `用語音修正「${dish.name}」的菜名`);
     micBtn.addEventListener('click', () => openVoiceModal(dish, 'name'));
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'meal-dish-edit-btn';
-    editBtn.textContent = '✏️';
+    editBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20l1-4.2L15.6 5.2a1.5 1.5 0 0 1 2.1 0l1.1 1.1a1.5 1.5 0 0 1 0 2.1L8.2 19l-4.2 1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
     editBtn.setAttribute('aria-label', `編輯「${dish.name}」的菜名與細部屬性`);
     editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
 
@@ -383,7 +391,7 @@
     const deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
     deleteBtn.className = 'meal-dish-delete-btn';
-    deleteBtn.textContent = '🗑️';
+    deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M5 7h14M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     deleteBtn.setAttribute('aria-label', `刪除「${dish.name}」這道菜`);
     deleteBtn.addEventListener('click', () => {
       row.remove();
@@ -533,7 +541,8 @@
       const candidates = (data.dishes || [])
         .map(d => ({
           name: String(d.name || '').trim(),
-          confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0)))
+          confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
+          category: d.category === 'beverage' ? 'beverage' : 'food'
         }))
         // "看不出來" is GPT saying it couldn't identify anything — never show
         // it as a pickable candidate (it can carry any confidence number).
@@ -672,6 +681,7 @@
             x: box.x, y: box.y, w: box.w, h: box.h,
             name: `${d.name}(${confidence}%)`,
             confidence,
+            category: d.category === 'beverage' ? 'beverage' : 'food',
             loading: false,
             confirmState: 'pending'
           };
@@ -872,6 +882,7 @@
     if (det && choice){
       det.name = `${choice.name}(${choice.confidence}%)`;
       det.confidence = choice.confidence;
+      det.category = choice.category === 'beverage' ? 'beverage' : 'food';
       if (det.labelEl) renderDetLabel(det.labelEl, det);
       setConfirmState(det, 'confirmed');
     }
@@ -890,7 +901,7 @@
       return;
     }
     const candidates = await fetchCandidatesForDet(det);
-    const fallback = { name: splitNameConfidence(det.name).name || det.name, confidence: det.confidence };
+    const fallback = { name: splitNameConfidence(det.name).name || det.name, confidence: det.confidence, category: det.category === 'beverage' ? 'beverage' : 'food' };
     const choices = candidates.length ? candidates : [fallback];
     openCandidateDialog(det, choices, () => processLowConfidenceQueue());
   }
@@ -1052,6 +1063,7 @@
     const top = candidates[0];
     det.name = `${top.name}(${top.confidence}%)`;
     det.confidence = top.confidence;
+    det.category = top.category === 'beverage' ? 'beverage' : 'food';
     if (det.labelEl) renderDetLabel(det.labelEl, det);
     updateProgress();
 
@@ -1072,6 +1084,7 @@
       x, y, w, h,
       name: '拖曳邊角調整範圍,再按 ✓ 確認',
       confidence: 0,
+      category: 'food',
       loading: false,
       confirmState: 'pending',
       manualPendingSubmit: true
@@ -1160,6 +1173,7 @@
       return {
         name: d.name,
         detail: d.detail ? { ...d.detail } : null,
+        category: d.category === 'beverage' ? 'beverage' : 'food',
         thumbUrl
       };
     }));
@@ -1193,7 +1207,7 @@
     { value: 'cup', icon: '🥤', label: '杯子' }
   ];
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
-  const cookingOptions = [
+  const FOOD_COOKING_METHODS = [
     { value: '沙拉', icon: '🥗' },
     { value: '水煮', icon: '🍲' },
     { value: '蒸', icon: '♨️' },
@@ -1203,6 +1217,15 @@
     { value: '烤', icon: '🥖' },
     { value: '燒烤', icon: '🍖' },
     { value: '烘焙', icon: '🍰' }
+  ];
+  const BEVERAGE_COOKING_METHODS = [
+    { value: '沖泡', icon: '☕' },
+    { value: '現煮', icon: '🍵' },
+    { value: '現榨', icon: '🧃' },
+    { value: '冰鎮', icon: '🧊' },
+    { value: '熱飲', icon: '🔥' },
+    { value: '調製', icon: '🍹' },
+    { value: '不適用', icon: '🚫' }
   ];
   const sugarOptions = [
     { value: '無糖', level: 0 },
@@ -1222,6 +1245,24 @@
   let detailAdjustTarget = null;
   let detailDraft = {};
 
+  // Rebuilds the cooking-method picker for the given dish category, reusing
+  // the same list/scroll-hint UI for both — only which array feeds it differs.
+  function renderCookingMethodOptions(category){
+    const methods = category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
+    detailCookingList.innerHTML = methods.map(option => `
+      <button type="button" class="detail-choice detail-cooking-choice" data-kind="cookingMethod" data-value="${option.value}" aria-label="${option.value}">
+        <span class="detail-choice-icon">${option.icon}</span>
+        <span class="detail-choice-label">${option.value}</span>
+      </button>
+    `).join('');
+    detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        detailDraft.cookingMethod = btn.dataset.value;
+        syncDetailSelectionState();
+      });
+    });
+  }
+
   function renderDetailSelectorButtons(){
     detailContainerList.innerHTML = containerOptions.map(option => `
       <button type="button" class="detail-choice detail-container-choice" data-kind="containerType" data-value="${option.value}" aria-label="${option.label}">
@@ -1234,12 +1275,7 @@
       <button type="button" class="detail-choice detail-size-choice" data-kind="size" data-value="${size}" aria-label="尺寸 ${size}">${size}</button>
     `).join('');
 
-    detailCookingList.innerHTML = cookingOptions.map(option => `
-      <button type="button" class="detail-choice detail-cooking-choice" data-kind="cookingMethod" data-value="${option.value}" aria-label="${option.value}">
-        <span class="detail-choice-icon">${option.icon}</span>
-        <span class="detail-choice-label">${option.value}</span>
-      </button>
-    `).join('');
+    renderCookingMethodOptions('food');
 
     detailSugarList.innerHTML = sugarOptions.map(option => `
       <button type="button" class="detail-choice detail-sugar-choice" data-kind="sugar" data-value="${option.value}" aria-label="糖 ${option.value}">
@@ -1267,13 +1303,6 @@
     detailSizeList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
         detailDraft.size = btn.dataset.value;
-        syncDetailSelectionState();
-      });
-    });
-
-    detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
-      btn.addEventListener('click', () => {
-        detailDraft.cookingMethod = btn.dataset.value;
         syncDetailSelectionState();
       });
     });
@@ -1330,6 +1359,7 @@
     det.preEditState = det.confirmState;
     setConfirmState(det, 'editing');
     detailDraft = { ...(det.detail || {}) };
+    renderCookingMethodOptions(det.category === 'beverage' ? 'beverage' : 'food');
     syncDetailSelectionState();
 
     // Only a Diary dish (identified by having a refreshRow hook) gets the

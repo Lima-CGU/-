@@ -1546,14 +1546,16 @@ body{
 .meal-dish-name{
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 11.5px;
-  color: var(--ink);
+  font-size: 14px;
+  color: #1a1a1a;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Attribute list is its own bordered block, visually separated from the
-   photo/name — each row blank until the user fills it in via ✏️. */
+   photo/name — each row blank until the user fills it in via ✏️. Icons are
+   all the same purple line-icon treatment (never the value text's color),
+   so a missing value just reads as an icon with nothing after it. */
 .meal-dish-attrs{
   border: 1px solid var(--line);
   background: #faf9fd;
@@ -1567,15 +1569,18 @@ body{
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 13px;
+  min-height: 14px;
 }
 .meal-dish-attr-icon{
-  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  text-align: center;
-  line-height: 1;
+  color: var(--purple);
 }
+.meal-dish-attr-icon svg{ display: block; }
 .meal-dish-attr-value{
   font-family: var(--font-body);
   font-size: 10.5px;
@@ -1598,42 +1603,36 @@ body{
   align-items: center;
   gap: 8px;
 }
-/* 🎤 stays a plain line icon, no fill — only ✏️ gets the solid brand circle,
-   so the one actionable "edit everything" entry point stands out. */
-.meal-dish-mic-btn{
-  background: transparent;
-  border: none;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px;
-  cursor: pointer;
-}
-.meal-dish-edit-btn{
+/* All three action icons share the same 26px circular footprint so they
+   line up visually — only 🎤's circle is left transparent (no visible
+   fill), while ✏️ and 🗑️ get real backgrounds. */
+.meal-dish-mic-btn,
+.meal-dish-edit-btn,
+.meal-dish-delete-btn{
   width: 26px;
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: var(--purple);
-  color: #fff;
-  font-size: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   cursor: pointer;
 }
+.meal-dish-mic-btn{
+  background: transparent;
+  color: #1a1a1a;
+}
+.meal-dish-edit-btn{
+  background: var(--purple);
+  color: #fff;
+}
 .meal-dish-edit-btn:hover{ background: var(--purple-deep); }
 .meal-dish-delete-btn{
-  background: transparent;
-  border: none;
-  color: var(--ink-soft);
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px;
-  cursor: pointer;
+  background: #f0eff2;
+  color: #8a8a8a;
 }
-.meal-dish-delete-btn:hover{ color: var(--coral); }
+.meal-dish-delete-btn:hover{ background: #ffe3dd; color: var(--coral); }
 .meal-dish-feedback{
   font-family: var(--font-body);
   font-size: 10px;

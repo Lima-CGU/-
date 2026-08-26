@@ -35,13 +35,14 @@ const RECOGNIZE_PROMPT = `你是食物辨識助手。你收到的這張照片,�
 1. 想出最可能的菜名,當作第一候選,並誠實估計信心百分比(0-100 整數)。
 2. 再想出至少 1 個、最多 2 個外觀/顏色/質地上合理、但確實不同的其他可能菜名,當作備選候選——這是必須的步驟,不能省略。
 3. 每個候選必須是彼此不同的猜測(不同食材、不同做法或不同菜名),不能只是同一個答案的文字微調或重複。
-4. 唯一的例外:如果整張照片糊到完全看不出任何食物形狀或顏色線索,才可以只回傳 1 個候選,name 填「看不出來」,confidence 填 0。
+4. 每個候選都要判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘固體或半固體食物(包含湯品)一律填 "food"。
+5. 唯一的例外:如果整張照片糊到完全看不出任何食物形狀或顏色線索,才可以只回傳 1 個候選,name 填「看不出來」,confidence 填 0,category 填 "food"。
 
 依信心度由高到低排序。請「只」回傳如下格式的 JSON,不要加任何說明文字:
-{"dishes":[{"name":"菜名1","confidence":65},{"name":"菜名2","confidence":40},{"name":"菜名3","confidence":25}]}`;
+{"dishes":[{"name":"菜名1","confidence":65,"category":"food"},{"name":"菜名2","confidence":40,"category":"food"},{"name":"菜名3","confidence":25,"category":"beverage"}]}`;
 
-const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照片,裡面可能有好幾道不同的菜(不同容器、不同菜色算不同的一道)。
-請找出照片中每一道個別的菜,用繁體中文取名,並估計它在照片中的邊界框位置。
+const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照片,裡面可能有好幾道不同的菜或飲品(不同容器、不同菜色算不同的一道,飲品也算一道)。
+請找出照片中每一道個別的菜或飲品,用繁體中文取名,並估計它在照片中的邊界框位置。
 
 極重要：框選目標必須是「食物視覺主體」而不是「容器輪廓」。
 - 絕對不要把整個碗、整個盤、整個桌面、整個背景都框進去。
@@ -63,9 +64,11 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 正確示例:
 - 只框住可食用的食物主體,邊距很小,像食物輪廓,不是容器輪廓
 
+每一道也請判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘固體或半固體食物(包含湯品)一律填 "food"。
+
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
-{"dishes":[{"name":"菜名","confidence":90,"x":10,"y":15,"w":30,"h":25}]}
+{"dishes":[{"name":"菜名","confidence":90,"category":"food","x":10,"y":15,"w":30,"h":25}]}
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜。`;
 
 // imageUrl 可傳 null,這時只送純文字給 GPT-4o(不需要 vision)
@@ -225,6 +228,13 @@ async function callSegmentationModel(imageBase64){
 
 function clampPct(n){
   return Math.max(0, Math.min(100, Number(n) || 0));
+}
+
+// GPT is asked for "food" or "beverage" but might omit the field or return
+// something else entirely — never let that reach the frontend as anything
+// but one of the two known values, defaulting to "food".
+function normalizeCategory(value){
+  return value === 'beverage' ? 'beverage' : 'food';
 }
 
 function normalizeDishBox(rawBox){
@@ -427,17 +437,17 @@ app.get('/', (req, res) => {
 // instead of depending on one call's compliance.
 async function fetchAlternateCandidate(imageUrl, excludeName){
   const prompt = `你是食物辨識助手。這張照片裡的食物,已經有人猜測是「${excludeName}」,但信心不高。
-請你用繁體中文想出「另一個不同的」合理猜測——外觀、顏色或質地上合理,但必須是跟「${excludeName}」不同的菜名,不能只是同義詞或文字上的小變化。
+請你用繁體中文想出「另一個不同的」合理猜測——外觀、顏色或質地上合理,但必須是跟「${excludeName}」不同的菜名,不能只是同義詞或文字上的小變化。同時判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘一律填 "food"。
 如果你真的想不出任何合理的不同猜測,name 請填跟「${excludeName}」一樣,confidence 填 0。
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
-{"name":"備選菜名","confidence":40}`;
+{"name":"備選菜名","confidence":40,"category":"food"}`;
 
   try {
     const parsed = await callOpenAIVision(imageUrl, prompt, 150);
     const name = String(parsed.name || '').trim();
     const confidence = Math.max(0, Math.min(100, Math.round(Number(parsed.confidence) || 0)));
     if (!name || name === excludeName || name === '看不出來' || confidence <= 0) return null;
-    return { name, confidence };
+    return { name, confidence, category: normalizeCategory(parsed.category) };
   } catch (err){
     console.error('[recognize] alternate-candidate call failed:', err.message);
     return null;
@@ -468,7 +478,8 @@ app.post('/api/recognize', async (req, res) => {
       .slice(0, 5)
       .map(d => ({
         name: String(d.name || '').trim(),
-        confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0)))
+        confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
+        category: normalizeCategory(d.category)
       }))
       .filter(d => d.name && d.name !== '看不出來');
 
@@ -505,11 +516,16 @@ app.post('/api/detect', async (req, res) => {
     let dishes = [];
 
     if (segmentationBoxes && segmentationBoxes.length) {
+      // A third-party segmentation adapter has no concept of food-vs-
+      // beverage — it's not GPT, so there's nothing to ask it to classify.
+      // Always "food" here; only the GPT-4o DETECT_PROMPT path below can
+      // actually tell the two apart.
       dishes = segmentationBoxes
         .slice(0, 8)
         .map(box => ({
           name: String(box.name || '食物區塊').trim(),
           confidence: Math.max(0, Math.min(100, box.confidence || 90)),
+          category: 'food',
           ...normalizeDishBox(box)
         }));
     } else {
@@ -522,6 +538,7 @@ app.post('/api/detect', async (req, res) => {
           return {
             name: String(d.name || '').trim(),
             confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
+            category: normalizeCategory(d.category),
             ...padded
           };
         })
