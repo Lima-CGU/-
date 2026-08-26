@@ -1112,6 +1112,29 @@
     document.addEventListener('pointerup', onUp);
   });
 
+  // GPT-4o's boxes are an estimate, not pixel-accurate detection (see
+  // README), so a Diary thumbnail cropped exactly to the box can end up
+  // clipping a bit of the dish at the edges. Padding the crop region a
+  // little — just for the thumbnail, not the live det.x/y/w/h used for
+  // confirming/re-recognizing — lowers the odds of that without needing a
+  // more precise (and non-free) detection model.
+  const THUMBNAIL_SAFETY_MARGIN = 0.12; // 12% of the box's own size, each side
+  function padBoxForThumbnail(x, y, w, h){
+    const padW = w * THUMBNAIL_SAFETY_MARGIN;
+    const padH = h * THUMBNAIL_SAFETY_MARGIN;
+    let nx = x - padW;
+    let ny = y - padH;
+    let nw = w + padW * 2;
+    let nh = h + padH * 2;
+
+    if (nx < 0){ nw += nx; nx = 0; }
+    if (ny < 0){ nh += ny; ny = 0; }
+    if (nx + nw > 100) nw = 100 - nx;
+    if (ny + nh > 100) nh = 100 - ny;
+
+    return { x: nx, y: ny, w: nw, h: nh };
+  }
+
   // Shared by the auto-advance timer once every dish is confirmed. The
   // button itself is now a non-interactive status label (see
   // updateProgress) — it's hidden exactly when this would be reachable, so
@@ -1129,7 +1152,8 @@
     const dishes = await Promise.all(currentDetections.map(async d => {
       let thumbUrl = photoDataUrl;
       try {
-        thumbUrl = await cropRegionToDataUrl(photoDataUrl, d.x, d.y, d.w, d.h);
+        const padded = padBoxForThumbnail(d.x, d.y, d.w, d.h);
+        thumbUrl = await cropRegionToDataUrl(photoDataUrl, padded.x, padded.y, padded.w, padded.h);
       } catch (err){
         console.error('[finishRecognize] crop failed for dish thumbnail:', err);
       }
