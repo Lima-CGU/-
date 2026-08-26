@@ -637,6 +637,14 @@
     return { x, y, w: width, h: height };
   }
 
+  // Single source of truth for "AI is working" — the spinner lives here,
+  // next to the text that already says so, instead of a second indicator
+  // repeating the same fact in different words further down the screen.
+  function setRecognizeHint(text, loading){
+    recognizeHint.textContent = text;
+    recognizeHint.classList.toggle('recognize-hint-loading', !!loading);
+  }
+
   async function autoDetectDishes(photoDataUrl){
     isAutoDetecting = true;
     updateProgress();
@@ -645,7 +653,7 @@
       backendWarned = true;
       showToast('第一次辨識可能要等後端伺服器醒過來,約 30-50 秒');
     }
-    recognizeHint.textContent = 'AI 正在自動框出並辨識菜色…';
+    setRecognizeHint('AI 正在自動框出並辨識菜色…', true);
     finishRecognizeBtn.disabled = true;
 
     try {
@@ -653,7 +661,7 @@
       const dishes = data.dishes || [];
 
       if (!dishes.length){
-        recognizeHint.textContent = '沒有辨識到菜色,可以拖曳左下角的框自己補一個';
+        setRecognizeHint('沒有辨識到菜色,可以拖曳左下角的框自己補一個', false);
       } else {
         const lowConfidenceDishes = [];
         dishes.forEach((d, i) => {
@@ -673,7 +681,7 @@
             lowConfidenceDishes.push(det);
           }
         });
-        recognizeHint.textContent = '';
+        setRecognizeHint('', false);
         if (lowConfidenceDishes.length){
           lowConfidenceQueue.push(...lowConfidenceDishes);
           processLowConfidenceQueue();
@@ -681,7 +689,7 @@
       }
     } catch (err){
       console.error(err);
-      recognizeHint.textContent = '自動辨識失敗,請重新拍一張照片試試';
+      setRecognizeHint('自動辨識失敗,請重新拍一張照片試試', false);
       showToast('自動辨識失敗,請重新拍照');
     }
 
@@ -738,9 +746,11 @@
     const total = currentDetections.length;
     const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
 
-    confirmProgress.classList.toggle('confirm-progress-loading', isAutoDetecting);
+    // While AI is still detecting, recognizeHint above the photo already
+    // says so (with its own spinner) — stay quiet here instead of repeating
+    // the same "still working" message in different words.
     confirmProgress.textContent = isAutoDetecting
-      ? 'AI 偵測中,請稍候…'
+      ? ''
       : (total ? `已確認 ${done}` : '還沒有框任何一道菜');
 
     // Nothing to say here when there's nothing detected yet (confirmProgress
