@@ -138,18 +138,6 @@
         <span class="confirm-progress" id="confirmProgress">還沒有框任何一道菜</span>
         <button class="btn btn-outline" id="finishRecognizeBtn" disabled hidden></button>
       </div>
-
-      <!-- Candidate-name bottom sheet: only shown when AI confidence is below the threshold -->
-      <div class="candidate-sheet" id="candidateSheet" hidden>
-        <div class="candidate-sheet-card">
-          <p class="candidate-sheet-title">Meal you report is :</p>
-          <div class="candidate-list" id="candidateList"></div>
-          <div class="candidate-actions">
-            <button type="button" class="btn btn-outline candidate-btn-cancel" id="candidateCancelBtn">Cancel</button>
-            <button type="button" class="btn btn-primary candidate-btn-confirm" id="candidateConfirmBtn">Confirm</button>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- Screen Diary: saved meal records, lives inside the app -->
@@ -172,6 +160,21 @@
         </div>
       </div>
     </section>
+
+    <!-- Candidate-name bottom sheet: only shown when AI confidence is below
+         the threshold. Lives at the phone level (not inside any one screen)
+         since it's also used by add-dish mode, which opens it while the
+         review/camera screen is active, not the recognize screen. -->
+    <div class="candidate-sheet" id="candidateSheet" hidden>
+      <div class="candidate-sheet-card">
+        <p class="candidate-sheet-title">Meal you report is :</p>
+        <div class="candidate-list" id="candidateList"></div>
+        <div class="candidate-actions">
+          <button type="button" class="btn btn-outline candidate-btn-cancel" id="candidateCancelBtn">Cancel</button>
+          <button type="button" class="btn btn-primary candidate-btn-confirm" id="candidateConfirmBtn">Confirm</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Voice correction modal, shared by every detection box -->
     <div class="voice-modal" id="voiceModal" hidden>

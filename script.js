@@ -45,6 +45,11 @@
   let stream = null;
   let currentPhotoData = null;
   let mealCount = 0;
+  // Set while the camera is being used to add one more dish to an already-
+  // saved meal record, instead of starting a brand-new one — holds refs to
+  // that meal card's own dish-list container and dish-count label. Cleared
+  // whenever the user bails out (Home/Diary) without actually taking a photo.
+  let addDishTargetMeal = null;
 
   /* ---------- toast ---------- */
   let toastTimer = null;
@@ -120,6 +125,13 @@
     // never fire later while the user is looking at some other screen.
     if (fromName === 'recognize' && name !== 'recognize' && typeof cancelAutoAdvance === 'function'){
       cancelAutoAdvance();
+    }
+
+    // Bailing out to Home or Diary without ever taking the add-dish photo
+    // (the success path itself already clears this before navigating away,
+    // so this is purely a safety net for an abandoned attempt).
+    if (name === 'start' || name === 'diary'){
+      addDishTargetMeal = null;
     }
 
     steps.forEach(li => {
@@ -421,15 +433,33 @@
     dishesEl.textContent = `${dishCount} 道菜`;
     const meta = document.createElement('div');
     meta.className = 'meal-meta';
-    meta.append(dishesEl);
+
     const timeEl = document.createElement('span');
     timeEl.className = 'meal-time';
     timeEl.textContent = timestamp();
-    meta.append(timeEl);
 
     const dishCountMeta = { dishCount, dishesEl };
 
     const status = document.createElement('div');
+
+    // Lets the user add one more dish to this already-saved record later,
+    // without redoing the whole capture -> detect -> confirm flow — see
+    // handleAddDishPhoto/appendDishToMeal, which this button hands off to.
+    const addDishBtn = document.createElement('button');
+    addDishBtn.type = 'button';
+    addDishBtn.className = 'meal-add-dish-btn';
+    addDishBtn.textContent = '+ 新增菜色';
+    addDishBtn.setAttribute('aria-label', '為這筆紀錄新增一道菜');
+    addDishBtn.addEventListener('click', () => {
+      addDishTargetMeal = { status, dishCountMeta, cardEl: card };
+      goToScreen('camera');
+    });
+
+    const metaRight = document.createElement('div');
+    metaRight.className = 'meal-meta-right';
+    metaRight.append(addDishBtn, timeEl);
+    meta.append(dishesEl, metaRight);
+
     if (dishes && dishes.length){
       status.className = 'meal-status done';
       dishes.forEach(dish => {
@@ -457,9 +487,84 @@
 
   confirmUploadBtn.addEventListener('click', () => {
     if (!currentPhotoData) return;
+    if (addDishTargetMeal){
+      handleAddDishPhoto(currentPhotoData, addDishTargetMeal);
+      return;
+    }
     goToScreen('recognize');
     setupRecognizeScreen(currentPhotoData);
   });
+
+  // Add-dish mode: skip /api/detect entirely (that's for finding multiple
+  // dishes in a whole plate) and send the single photo straight to
+  // /api/recognize, same as a manual box does. photoDataUrl/target are
+  // captured here rather than re-read from the mutable globals later, so a
+  // retake or a second add-dish click mid-request can't corrupt this run.
+  async function handleAddDishPhoto(photoDataUrl, target){
+    showToast('正在辨識新菜色…');
+
+    let candidates = [];
+    try {
+      const data = await callRecognizeAPI(photoDataUrl);
+      candidates = (data.dishes || [])
+        .map(d => ({
+          name: String(d.name || '').trim(),
+          confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
+          category: d.category === 'beverage' ? 'beverage' : 'food'
+        }))
+        .filter(d => d.name && d.name !== '看不出來')
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 3);
+    } catch (err){
+      console.error('[handleAddDishPhoto] recognize call failed:', err);
+      showToast('辨識失敗,請重新拍照試試');
+      return;
+    }
+
+    if (!candidates.length){
+      appendDishToMeal(target, { name: '辨識失敗,自己填', category: 'food' }, photoDataUrl);
+      return;
+    }
+
+    const top = candidates[0];
+    if (top.confidence >= CONFIDENCE_DIALOG_THRESHOLD * 100){
+      appendDishToMeal(target, { name: `${top.name}(${top.confidence}%)`, category: top.category }, photoDataUrl);
+      return;
+    }
+
+    // Reuses the same candidate-name bottom sheet the recognize screen uses;
+    // a plain object works because openCandidateDialog/setConfirmState only
+    // touch box/dot/labelEl when they exist (see setConfirmState).
+    const virtualDet = { name: null, confidence: 0, category: 'food', confirmState: 'pending' };
+    openCandidateDialog(virtualDet, candidates, () => {
+      // onClose fires for both Confirm and Cancel; only Confirm sets a name.
+      if (!virtualDet.name){
+        showToast('已取消新增菜色');
+        return;
+      }
+      appendDishToMeal(target, { name: virtualDet.name, category: virtualDet.category }, photoDataUrl);
+    });
+  }
+
+  function appendDishToMeal(target, dishInfo, photoDataUrl){
+    const dish = {
+      name: dishInfo.name,
+      detail: null,
+      category: dishInfo.category === 'beverage' ? 'beverage' : 'food',
+      thumbUrl: photoDataUrl
+    };
+    target.status.appendChild(renderDiaryDishRow(dish, target.dishCountMeta));
+    target.dishCountMeta.dishCount += 1;
+    target.dishCountMeta.dishesEl.textContent = `${target.dishCountMeta.dishCount} 道菜`;
+
+    addDishTargetMeal = null;
+    currentPhotoData = null;
+    goToScreen('diary');
+    showToast('新菜色已加入!');
+    requestAnimationFrame(() => {
+      target.cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
 
   /* ---------- mock recognition (demo data, no real AI) ---------- */
   const DISH_NAME_POOL = [

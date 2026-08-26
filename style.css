@@ -1512,6 +1512,23 @@ body{
   align-items: center;
   margin-top: 10px;
 }
+.meal-meta-right{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meal-add-dish-btn{
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 10.5px;
+  color: var(--purple-deep);
+  background: var(--purple-soft);
+  border: 1.5px solid var(--purple);
+  border-radius: 20px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.meal-add-dish-btn:hover{ background: var(--purple); color: #fff; }
 .meal-time{
   font-family: var(--font-body);
   font-size: 10.5px;
