@@ -5,11 +5,11 @@
   const steps       = document.querySelectorAll('.flow-steps li');
   const screens      = document.querySelectorAll('.screen');
   const phone        = document.getElementById('phone');
-  const tabDiaryBtn  = document.getElementById('tabDiaryBtn');
-  const tabCameraBtn = document.getElementById('tabCameraBtn');
 
   const toCameraBtn      = document.getElementById('toCameraBtn');
   const usageLink        = document.getElementById('usageLink');
+  const cameraDiaryBtn   = document.getElementById('cameraDiaryBtn');
+  const diaryCameraBtn   = document.getElementById('diaryCameraBtn');
   const usageModal       = document.getElementById('usageModal');
   const usageModalClose  = document.getElementById('usageModalClose');
   const usageConfirmBtn  = document.getElementById('usageConfirmBtn');
@@ -115,7 +115,7 @@
   function goToScreen(name){
     const fromName = phone.dataset.screen;
 
-    // Leaving the recognize screen for any reason (tab bar, home icon, the
+    // Leaving the recognize screen for any reason (home icon, the
     // auto-advance itself) should drop a pending auto-advance — it must
     // never fire later while the user is looking at some other screen.
     if (fromName === 'recognize' && name !== 'recognize' && typeof cancelAutoAdvance === 'function'){
@@ -128,8 +128,6 @@
       li.classList.toggle('done', order.indexOf(li.dataset.step) < order.indexOf(name));
     });
     phone.dataset.screen = name;
-    tabDiaryBtn.classList.toggle('active', name === 'diary');
-    tabCameraBtn.classList.toggle('active', name === 'start');
     if (name === 'camera') openCamera();
     else closeCamera();
 
@@ -146,8 +144,8 @@
     slideToScreen(fromEl, toEl, isForward);
   }
 
-  tabDiaryBtn.addEventListener('click', () => goToScreen('diary'));
-  tabCameraBtn.addEventListener('click', () => goToScreen('start'));
+  cameraDiaryBtn.addEventListener('click', () => goToScreen('diary'));
+  diaryCameraBtn.addEventListener('click', () => goToScreen('start'));
 
   function openUsageModal(){
     usageModal.hidden = false;

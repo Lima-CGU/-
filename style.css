@@ -380,6 +380,10 @@ body{
 }
 .start-topbar-icon:hover,
 .camera-topbar-icon:hover{ opacity: 1; }
+.camera-topbar-icon-right{
+  left: auto;
+  right: 12px;
+}
 .camera-frame-label{
   font-family: var(--font-body);
   font-weight: 700;
@@ -1408,9 +1412,14 @@ body{
 .diary-body{ gap: 0; }
 .diary-heading{
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
+}
+.diary-heading-actions{
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .diary-heading h2{
   font-family: var(--font-display);
@@ -1429,6 +1438,22 @@ body{
   padding: 4px 10px;
   border-radius: 20px;
 }
+.diary-camera-btn{
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  background: var(--purple);
+  color: #fff;
+  flex-shrink: 0;
+}
+.diary-camera-btn:hover{ background: var(--purple-deep); }
+.diary-camera-btn svg{ display: block; }
 
 .diary-list{
   flex: 1;
@@ -1670,43 +1695,6 @@ body{
 }
 .meal-card:hover .meal-remove{ opacity: 1; }
 .meal-remove:hover{ background: var(--coral); }
-
-/* ---------- bottom tab bar (app-style nav, only on start/diary screens) ---------- */
-.app-tabbar{
-  display: none;
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 62px;
-  align-items: center;
-  justify-content: center;
-  gap: 48px;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-  z-index: 10;
-}
-.phone[data-screen="start"] .app-tabbar,
-.phone[data-screen="diary"] .app-tabbar{
-  display: flex;
-}
-.screen[data-screen="start"],
-.screen[data-screen="diary"]{
-  padding-bottom: calc(20px + 62px);
-}
-.tabbar-btn{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  background: transparent;
-  border: none;
-  padding: 4px 10px;
-  color: var(--ink-soft);
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.tabbar-btn.active{ color: var(--purple); }
 
 /* ---------- toast ---------- */
 .toast{
