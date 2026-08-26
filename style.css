@@ -675,6 +675,29 @@ body{
   font-size: 12px;
   color: var(--purple-deep);
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* AI is still detecting — deliberately neutral gray (not the brand purple
+   used for real progress) plus a spinner, so "還沒有框任何一道菜" can never
+   be misread as a finished 0-result state while detection is in flight. */
+.confirm-progress-loading{
+  color: #999;
+  font-weight: 600;
+}
+.confirm-progress-loading::before{
+  content: "";
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(153,153,153,0.3);
+  border-top-color: #999;
+  animation: confirm-progress-spin 0.8s linear infinite;
+}
+@keyframes confirm-progress-spin{
+  to{ transform: rotate(360deg); }
 }
 
 /* ---------- manual box: draggable spawner + resize/confirm controls ---------- */

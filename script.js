@@ -638,6 +638,9 @@
   }
 
   async function autoDetectDishes(photoDataUrl){
+    isAutoDetecting = true;
+    updateProgress();
+
     if (!backendWarned){
       backendWarned = true;
       showToast('第一次辨識可能要等後端伺服器醒過來,約 30-50 秒');
@@ -682,12 +685,17 @@
       showToast('自動辨識失敗,請重新拍照');
     }
 
+    isAutoDetecting = false;
     updateProgress();
   }
 
   const recognizeHint    = document.getElementById('recognizeHint');
 
   let currentDetections = [];
+  // True only while the initial /api/detect call is in flight — lets
+  // updateProgress() show a distinct "still working" message instead of
+  // reusing the same text/color as a genuine "0 dishes" result.
+  let isAutoDetecting = false;
 
   // Once every dish is confirmed (and none is mid-edit, mid-recognition, or a
   // freshly-dropped manual box still awaiting its "✓ 確認範圍"), the screen
@@ -729,9 +737,11 @@
   function updateProgress(){
     const total = currentDetections.length;
     const done = currentDetections.filter(d => d.confirmState === 'confirmed').length;
-    confirmProgress.textContent = total
-      ? `已確認 ${done}`
-      : '還沒有框任何一道菜';
+
+    confirmProgress.classList.toggle('confirm-progress-loading', isAutoDetecting);
+    confirmProgress.textContent = isAutoDetecting
+      ? 'AI 偵測中,請稍候…'
+      : (total ? `已確認 ${done}` : '還沒有框任何一道菜');
 
     // Nothing to say here when there's nothing detected yet (confirmProgress
     // above already covers that with "還沒有框任何一道菜") or once every dish
