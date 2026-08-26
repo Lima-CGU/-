@@ -365,6 +365,7 @@
       return valueEl;
     });
     body.appendChild(attrsBox);
+
     row.appendChild(body);
 
     // Recognize-screen dets refresh their own labelEl; a Diary dish has no
@@ -1304,10 +1305,13 @@
   const detailSugarList = document.getElementById('detailSugarList');
   const detailSaltList = document.getElementById('detailSaltList');
 
+  // Same reasoning as DIARY_ICON_*/FOOD_COOKING_METHODS above: plain emoji
+  // render inconsistently across devices, so every picker icon in this
+  // modal is inline SVG.
   const containerOptions = [
-    { value: 'plate', icon: '🍽️', label: '盤子' },
-    { value: 'bowl', icon: '🥣', label: '碗' },
-    { value: 'cup', icon: '🥤', label: '杯子' }
+    { value: 'plate', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><ellipse cx="12" cy="12" rx="8.5" ry="6" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="12" cy="12" rx="4" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>', label: '盤子' },
+    { value: 'bowl', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '碗' },
+    { value: 'cup', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4h10l-1.2 15a1.5 1.5 0 0 1-1.5 1.3h-4.6a1.5 1.5 0 0 1-1.5-1.3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '杯子' }
   ];
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
   // Same reasoning as DIARY_ICON_* above: these were emoji and rendered as a
@@ -1317,8 +1321,8 @@
     { value: '沙拉', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 12h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12c0-3 1-6 1-6M15 12c0-3-1-6-1-6M12 12c0-4 .5-7 .5-7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
     { value: '水煮', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 11h14v3a7 7 0 0 1-14 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 8c0-1.2.8-1.2.8-2.4S9 4.2 9 3M13 8c0-1.2.8-1.2.8-2.4S13 4.2 13 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
     { value: '蒸', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="13" width="14" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 10c0-1.2.9-1.2.9-2.4S9 5.2 9 4M12.5 10c0-1.2.9-1.2.9-2.4S12.5 5.2 12.5 4M16 10c0-1.2.9-1.2.9-2.4S16 5.2 16 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
-    { value: '炒', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10" cy="13" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="15" y1="10" x2="20" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 13c1-1.5 3-1.5 4 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
-    { value: '煎', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><ellipse cx="10" cy="13" rx="6" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="14.5" y1="10" x2="20" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="13" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>' },
+    { value: '炒', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 12h14v1a7 7 0 0 1-14 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="17" y1="12.5" x2="21.5" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7.5" cy="8" r=".9" fill="currentColor"/><circle cx="10.5" cy="6.3" r=".9" fill="currentColor"/><circle cx="13.5" cy="8" r=".9" fill="currentColor"/></svg>' },
+    { value: '煎', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 15h13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="16" y1="15" x2="20.5" y2="15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 15c0-1.8 1.3-2.8 3-2.8s3 1 3 2.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="9" cy="13.4" r=".7" fill="currentColor"/></svg>' },
     { value: '炸', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 11h14v3a7 7 0 0 1-14 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="6" r="1" fill="currentColor"/><circle cx="12.5" cy="4.5" r="1" fill="currentColor"/><circle cx="16" cy="6" r="1" fill="currentColor"/></svg>' },
     { value: '烤', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="4" y="6" width="16" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="11" x2="20" y2="11" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="15.5" r="1" fill="currentColor"/><circle cx="12" cy="15.5" r="1" fill="currentColor"/><circle cx="17" cy="15.5" r="1" fill="currentColor"/></svg>' },
     { value: '燒烤', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="4" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 20c-1.5-2 1-3 0-5M12 20c-1.5-2 1-3 0-5M17 20c-1.5-2 1-3 0-5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
@@ -1340,12 +1344,15 @@
     { value: '少糖(四分之三)', level: 75 },
     { value: '全糖', level: 100 }
   ];
+  // Same salt-shaker glyph as DIARY_ICON_SALT — the amount already reads
+  // from the label text, so every option reuses one consistent icon.
+  const SALT_SHAKER_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9.5 4h5l.9 2.5h-6.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.4 6.5h7.2L14.4 19a1 1 0 0 1-1 1h-2.8a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="10.8" cy="10" r=".6" fill="currentColor"/><circle cx="13.2" cy="10" r=".6" fill="currentColor"/><circle cx="12" cy="12.4" r=".6" fill="currentColor"/></svg>';
   const saltOptions = [
-    { value: '無鹽', icon: '🥄' },
-    { value: '1/4 茶匙', icon: '🥄' },
-    { value: '1/2 茶匙', icon: '🥄' },
-    { value: '3/4 茶匙', icon: '🥄' },
-    { value: '1 茶匙', icon: '🥄' }
+    { value: '無鹽', icon: SALT_SHAKER_ICON },
+    { value: '1/4 茶匙', icon: SALT_SHAKER_ICON },
+    { value: '1/2 茶匙', icon: SALT_SHAKER_ICON },
+    { value: '3/4 茶匙', icon: SALT_SHAKER_ICON },
+    { value: '1 茶匙', icon: SALT_SHAKER_ICON }
   ];
 
   let detailAdjustTarget = null;
