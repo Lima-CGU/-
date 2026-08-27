@@ -602,7 +602,12 @@ body{
   text-overflow: clip;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-  z-index: 2;
+  /* Deliberately below every box's confirm dot / remove button (z-index 5+
+     below) — with 7+ dense boxes, one box's label routinely overlaps a
+     neighboring box's dot/remove; those must stay clickable no matter whose
+     label paints on top. pointer-events:none lets clicks fall through to
+     whatever real control is underneath instead of hitting this label. */
+  z-index: 1;
 }
 .det-box.confirmed .det-label{
   background: rgba(18, 169, 129, 0.92);
@@ -633,7 +638,21 @@ body{
   pointer-events: auto;
   opacity: 0;
   transition: opacity 0.15s ease, background 0.15s ease;
-  z-index: 3;
+  /* Above every box's label (z-index 1) regardless of DOM order, so a
+     neighboring box's label can never steal this click — but deliberately
+     BELOW every box's confirm dot (z-index 6): in dense, overlapping
+     layouts one box's enlarged remove hit-area can reach into a different
+     box's dot, and a wrongly-confirmed dish is a harmless, recoverable
+     mistake while a wrongly-deleted box loses that detection entirely. */
+  z-index: 5;
+}
+/* Invisible hit-area only — visual size (20px) is unchanged. Expands the
+   actual clickable region to 44px so dense, closely-packed boxes are still
+   easy to tap without shrinking or visually changing the button. */
+.det-remove::before{
+  content: '';
+  position: absolute;
+  inset: -12px;
 }
 .det-box:hover .det-remove,
 .det-remove.show-touch{
@@ -657,7 +676,16 @@ body{
   pointer-events: auto;
   box-shadow: 0 0 0 4px rgba(255,255,255,0.45), 0 2px 8px rgba(0,0,0,0.28);
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
-  z-index: 2;
+  /* Highest layer of all: above every label (z-index 1) AND above every
+     remove button (z-index 5) — see the .det-remove comment for why confirm
+     wins over delete when two boxes' hit-areas collide in a dense layout. */
+  z-index: 6;
+}
+/* Invisible hit-area only — visual size (26px) is unchanged. */
+.det-dot::before{
+  content: '';
+  position: absolute;
+  inset: -9px;
 }
 .det-dot:hover, .det-dot:focus-visible{ transform: scale(1.12); outline: none; }
 .det-dot.loading{
