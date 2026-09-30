@@ -100,7 +100,10 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
     messages: [
       { role: 'user', content }
     ],
-    max_tokens: maxTokens
+    // gpt-5.x/6.x reject `max_tokens` ("Unsupported parameter", 400) and require
+    // `max_completion_tokens` instead. gpt-4.1 accepts `max_completion_tokens` too,
+    // so this one param name works across every model this app has tested.
+    max_completion_tokens: maxTokens
   };
   if (temperature !== undefined) body.temperature = temperature;
 

@@ -24,8 +24,9 @@ Branch: `main`
 Main file: `backend/server.js`
 
 - `OPENAI_MODEL` is read from the environment and passed directly as `model: OPENAI_MODEL` to the OpenAI Chat Completions API.
-- `gpt-4.1` is the currently verified working model.
-- `gpt-5.6-sol` and `gpt-5.6-terra` previously failed in the deployed test; do not assume they are available without checking the OpenAI project/model access.
+- `gpt-6.1-sol` is the currently configured model (upgraded from `gpt-4.1`).
+- The request body uses `max_completion_tokens`, not `max_tokens`. Every `gpt-5.x`/`gpt-6.x` model rejects `max_tokens` with a 400 `unsupported_parameter` error; `gpt-4.1` and earlier accept `max_completion_tokens` too, so this one param name works across all of them. **This was the actual root cause of the `gpt-5.6-sol`/`gpt-5.6-terra` failures below — not a model-access problem.**
+- ~~`gpt-5.6-sol` and `gpt-5.6-terra` previously failed in the deployed test~~ — corrected: both work fine once the request uses `max_completion_tokens`. Verified directly against `/api/detect`'s real prompt. Also verified working (non-reasoning, fast): `gpt-5.5`, `gpt-5.6-luna`, `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`. Do not use bare `gpt-5` for this app — it's a reasoning model and burns most of its completion-token budget on hidden reasoning tokens before producing visible output, which is both slower and more expensive for this latency-sensitive per-photo recognition flow.
 - `/api/recognize` recognizes one cropped dish.
 - `/api/detect` detects multiple dishes and returns percentage-based boxes.
 - Detection uses a strict food-only prompt and conservative box normalization/padding. It is still approximate GPT bounding-box detection, not pixel-accurate segmentation.
@@ -38,7 +39,7 @@ Required on the backend deployment:
 
 ```env
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4.1
+OPENAI_MODEL=gpt-6.1-sol
 ```
 
 Optional:
