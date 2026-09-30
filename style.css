@@ -587,19 +587,19 @@ body{
   position: absolute;
   left: 6px;
   top: 6px;
-  max-width: calc(100% - 18px);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  /* Fixed px cap, deliberately NOT relative to the box's own width — a
+     narrow box must not force this into a one-character-per-line wrap.
+     width:max-content lets it shrink to fit short names instead of always
+     reserving the full max-width, and it's allowed to visually extend past
+     the box's own edge (the overlay has no overflow:hidden to clip it). */
+  width: max-content;
+  max-width: 200px;
   background: rgba(28, 22, 35, 0.75);
   color: #fff;
   font-family: var(--font-body);
   padding: 5px 10px;
   border-radius: 12px;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   /* Deliberately below every box's confirm dot / remove button (z-index 5+
@@ -611,6 +611,26 @@ body{
 }
 .det-box.confirmed .det-label{
   background: rgba(18, 169, 129, 0.92);
+}
+/* Toggled by resolveLabelOverlaps() (script.js) when this label's default
+   top-left spot overlaps a neighboring box's label in a dense layout.
+   Bottom-right is always reserved for this same box's own confirm dot (see
+   .det-dot), so unlike the default top slot, this one must never claim that
+   full width — cap it structurally (not just via the JS overlap check,
+   which only kicks in after the fact) so it stops short of the dot however
+   long the name is. */
+.det-label.det-label-below{
+  top: auto;
+  bottom: 6px;
+  max-width: calc(100% - 40px);
+}
+.det-label-name,
+.det-label-meta{
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .det-label-name{
   font-size: 15px;
@@ -662,9 +682,12 @@ body{
 
 .det-dot{
   position: absolute;
-  left: 50%; top: 50%;
+  /* Bottom-right corner, not box-center: the label anchors top-left (see
+     .det-label) and can be nearly as tall as a short box, so a centered dot
+     would sit right on top of the label text once boxes get dense/small.
+     Bottom-right keeps the two maximally apart regardless of box size. */
+  right: 6px; bottom: 6px;
   width: 26px; height: 26px;
-  margin-left: -13px; margin-top: -13px;
   border-radius: 50%;
   box-sizing: border-box;
   border: 2px solid #fff;

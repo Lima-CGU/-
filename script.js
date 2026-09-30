@@ -881,6 +881,65 @@
     }
 
     checkAutoAdvance();
+    resolveLabelOverlaps();
+  }
+
+  // With several boxes packed close together, each box's own top-left label
+  // can land on top of a *different* box's label. Re-checked after every
+  // render/state change (called from updateProgress) since adding, removing,
+  // or resizing any box can change who overlaps whom. Cheap enough for the
+  // handful of boxes (<=8) this screen ever shows — this forces a
+  // getBoundingClientRect layout read per label, which is fine at this scale
+  // but would need debouncing if this screen ever had to handle many more.
+  function resolveLabelOverlaps(){
+    const dets = currentDetections.filter(d => d.labelEl && d.boxEl && d.dotEl);
+    if (!dets.length) return;
+
+    function overlaps(a, b){
+      return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    }
+
+    // Reset to the default top position and full width first, so a label
+    // that no longer overlaps anything (e.g. a neighbor box was just
+    // deleted) moves/widens back instead of staying stuck from an earlier
+    // pass.
+    dets.forEach(d => {
+      d.labelEl.classList.remove('det-label-below');
+      d.labelEl.style.maxWidth = '';
+    });
+
+    if (dets.length > 1){
+      const rects = dets.map(d => d.labelEl.getBoundingClientRect());
+      for (let i = 0; i < dets.length; i++){
+        for (let j = i + 1; j < dets.length; j++){
+          if (overlaps(rects[i], rects[j])){
+            // Flip the later box's label to its bottom edge and re-measure —
+            // simple, not globally optimal for pathological layouts, but a
+            // single flip resolves the common case of two neighboring boxes
+            // whose top edges sit at nearly the same height.
+            dets[j].labelEl.classList.add('det-label-below');
+            rects[j] = dets[j].labelEl.getBoundingClientRect();
+          }
+        }
+      }
+    }
+
+    // Whichever slot a label ended up in, the dot is always at the box's own
+    // bottom-right corner. The below-state's CSS max-width already reserves
+    // room for it in the common case, but a very narrow box (or the default
+    // top slot, for a very short box) can still reach far enough to cover
+    // it — narrow the label down further to stop just short of the dot.
+    // Always clamp (never skip, even to a tiny width): a barely-readable
+    // sliver of ellipsized text is still strictly better than physically
+    // covering the confirm dot, which is the actual bug this fixes.
+    dets.forEach(d => {
+      const labelRect = d.labelEl.getBoundingClientRect();
+      const dotRect = d.dotEl.getBoundingClientRect();
+      if (overlaps(labelRect, dotRect)){
+        const available = Math.max(20, dotRect.left - labelRect.left - 8); // small gap before the dot
+        d.labelEl.style.maxWidth = `${Math.floor(available)}px`;
+      }
+    });
   }
 
   // Drives the three-state ✓ indicator: pending (hollow) -> editing (thin
