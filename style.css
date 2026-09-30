@@ -565,14 +565,23 @@ body{
 .recognize-photo-wrap img{
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain, not cover: /api/detect's percentage boxes are relative to the
+     FULL original photo, so any cropping here shifts every box toward the
+     center (the more the further from center) and squeezes it. */
+  object-fit: contain;
   border-radius: 12px;
   display: block;
   background: var(--purple-soft);
 }
+/* left/top/width/height are set in px by layoutRecognizeOverlay()
+   (script.js) to exactly the rectangle the photo is actually drawn in
+   inside the letterboxed <img>; these are only the pre-layout fallback. */
 .recognize-overlay{
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .det-box{

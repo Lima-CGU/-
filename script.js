@@ -1071,6 +1071,7 @@
 
   function setupRecognizeScreen(photoDataUrl){
     recognizePhoto.src = photoDataUrl;
+    layoutRecognizeOverlay(); // again on 'load' once natural size is known
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
     lowConfidenceQueue = [];
@@ -1147,12 +1148,48 @@
   /* ---------- manual box: drag the corner spawner onto the photo ---------- */
   const MANUAL_BOX_DEFAULT_SIZE = 24; // percent of the photo, a reasonable default dish size
 
-  function wrapRect(){
-    return recognizeWrap.getBoundingClientRect();
+  // The rectangle (client coords) the photo is actually drawn in. The <img>
+  // fills recognizeWrap with object-fit:contain, so when the photo's aspect
+  // ratio differs from the frame it's letterboxed — every /api/detect box is
+  // a percentage of the FULL photo, so boxes, manual-box drops, and resizing
+  // must all be measured against this rect, never the <img>/wrap box itself.
+  function photoRect(){
+    const r = recognizePhoto.getBoundingClientRect();
+    const nw = recognizePhoto.naturalWidth;
+    const nh = recognizePhoto.naturalHeight;
+    if (!nw || !nh || !r.width || !r.height) return r; // not loaded yet
+    const scale = Math.min(r.width / nw, r.height / nh);
+    const width = nw * scale;
+    const height = nh * scale;
+    const left = r.left + (r.width - width) / 2;
+    const top = r.top + (r.height - height) / 2;
+    return { left, top, width, height, right: left + width, bottom: top + height };
+  }
+
+  // Pin the overlay (which holds every .det-box, positioned in %) exactly
+  // over the drawn photo area, so a box's % maps to the same % of the photo.
+  function layoutRecognizeOverlay(){
+    const wrap = recognizeWrap.getBoundingClientRect();
+    if (!wrap.width || !wrap.height) return; // screen hidden — redone on show
+    const p = photoRect();
+    recognizeOverlay.style.left = `${p.left - wrap.left}px`;
+    recognizeOverlay.style.top = `${p.top - wrap.top}px`;
+    recognizeOverlay.style.width = `${p.width}px`;
+    recognizeOverlay.style.height = `${p.height}px`;
+    // label positions/clamps depend on pixel sizes, so redo them too
+    resolveLabelOverlaps();
+  }
+
+  recognizePhoto.addEventListener('load', layoutRecognizeOverlay);
+  window.addEventListener('resize', layoutRecognizeOverlay);
+  // Also catches layout changes that aren't window resizes: the screen
+  // becoming visible, the hint line above the photo appearing/disappearing.
+  if ('ResizeObserver' in window){
+    new ResizeObserver(layoutRecognizeOverlay).observe(recognizeWrap);
   }
 
   function clientToPct(clientX, clientY){
-    const r = wrapRect();
+    const r = photoRect();
     return {
       x: Math.max(0, Math.min(100, ((clientX - r.left) / r.width) * 100)),
       y: Math.max(0, Math.min(100, ((clientY - r.top) / r.height) * 100))
@@ -1277,7 +1314,7 @@
       document.removeEventListener('pointerup', onUp);
       ghost.remove();
 
-      const r = wrapRect();
+      const r = photoRect();
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom){
         return; // dropped outside the photo — do nothing, spawner stays put
       }

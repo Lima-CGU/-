@@ -29,7 +29,8 @@ Main file: `backend/server.js`
 - ~~`gpt-5.6-sol` and `gpt-5.6-terra` previously failed in the deployed test~~ — corrected: both work fine once the request uses `max_completion_tokens`. Verified directly against `/api/detect`'s real prompt. Also verified working (non-reasoning, fast): `gpt-5.5`, `gpt-5.6-luna`, `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`. Do not use bare `gpt-5` for this app — it's a reasoning model and burns most of its completion-token budget on hidden reasoning tokens before producing visible output, which is both slower and more expensive for this latency-sensitive per-photo recognition flow.
 - `/api/recognize` recognizes one cropped dish.
 - `/api/detect` detects multiple dishes and returns percentage-based boxes.
-- Detection uses a strict food-only prompt and conservative box normalization/padding. It is still approximate GPT bounding-box detection, not pixel-accurate segmentation.
+- Detection uses a strict food-only prompt and box normalization/padding. It is still approximate GPT bounding-box detection, not pixel-accurate segmentation. Backend `normalizeDishBox` only enforces 0–100 bounds and a minimum size (the old 48%/52% size caps and 2200 area cap were removed — they shrank large dishes smaller than the food).
+- Box percentages are relative to the FULL original photo. The recognize screen shows the photo with `object-fit: contain`, and `layoutRecognizeOverlay()` / `photoRect()` in `script.js` pin `.recognize-overlay` and manual-box coordinates to the photo's actual drawn rectangle. Never switch that image back to `cover` or measure boxes against `recognizeWrap` — boxes would drift toward the center.
 - An optional external segmentation adapter exists through `SEGMENTATION_API_URL` and `SEGMENTATION_API_KEY`. If configured and it returns boxes, `/api/detect` prefers those boxes; otherwise it falls back to OpenAI detection.
 - `sharp` is installed for the coarse local fallback image-processing heuristic.
 
@@ -55,7 +56,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v4`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v5`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

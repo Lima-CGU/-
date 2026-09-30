@@ -270,33 +270,18 @@ function normalizeDishBox(rawBox){
   const originalW = w;
   const originalH = h;
 
-  if (w > 52 || h > 52){
-    const scale = Math.min(52 / w, 52 / h, 1);
-    w *= scale;
-    h *= scale;
-  }
-
-  const area = w * h;
-  if (area > 2200){
-    const scale = Math.sqrt(2200 / area);
-    w *= scale;
-    h *= scale;
-  }
-
-  if (w > 48 || h > 48){
-    const scale = Math.min(48 / w, 48 / h, 1);
-    w *= scale;
-    h *= scale;
-  }
-
+  // No upper-size shrinking here: the old 48%/52% width-height caps and the
+  // 2200 area cap forcibly shrank every large dish (a single bowl in a 2x2
+  // photo is already ~30-45% wide), so big dishes ended up framed smaller
+  // than the food itself. Only the minimum-size guard remains.
   if (w < 10 || h < 10){
     const scale = Math.max(1.2, 16 / Math.max(w, 1), 16 / Math.max(h, 1));
     w *= scale;
     h *= scale;
   }
 
-  w = Math.max(10, Math.min(48, w));
-  h = Math.max(10, Math.min(48, h));
+  w = Math.max(10, Math.min(100, w));
+  h = Math.max(10, Math.min(100, h));
 
   x = originalX + (originalW - w) / 2;
   y = originalY + (originalH - h) / 2;
