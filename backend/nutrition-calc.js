@@ -39,7 +39,8 @@ const unitLabel = u => String(u || '').replace(/[(（].*$/, '').trim();
  * @returns {{status:'ok'|'anomaly'|'unsupported', ...}}
  */
 function compute(item, input){
-  const salt = saltTeaspoons(input.salt);
+  // salt not recorded (null) = no added salt counted; sodium is the item's own
+  const salt = input.salt == null ? 0 : saltTeaspoons(input.salt);
   if (salt === undefined) return { status: 'unsupported', reason: 'salt' };
   if (!isNum(item.kcal)) return { status: 'unsupported', reason: 'no-kcal' };
 
@@ -48,7 +49,8 @@ function compute(item, input){
 
   if (isContinuous(item)){
     const portion = cfg.PORTION_TABLE[input.containerType];
-    const served = portion && portion[input.size];
+    if (!portion) return { status: 'needs-portion' };   // grams/ml item, container unknown
+    const served = portion[input.size];
     const base = item.weightG;
     if (!isNum(served) || !isNum(base) || base <= 0) return { status: 'unsupported', reason: 'no-portion' };
     basisKind = 'continuous';

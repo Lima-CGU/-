@@ -66,7 +66,7 @@ function buildPrompt(input, candidates){
   const lines = candidates.map((c, i) => `${i + 1}. ${describeCandidate(c)}`).join('\n');
   return `你是食物營養資料庫的「比對助手」。使用者記錄了一道菜,請從下面的候選清單中,挑出最能代表這道菜的一筆。
 菜名:${input.name}(${isBev ? '飲料' : '食物'})
-容器:${cfg.CONTAINER_LABELS[input.containerType] || input.containerType}${isBev ? `\n糖量:${input.sugar}` : ''}
+容器:${cfg.CONTAINER_LABELS[input.containerType] || '未記錄'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}
 
 候選清單:
 ${lines}
@@ -130,16 +130,20 @@ function validate(body){
   const name = String(b.name || '').replace(/\(\d+%\)$/, '').trim();
   if (!name || name.length > 40) return { error: '缺少或不合理的 name。' };
   const category = b.category === 'beverage' ? 'beverage' : 'food';
-  if (!cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup。' };
+  // containerType and salt may be left out (Group B only records what the
+  // user said); Group A always sends all five fields.
+  const hasContainer = b.containerType != null && b.containerType !== '';
+  const hasSalt = b.salt != null && b.salt !== '';
+  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup。' };
   if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
-  if (calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
+  if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   return {
     input: {
       name, category,
-      containerType: b.containerType, size: b.size,
+      containerType: hasContainer ? b.containerType : null, size: b.size,
       cookingMethod: String(b.cookingMethod || '').slice(0, 20),   // recorded only
       sugar: String(b.sugar || '').slice(0, 20),
-      salt: String(b.salt)
+      salt: hasSalt ? String(b.salt) : null   // null = not recorded: sodium is the item's own only
     }
   };
 }
@@ -164,6 +168,9 @@ async function estimate(body, askAI){
   if (r.status === 'anomaly'){
     console.warn(`[nutrition] ANOMALY: "${input.name}" matched "${item.name}" (${item.source}) -> ${r.perGram} kcal/g over ${r.grams} g, exceeds ${cfg.MAX_KCAL_PER_GRAM}; numbers withheld`);
     return { httpStatus: 200, status: 'anomaly', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '換算後的熱量異常,視為資料異常,不顯示數字。' };
+  }
+  if (r.status === 'needs-portion'){
+    return { httpStatus: 200, status: 'needs-portion', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '這個品項以公克/毫升計,需要知道容器(碗、盤、杯)才能估算份量。' };
   }
   if (r.status !== 'ok'){
     console.warn(`[nutrition] cannot compute "${input.name}" with "${item.name}" (${item.source}): ${r.reason}`);

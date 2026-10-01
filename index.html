@@ -223,6 +223,8 @@
             </div>
           </div>
         </div>
+        <!-- Group B (chat) only: the conversation, under the photo -->
+        <div class="chat-log" id="chatLog" role="log" aria-live="polite"></div>
       </div>
       <!-- not all filled: progress (+ "下一道 ›" once the selected dish is
            filled); everything filled: only "完成" -->
@@ -235,6 +237,27 @@
         <span class="report-progress" id="reportProgress">已填 0 / 0 道</span>
         <button class="btn btn-primary report-next-dish-btn" id="reportNextDishBtn" type="button" hidden>下一道 ›</button>
         <button class="btn btn-primary btn-full" id="reportDoneBtn" type="button" hidden disabled>完成</button>
+      </div>
+      <!-- Group B (chat) only: meal total + 完成, then the input row -->
+      <div class="screen-foot chat-foot">
+        <div class="chat-total-row">
+          <div class="chat-total">
+            <span class="report-total-label">整餐熱量</span>
+            <span class="report-total-value"><b class="report-total-num" id="chatTotalNum">0</b><span class="report-total-unit">kcal</span><small>估算值</small></span>
+          </div>
+          <button class="btn btn-primary chat-done-btn" id="chatDoneBtn" type="button">完成</button>
+        </div>
+        <div class="chat-total-note" id="chatTotalNote" hidden></div>
+        <div class="chat-sel-chip" id="chatSelChip" hidden></div>
+        <form class="chat-input-row" id="chatForm" autocomplete="off">
+          <button type="button" class="chat-mic-btn" id="chatMicBtn" aria-label="語音輸入">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </button>
+          <textarea class="chat-input" id="chatInput" rows="1" placeholder="輸入你的描述,任何細節都可以…" aria-label="輸入你的描述"></textarea>
+          <button type="submit" class="chat-send-btn" id="chatSendBtn" aria-label="送出">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 12 20 4l-4 16-4-7-8-1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </button>
+        </form>
       </div>
     </section>
 

@@ -79,7 +79,7 @@
       const data = await res.json().catch(() => null);
       if (states.get(dishId) !== st || st.seq !== seq) return; // stale
       if (res.ok && data && data.status){
-        st.status = data.status;       // 'ok' | 'none' | 'anomaly'
+        st.status = data.status;       // 'ok' | 'none' | 'anomaly' | 'needs-portion'
         st.result = { ...data, calculatedAt: new Date().toISOString() };
       } else {
         st.status = 'error';
@@ -152,13 +152,15 @@
 
     // Meal total over the given dish ids: only dishes with a number add in.
     summary(ids){
-      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, total: 0 };
+      // needsPortion: Group B dishes still missing a portion (待補份量)
+      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, needsPortion: 0, total: 0 };
       (ids || []).forEach(id => {
         const s = states.get(id);
         if (!s) return;
         out.total += 1;
         if (s.status === 'loading') out.pending += 1;
         else if (s.status === 'ok'){ out.kcal += s.result.kcal; out.estimated += 1; }
+        else if (s.status === 'needs-portion') out.needsPortion += 1;
         else out.unavailable += 1;
       });
       return out;
@@ -173,6 +175,7 @@
       el.classList.remove('is-ok', 'is-approx', 'is-loading', 'is-none');
       if (!st) return;
       if (st.status === 'loading'){ el.classList.add('is-loading'); el.textContent = '計算中…'; return; }
+      if (st.status === 'needs-portion'){ el.classList.add('is-none'); el.textContent = '待補份量'; return; }
       if (st.status !== 'ok'){ el.classList.add('is-none'); el.textContent = '無法估算'; return; }
       el.classList.add(st.result.match === 'approx' ? 'is-approx' : 'is-ok');
       el.append(`${st.result.kcal} kcal`);
@@ -188,6 +191,7 @@
     labelText(st){
       if (!st) return '';
       if (st.status === 'loading') return '計算中…';
+      if (st.status === 'needs-portion') return '待補份量';
       return st.status === 'ok' ? `${st.result.kcal} kcal` : '無法估算';
     },
 
@@ -208,6 +212,10 @@
         el.appendChild(p);
       };
       const r = st.result;
+      if (st.status === 'needs-portion'){
+        line((r && r.explanation) || '還不知道吃了多少,補充份量後就能估算熱量。');
+        return;
+      }
       if (st.status !== 'ok'){
         line(st.status === 'error' ? '熱量計算暫時失敗,修改任一欄位會重新計算。'
           : (r && r.explanation) || '資料庫中找不到足以代表這道菜的品項,無法估算。');
@@ -234,6 +242,7 @@
       const s = states.get(id);
       if (!s) return null;
       if (s.status === 'ok' || s.status === 'none' || s.status === 'anomaly') return { ...s.result };
+      if (s.status === 'needs-portion') return s.result ? { ...s.result } : { status: 'needs-portion' };
       return { status: 'error', calculatedAt: new Date().toISOString() };
     },
 
@@ -260,7 +269,19 @@
     // What gets saved with the meal record for the whole meal.
     mealSnapshot(ids){
       const sum = API.summary(ids);
-      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending, note: '估算值' };
+      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending + sum.needsPortion, note: '估算值' };
+    },
+
+    // Group B: a described dish that can't be calculated yet (no portion):
+    // shows 待補份量; any reply still in flight for it is ignored.
+    markNeedsPortion(id){
+      let s = states.get(id);
+      if (!s){ s = { seq: 0 }; states.set(id, s); }
+      clearTimeout(s.timer);
+      s.seq += 1;
+      s.status = 'needs-portion';
+      s.result = null;
+      emit(id);
     }
   };
 

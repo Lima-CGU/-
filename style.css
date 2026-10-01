@@ -2288,3 +2288,113 @@ body.candidate-sheet-open .toast{
 @media (max-width: 380px){
   .phone{ width: 100vw; height: 100vh; }
 }
+
+
+/* ---------- Page 4, Group B (chat): same screen, .report-chat ---------- */
+.chat-log, .chat-foot{ display: none; }
+.screen-report.report-chat .report-panel,
+.screen-report.report-chat .report-foot,
+.screen-report.report-chat .report-add-hint{ display: none; }
+.screen-report.report-chat .chat-log{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 4px 2px 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.screen-report.report-chat .chat-foot{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.report-add-dish-btn.is-active{ background: var(--teal); box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0,0,0,0.25); }
+
+.chat-msg{ display: flex; align-items: flex-end; gap: 8px; max-width: 100%; }
+.chat-msg-user{ flex-direction: row-reverse; }
+.chat-avatar{
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+}
+.chat-msg-ai .chat-avatar{ background: var(--purple-soft); color: var(--purple-deep); }
+.chat-msg-user .chat-avatar{ background: #dcf5e9; color: #0b6b4f; }
+.chat-bubble-wrap{ display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: calc(100% - 40px); }
+.chat-msg-user .chat-bubble-wrap{ align-items: flex-end; }
+.chat-bubble{
+  padding: 9px 12px;
+  border-radius: 16px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-line;
+  word-break: break-word;
+}
+.chat-msg-ai .chat-bubble{ background: #fff; color: var(--ink); border: 1px solid var(--line); border-top-left-radius: 4px; }
+.chat-msg-user .chat-bubble{ background: var(--purple); color: #fff; border-top-right-radius: 4px; }
+.chat-bubble.is-typing{ color: var(--ink-soft); letter-spacing: 2px; }
+.chat-time{ font-family: var(--font-body); font-size: 12px; color: var(--ink-soft); padding: 0 4px; }
+.chat-kcal-rows{ display: flex; flex-direction: column; gap: 4px; }
+.chat-kcal-item{ display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chat-kcal-name{ font-family: var(--font-body); font-size: 13px; font-weight: 700; color: var(--ink); }
+.chat-kcal-rows .kcal-tag{ font-size: 15px; }
+.chat-kcal-rows .kcal-tag.is-loading, .chat-kcal-rows .kcal-tag.is-none{ font-size: 13px; }
+.chat-kcal-rows .kcal-explain{ margin: 0; }
+
+.chat-total-row{ display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.chat-total{ display: flex; align-items: baseline; gap: 10px; font-family: var(--font-body); min-width: 0; }
+.chat-done-btn{ flex: 0 0 auto; padding-inline: 22px; }
+.chat-total-note, .chat-sel-chip{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-soft); margin-top: -4px; }
+.chat-total-note[hidden], .chat-sel-chip[hidden]{ display: none; }
+.chat-sel-chip{ color: #0b6b4f; }
+.chat-input-row{ display: flex; align-items: flex-end; gap: 8px; }
+.chat-input{
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  max-height: 110px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 21px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.4;
+  resize: none;
+  color: var(--ink);
+  background: #fff;
+}
+.chat-input:focus{ outline: none; border-color: var(--purple); }
+/* the hint must fit one line at 375px */
+.chat-input::placeholder{ font-size: 13px; color: var(--ink-soft); }
+.chat-mic-btn, .chat-send-btn{
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.chat-mic-btn{ background: var(--purple-soft); color: var(--purple-deep); }
+.chat-mic-btn.is-listening{ background: var(--coral); color: #fff; }
+.chat-send-btn{ background: var(--purple); color: #fff; }
+.chat-send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
+
+/* every text on the chat page is >= 12px — incl. the label confidence */
+.screen-report.report-chat .det-label-meta{ font-size: 12px; }
+
+/* Diary card (Group B): notes collected from the chat */
+.meal-dish-notes{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-soft); line-height: 1.4; word-break: break-word; }

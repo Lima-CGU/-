@@ -84,6 +84,7 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜。`;
 
 // imageUrl 可傳 null,這時只送純文字給 GPT-4o(不需要 vision)
+// prompt 也可以直接傳整個 messages 陣列(/api/chat 用,含 system 訊息與對話紀錄)
 // temperature 可選:不傳就用 API 預設值,傳低一點的值(例如 0.2)可以讓短文字建議類的
 // 輸出更穩定一致,不會像預設溫度那樣偶爾給出敷衍、跟原始回饋對不上的答案
 async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
@@ -97,7 +98,7 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
   const body = {
     model: OPENAI_MODEL,
     response_format: { type: 'json_object' },
-    messages: [
+    messages: Array.isArray(prompt) ? prompt : [
       { role: 'user', content }
     ],
     // gpt-5.x/6.x reject `max_tokens` ("Unsupported parameter", 400) and require
@@ -108,7 +109,7 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
   if (temperature !== undefined) body.temperature = temperature;
 
   console.log('[OpenAI request] model=%s maxTokens=%s temperature=%s hasImage=%s\nprompt:\n%s',
-    OPENAI_MODEL, maxTokens, temperature, !!imageUrl, prompt);
+    OPENAI_MODEL, maxTokens, temperature, !!imageUrl, Array.isArray(prompt) ? JSON.stringify(prompt, null, 1) : prompt);
 
   const aiRes = await fetch(OPENAI_URL, {
     method: 'POST',
@@ -566,6 +567,23 @@ app.post('/api/nutrition', async (req, res) => {
   } catch (err) {
     console.error('[nutrition] failed:', err.message);
     res.status(502).json({ error: '熱量計算暫時失敗。' });
+  }
+});
+
+// Group B: one chat turn. The AI turns the user's words into Group A's five
+// fields (values checked against the allowed options in chat.js) and writes a
+// short reply that never contains calorie / nutrient numbers.
+app.post('/api/chat', async (req, res) => {
+  if (!OPENAI_API_KEY) {
+    return res.status(500).json({ error: '伺服器還沒設定 OPENAI_API_KEY 環境變數,請先在部署平台設定金鑰。' });
+  }
+  try {
+    const { httpStatus, ...payload } = await require('./chat')
+      .chat(req.body, messages => callOpenAIVision(null, messages, 900));
+    res.status(httpStatus).json(payload);
+  } catch (err) {
+    console.error('[chat] failed:', err.message);
+    res.status(502).json({ error: '對話暫時失敗,請再試一次。' });
   }
 });
 

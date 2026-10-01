@@ -437,6 +437,14 @@
     body.appendChild(kcalExplain);
     renderKcal();
 
+    // Group B: what the user said that doesn't fit a field (from the chat)
+    if (dish.notes && dish.notes.length){
+      const notesEl = document.createElement('div');
+      notesEl.className = 'meal-dish-notes';
+      notesEl.textContent = `備註:${dish.notes.join(';')}`;
+      body.appendChild(notesEl);
+    }
+
     // After a ✏️ edit: recalculate a dish that had calories (only the last
     // edit's reply is kept), then refresh the card's meal total.
     let kcalSeq = 0;
@@ -503,8 +511,11 @@
     editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
 
     // Group A reports with buttons only — no voice entry point anywhere
+    // Group B records come from the chat — to change them, go back to the
+    // chat; their cards keep only 刪除
+    const chatRecord = !!(meta && meta.record && meta.record.group === 'B');
     if (STUDY_GROUP === 'A') actionsTop.append(editBtn);
-    else actionsTop.append(micBtn, editBtn);
+    else if (!chatRecord) actionsTop.append(micBtn, editBtn);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
@@ -1883,17 +1894,32 @@
   // Builds the meal record — study group + each dish's name, confidence,
   // category and full-photo box (% coordinates, for later thumbnail crops
   // and Page 4 marking) — then shows it as a Diary card.
-  async function saveCurrentMeal(){
+  // opts (Group B chat only): extraDets = dishes added in the chat that are
+  // not on the photo (no box); recordExtra = extra record fields (the chat).
+  async function saveCurrentMeal(opts = {}){
     const photoDataUrl = currentPhotoData;
+    const allDets = currentDetections.concat(opts.extraDets || []);
     // Each Diary dish gets its own thumbnail — the actual bounding-box crop,
     // not the whole plate photo — so cards stay recognizable at a glance.
-    const dishes = await Promise.all(currentDetections.map(async d => {
+    const dishes = await Promise.all(allDets.map(async d => {
       let thumbUrl = photoDataUrl;
-      try {
+      if (d.onPhoto !== false) try {
         const padded = padBoxForThumbnail(d.x, d.y, d.w, d.h);
         thumbUrl = await cropRegionToDataUrl(photoDataUrl, padded.x, padded.y, padded.w, padded.h);
       } catch (err){
         console.error('[finishRecognize] crop failed for dish thumbnail:', err);
+      }
+      if (d.onPhoto === false){
+        // Group B: a dish the user mentioned in the chat — no box on the photo
+        return {
+          name: d.name, confidence: null,
+          detail: d.detail ? { ...d.detail } : null,
+          category: d.category === 'beverage' ? 'beverage' : 'food',
+          box: null, displayBox: null, source: 'chat', tapPoint: null,
+          notes: [...(d.notes || [])],
+          nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
+          thumbUrl
+        };
       }
       return {
         name: d.name,
@@ -1911,6 +1937,11 @@
         // calorie result for this dish (match level, matched item, source,
         // numbers, explanation); null when never calculated (Group B for now)
         nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
+        // Group B only: notes from the chat, the AI's original recognition,
+        // and the name before a rename made in the chat
+        ...(d.notes ? { notes: [...d.notes] } : {}),
+        ...(d.aiOriginal ? { aiOriginal: { ...d.aiOriginal } } : {}),
+        ...(d.renamedFrom ? { renamedFrom: d.renamedFrom } : {}),
         thumbUrl
       };
     }));
@@ -1920,24 +1951,29 @@
       group: STUDY_GROUP,
       createdAt: new Date().toISOString(),
       // whole-meal estimate (only dishes with a number add in)
-      nutrition: dishes.some(x => x.nutrition) ? window.PictaCalorie.mealSnapshot(currentDetections.map(d => d.id)) : null,
-      dishes
+      nutrition: dishes.some(x => x.nutrition) ? window.PictaCalorie.mealSnapshot(allDets.map(d => d.id)) : null,
+      dishes,
+      ...(opts.recordExtra || {})
     };
     mealRecords.push(record);
 
-    addMealCard(photoDataUrl, currentDetections.length, dishes, record);
+    addMealCard(photoDataUrl, dishes.length, dishes, record);
     showToast('這餐記錄好了!');
     currentPhotoData = null;
     goToScreen('diary');
   }
 
   // Page 3 -> Page 4. Group A fills in each dish on its own Page 4 (report
-  // screen); Group B still saves straight to the existing Diary page for
-  // now (its chat page comes later). The group goes onto the record.
+  // screen); Group B reports by chatting, on the same screen in chat mode.
+  // The group goes onto the record.
   recognizeNextBtn.addEventListener('click', async () => {
     if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
     if (STUDY_GROUP === 'A'){
       enterReportMode();
+      return;
+    }
+    if (STUDY_GROUP === 'B'){
+      enterChatMode();
       return;
     }
     isSavingMeal = true;
@@ -2215,6 +2251,7 @@
   const REPORT_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
 
   let reportActive = false;      // Page 4 is showing (and owns the photo stage)
+  let chatMode = false;          // ...as Group B's chat page (see "Group B chat" below)
   let reportSelectedId = null;   // det.id shown in the panel, or null
   let reportAddingDish = false;  // waiting for a tap on the photo
   let reportRenaming = false;    // a rename sheet is open / loading
@@ -2252,7 +2289,8 @@
     currentDetections.forEach((d, i) => {
       const m = d.markerEl;
       if (!m) return;
-      const done = reportActive && isDishComplete(d);
+      // Group B: "done" = described in the chat
+      const done = reportActive && (chatMode ? !!d.chatDescribed : isDishComplete(d));
       m.classList.toggle('marker-empty', reportActive && !done);
       m.classList.toggle('marker-done', done);
       m.classList.toggle('marker-active', reportActive && d.id === reportSelectedId);
@@ -2332,6 +2370,11 @@
     if (det && det.labelEl) renderDetLabel(det.labelEl, det);
     if (!reportActive) return;
     resolveLabelOverlaps(); // label width changed
+    if (chatMode){
+      renderChatKcalRows(e.detail.dishId);
+      renderChatTotal();
+      return;
+    }
     renderReportKcal();
     renderReportTotal();
   });
@@ -2437,6 +2480,7 @@
 
   function onReportMarkerTap(det){
     if (reportAddingDish) return;
+    if (chatMode){ toggleChatDish(det); return; }
     selectReportDish(det.id);
   }
 
@@ -2463,6 +2507,7 @@
   // coordinates are % of the full photo). The stage's ResizeObserver then
   // re-lays out the photo, markers and labels.
   const REPORT_PHOTO_MAX_SCREEN_SHARE = 0.5;
+  const CHAT_PHOTO_MAX_SCREEN_SHARE = 0.4;
   function sizeReportPhotoSlot(){
     if (!reportActive) return;
     const nw = recognizePhoto.naturalWidth;
@@ -2470,7 +2515,8 @@
     const width = reportPhotoSlot.clientWidth;
     const screenH = reportScreenEl.clientHeight;
     if (!nw || !nh || !width || !screenH) return;
-    const h = Math.min(width * nh / nw, screenH * REPORT_PHOTO_MAX_SCREEN_SHARE);
+    // Group B keeps more room under the photo for the conversation
+    const h = Math.min(width * nh / nw, screenH * (chatMode ? CHAT_PHOTO_MAX_SCREEN_SHARE : REPORT_PHOTO_MAX_SCREEN_SHARE));
     reportPhotoSlot.style.height = `${Math.round(h)}px`;
   }
   window.addEventListener('resize', sizeReportPhotoSlot);
@@ -2479,6 +2525,7 @@
   // Hands the photo stage back to Page 3. Safe to call any time.
   function exitReportMode(){
     reportActive = false;
+    if (chatMode) resetChat();
     Calorie.reset();
     reportSelectedId = null;
     setReportAdding(false);
@@ -2543,11 +2590,12 @@
   function setReportAdding(on){
     reportAddingDish = on;
     reportAddHint.hidden = !on;
-    reportAddDishBtn.textContent = on ? '取消新增' : '+ 新增菜色';
+    reportAddDishBtn.textContent = on ? '取消新增' : (chatMode ? '+ 整餐/其他' : '+ 新增菜色');
     reportScreenEl.classList.toggle('report-adding', on);
   }
   reportAddDishBtn.addEventListener('click', e => {
     e.stopPropagation();
+    if (reportActive && chatMode){ toggleChatMeal(); return; }
     if (reportActive) setReportAdding(!reportAddingDish);
   });
   recognizeWrap.addEventListener('click', e => {
@@ -2627,10 +2675,432 @@
   });
 
   reportCameraBtn.addEventListener('click', () => {
-    const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean));
+    const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean))
+      || (chatMode && chatMessages.some(m => m.role === 'user'));
     if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')) return;
     exitReportMode();
     goToScreen('start');
+  });
+
+  /* ---------- Page 4, Group B: report by chatting with the AI ----------
+     Same screen and photo stage as Group A (markers, labels, zoom, label
+     calorie lines) with .report-chat: the field panel is replaced by a
+     conversation. Each turn goes to POST /api/chat, which returns Group A's
+     five fields (values checked server-side), notes, new / renamed dishes.
+     Calories come from calorie.js once a dish has a size (and, for a
+     gram / ml item, a container); the chat shows them in a tag row the page
+     adds under the AI's reply — never in the AI's own text. */
+  const chatLog        = document.getElementById('chatLog');
+  const chatForm       = document.getElementById('chatForm');
+  const chatInput      = document.getElementById('chatInput');
+  const chatSendBtn    = document.getElementById('chatSendBtn');
+  const chatMicBtn     = document.getElementById('chatMicBtn');
+  const chatDoneBtn    = document.getElementById('chatDoneBtn');
+  const chatTotalNum   = document.getElementById('chatTotalNum');
+  const chatTotalNote  = document.getElementById('chatTotalNote');
+  const chatSelChip    = document.getElementById('chatSelChip');
+  const CHAT_HISTORY_SENT = 12;      // recent messages sent with each turn
+  const CHAT_TIMEOUT_MS = 45000;
+
+  let chatMessages = [];   // the full conversation, saved with the record
+  let chatExtraDets = [];  // dishes added in the chat (not on the photo)
+  let chatMealSelected = false;
+  let chatBusy = false;
+  let chatRenames = [];    // [{ no, from, to }]
+  let chatRecognition = null;
+
+  const CHAT_AI_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v4M9 13h.01M15 13h.01M10 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="4" r="1" fill="currentColor"/></svg>';
+  const CHAT_USER_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+  // Every dish the chat knows about: the photo's (numbered like their
+  // markers) then the chat-added ones.
+  function chatAllDets(){ return currentDetections.concat(chatExtraDets); }
+  function chatDishNo(det){ return chatAllDets().indexOf(det) + 1; }
+  function chatDishName(det){ return splitNameConfidence(det.name || '').name; }
+
+  function enterChatMode(){
+    chatMode = true;
+    reportScreenEl.classList.add('report-chat');
+    resetChatState();
+    currentDetections.forEach(d => {
+      d.notes = d.notes || [];
+      d.aiOriginal = d.aiOriginal || { name: chatDishName(d), confidence: d.confidence ?? null };
+    });
+    enterReportMode();
+    updateChatSelection();
+    renderChatTotal();
+    const n = currentDetections.length;
+    addChatMessage('assistant', n
+      ? `我已辨識到 ${n} 個食物項目(如上圖)。請點選你想描述的食物,然後告訴我你吃了多少、餐點的烹調方式或其他細節。`
+      : '照片上沒有辨識到食物。請點「+ 整餐/其他」,告訴我你吃了什麼、吃了多少。');
+  }
+
+  function resetChatState(){
+    chatMessages = [];
+    chatExtraDets = [];
+    chatRenames = [];
+    chatMealSelected = false;
+    chatBusy = false;
+    chatLog.textContent = '';
+    chatInput.value = '';
+    stopChatListening();
+  }
+
+  // Leaving the chat page (save, camera, new photo): back to plain Page 4.
+  function resetChat(){
+    resetChatState();
+    chatMode = false;
+    reportScreenEl.classList.remove('report-chat');
+    reportAddDishBtn.classList.remove('is-active');
+  }
+
+  /* selection: a marker, or "+ 整餐/其他"; tapping again deselects */
+  function toggleChatDish(det){
+    chatMealSelected = false;
+    selectReportDish(reportSelectedId === det.id ? null : det.id);
+    updateChatSelection();
+  }
+  function toggleChatMeal(){
+    chatMealSelected = !chatMealSelected;
+    if (chatMealSelected && reportSelectedId) selectReportDish(null);
+    updateChatSelection();
+  }
+  function updateChatSelection(){
+    reportAddDishBtn.classList.toggle('is-active', chatMealSelected);
+    reportAddDishBtn.setAttribute('aria-pressed', String(chatMealSelected));
+    const det = selectedReportDet();
+    chatSelChip.hidden = !det && !chatMealSelected;
+    chatSelChip.textContent = det ? `已選取:${chatDishNo(det)}. ${chatDishName(det)}(再點一次圓圈取消)`
+      : chatMealSelected ? '已選取:整餐/其他(再點一次按鈕取消)' : '';
+  }
+  function chatSelection(){
+    const det = selectedReportDet();
+    if (det) return { type: 'dish', no: chatDishNo(det), name: chatDishName(det) };
+    return chatMealSelected ? { type: 'meal' } : null;
+  }
+
+  /* messages */
+  function addChatMessage(role, content, extra = {}){
+    const msg = { role, content, at: new Date().toISOString(), selected: extra.selected || null, ...extra.meta };
+    chatMessages.push(msg);
+    const row = renderChatMessage(msg, extra.dishIds || []);
+    scrollChatToEnd();
+    return { msg, row };
+  }
+
+  function renderChatMessage(msg, dishIds){
+    const row = document.createElement('div');
+    row.className = `chat-msg ${msg.role === 'assistant' ? 'chat-msg-ai' : 'chat-msg-user'}`;
+    const avatar = document.createElement('span');
+    avatar.className = 'chat-avatar';
+    avatar.innerHTML = msg.role === 'assistant' ? CHAT_AI_AVATAR : CHAT_USER_AVATAR;
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-bubble-wrap';
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.textContent = msg.content;
+    wrap.appendChild(bubble);
+    if (dishIds.length){
+      const rows = document.createElement('div');
+      rows.className = 'chat-kcal-rows';
+      rows.dataset.dishIds = dishIds.join(' ');
+      wrap.appendChild(rows);
+      dishIds.forEach(id => renderChatKcalItem(rows, id));
+    }
+    const time = document.createElement('span');
+    time.className = 'chat-time';
+    const at = new Date(msg.at);
+    time.textContent = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    wrap.appendChild(time);
+    row.append(avatar, wrap);
+    chatLog.appendChild(row);
+    return row;
+  }
+
+  // One "dish name + calorie tag" line under an AI reply, tap to expand.
+  function renderChatKcalItem(rows, id){
+    let item = rows.querySelector(`[data-dish-id="${id}"]`);
+    if (!item){
+      item = document.createElement('div');
+      item.className = 'chat-kcal-entry';
+      item.dataset.dishId = id;
+      item.innerHTML = '<div class="chat-kcal-item"><span class="chat-kcal-name"></span><button type="button" class="kcal-tag" aria-expanded="false"></button></div><div class="kcal-explain" hidden></div>';
+      const tag = item.querySelector('.kcal-tag');
+      tag.addEventListener('click', () => {
+        item.dataset.open = item.dataset.open === '1' ? '' : '1';
+        renderChatKcalItem(rows, id);
+      });
+      rows.appendChild(item);
+    }
+    const det = chatAllDets().find(d => d.id === id);
+    const st = Calorie.getState(id);
+    const tag = item.querySelector('.kcal-tag');
+    const explain = item.querySelector('.kcal-explain');
+    item.querySelector('.chat-kcal-name').textContent = det ? chatDishName(det) : '';
+    const expandable = !!st && st.status !== 'loading';
+    if (!expandable) item.dataset.open = '';
+    const open = item.dataset.open === '1';
+    tag.hidden = !st;
+    Calorie.renderBadge(tag, st);
+    tag.disabled = !expandable;
+    tag.setAttribute('aria-expanded', String(open));
+    explain.hidden = !open;
+    if (open) Calorie.renderExplain(explain, st);
+  }
+
+  function renderChatKcalRows(id){
+    chatLog.querySelectorAll('.chat-kcal-rows').forEach(rows => {
+      if (rows.dataset.dishIds.split(' ').includes(id)) renderChatKcalItem(rows, id);
+    });
+  }
+
+  function scrollChatToEnd(){
+    requestAnimationFrame(() => { chatLog.scrollTop = chatLog.scrollHeight; });
+  }
+
+  function renderChatTotal(){
+    const sum = Calorie.summary(chatAllDets().map(d => d.id));
+    chatTotalNum.textContent = sum.estimated ? String(sum.kcal) : (sum.pending ? '…' : '0');
+    const notes = [];
+    if (sum.needsPortion) notes.push(`${sum.needsPortion} 道待補份量`);
+    if (sum.unavailable) notes.push(`另有 ${sum.unavailable} 道無法估算`);
+    chatTotalNote.hidden = !notes.length;
+    chatTotalNote.textContent = notes.join('・');
+  }
+
+  /* one turn */
+  function chatDishesPayload(){
+    return chatAllDets().map(d => ({
+      no: chatDishNo(d),
+      name: chatDishName(d),
+      category: d.category === 'beverage' ? 'beverage' : 'food',
+      onPhoto: d.onPhoto !== false,
+      fields: { ...(d.detail || {}) },
+      notes: [...(d.notes || [])],
+      // calorie.js couldn't estimate it yet (a gram / ml item with no container)
+      needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion'
+    }));
+  }
+
+  async function sendChat(text){
+    if (chatBusy) return;
+    const sel = chatSelection();
+    const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${text}`
+      : sel && sel.type === 'meal' ? `關於整餐:${text}` : text;
+    const history = chatMessages.slice(-CHAT_HISTORY_SENT).map(m => ({ role: m.role, content: m.content }));
+    addChatMessage('user', content, { selected: sel });
+    chatInput.value = '';
+    // the selection applies to this message only
+    chatMealSelected = false;
+    if (reportSelectedId) selectReportDish(null);
+    updateChatSelection();
+
+    chatBusy = true;
+    updateChatBusy();
+    const typing = renderChatMessage({ role: 'assistant', content: '…', at: new Date().toISOString() }, []);
+    typing.querySelector('.chat-bubble').classList.add('is-typing');
+    typing.querySelector('.chat-time').textContent = '';
+    scrollChatToEnd();
+
+    const started = performance.now();
+    let data = null;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), CHAT_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dishes: chatDishesPayload(), selected: sel ? { type: sel.type, no: sel.no } : null, history, message: content }),
+        signal: ctrl.signal
+      });
+      data = await res.json().catch(() => null);
+      if (!res.ok || !data || typeof data.reply !== 'string') data = null;
+    } catch (err){
+      console.error('[chat] request failed:', err);
+    } finally {
+      clearTimeout(timer);
+    }
+    const latencyMs = Math.round(performance.now() - started);
+    typing.remove();
+    chatBusy = false;
+    updateChatBusy();
+    if (!reportActive || !chatMode) return; // left the page meanwhile
+
+    if (!data){
+      addChatMessage('assistant', '抱歉,連線好像有點問題,請再送一次。', { meta: { failed: true, latencyMs } });
+      return;
+    }
+    const touched = applyChatResult(data);
+    addChatMessage('assistant', data.reply, {
+      dishIds: touched.map(d => d.id),
+      meta: {
+        isClarification: !!data.isClarification,
+        latencyMs,
+        updates: data.updates, notes: data.notes, newDishes: data.newDishes, renameDishes: data.renameDishes
+      }
+    });
+  }
+
+  function updateChatBusy(){
+    chatSendBtn.disabled = chatBusy;
+    chatDoneBtn.disabled = chatBusy || isSavingMeal;
+  }
+
+  // Applies one /api/chat answer; returns the dishes it touched (in order).
+  function applyChatResult(data){
+    const all = chatAllDets();
+    const byNo = no => all[no - 1] || null;
+    const touched = [];
+    const touch = det => { if (det && !touched.includes(det)) touched.push(det); };
+    const before = new Map(all.map(d => [d, calorieKey(d)]));
+
+    (data.renameDishes || []).forEach(r => {
+      const det = byNo(r.no);
+      if (!det) return;
+      const from = chatDishName(det);
+      det.renamedFrom = det.renamedFrom || from;
+      det.name = r.name;
+      det.confidence = null;
+      if (r.category && r.category !== det.category){
+        det.category = r.category;
+        const methods = det.category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
+        if (det.detail && det.detail.cookingMethod && !methods.some(m => m.value === det.detail.cookingMethod)){
+          det.detail = { ...det.detail, cookingMethod: undefined };
+        }
+      }
+      chatRenames.push({ no: r.no, from, to: r.name });
+      if (det.labelEl) renderDetLabel(det.labelEl, det);
+      det.chatDescribed = true;
+      touch(det);
+    });
+    (data.updates || []).forEach(u => {
+      const det = byNo(u.no);
+      if (!det) return;
+      det.detail = { ...(det.detail || {}), ...u.fields };
+      det.chatDescribed = true;
+      touch(det);
+    });
+    (data.notes || []).forEach(n => {
+      const det = byNo(n.no);
+      if (!det) return;
+      det.notes = det.notes || [];
+      if (!det.notes.includes(n.note)) det.notes.push(n.note);
+      det.chatDescribed = true;
+      touch(det);
+    });
+    (data.newDishes || []).forEach((nd, i) => {
+      const det = {
+        id: `chat${Date.now()}_${i}`,
+        name: nd.name, confidence: null,
+        category: nd.category === 'beverage' ? 'beverage' : 'food',
+        detail: { ...(nd.fields || {}) },
+        notes: nd.note ? [nd.note] : [],
+        onPhoto: false,
+        chatDescribed: true
+      };
+      chatExtraDets.push(det);
+      touch(det);
+    });
+
+    resolveLabelOverlaps();
+    refreshMarkerStates();
+    touched.forEach(det => {
+      if (!det.detail || !det.detail.size){
+        Calorie.markNeedsPortion(det.id); // 待補份量
+        det.kcalStarted = false;
+        return;
+      }
+      if (!det.kcalStarted || before.get(det) !== calorieKey(det)){
+        notifyDishDetailComplete(det, det.kcalStarted ? 'changed' : 'completed');
+        det.kcalStarted = true;
+      }
+    });
+    renderChatTotal();
+    return touched;
+  }
+  // What the calorie depends on (notes alone never trigger a recalculation)
+  const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}]);
+
+  chatForm.addEventListener('submit', e => {
+    e.preventDefault();
+    stopChatListening();
+    const text = chatInput.value.trim();
+    if (text) sendChat(text);
+  });
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing){
+      e.preventDefault();
+      chatForm.requestSubmit();
+    }
+  });
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 110)}px`;
+  });
+
+  /* 🎤 Web Speech: the words go into the text box; the user sends them */
+  function stopChatListening(){
+    if (chatRecognition){
+      try { chatRecognition.stop(); } catch (err){ /* already stopped */ }
+      chatRecognition = null;
+    }
+    chatMicBtn.classList.remove('is-listening');
+  }
+  chatMicBtn.addEventListener('click', () => {
+    if (chatRecognition){ stopChatListening(); return; }
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor){ showToast('這個瀏覽器不支援語音輸入,請直接打字'); return; }
+    const rec = new Ctor();
+    rec.lang = 'zh-TW';
+    rec.interimResults = true;
+    rec.continuous = false;
+    const base = chatInput.value ? `${chatInput.value.trim()} ` : '';
+    rec.onresult = ev => {
+      let text = '';
+      for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
+      chatInput.value = base + text;
+      chatInput.dispatchEvent(new Event('input'));
+    };
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') showToast('沒有麥克風權限,請直接打字');
+      else if (ev.error !== 'aborted' && ev.error !== 'no-speech') showToast('語音辨識失敗,請再試一次或直接打字');
+    };
+    rec.onend = () => { if (chatRecognition === rec) stopChatListening(); chatInput.focus(); };
+    try {
+      rec.start();
+      chatRecognition = rec;
+      chatMicBtn.classList.add('is-listening');
+    } catch (err){
+      showToast('語音辨識無法啟動,請直接打字');
+    }
+  });
+
+  /* 完成: any time; asks first when something is incomplete */
+  chatDoneBtn.addEventListener('click', async () => {
+    if (chatBusy || isSavingMeal) return;
+    const all = chatAllDets();
+    const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !d.detail.size).length;
+    if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)) return;
+    isSavingMeal = true;
+    updateChatBusy();
+    try {
+      await Calorie.settle(all.map(d => d.id));
+      const recordExtra = {
+        chat: {
+          messages: chatMessages.map(m => ({ ...m })),
+          messageCount: chatMessages.length,
+          userMessageCount: chatMessages.filter(m => m.role === 'user').length,
+          clarificationCount: chatMessages.filter(m => m.isClarification).length,
+          newDishes: chatExtraDets.map(d => d.name),
+          renamedDishes: chatRenames.map(r => ({ ...r }))
+        }
+      };
+      await saveCurrentMeal({ extraDets: chatExtraDets.slice(), recordExtra });
+    } finally {
+      isSavingMeal = false;
+      exitReportMode();
+      updateChatBusy();
+    }
   });
 
   renderReportChoiceLists();
