@@ -38,6 +38,25 @@
   const recognizeOverlay = document.getElementById('recognizeOverlay');
   const manualBoxSpawner = document.getElementById('manualBoxSpawner');
   const confirmProgress  = document.getElementById('confirmProgress');
+  const recognizeScreen  = document.querySelector('.screen[data-screen="recognize"]');
+  const recognizeNextBtn = document.getElementById('recognizeNextBtn');
+
+  // Research study arm, from ?group=A / ?group=B (anything else, or none,
+  // is A). Never rendered anywhere on screen — participants must not learn
+  // another group exists; it's only written into each saved meal record.
+  const STUDY_GROUP = (new URLSearchParams(location.search).get('group') || '').trim().toUpperCase() === 'B' ? 'B' : 'A';
+
+  // Page 3 (this recognize screen) is a read-only "initial result" view for
+  // both groups: a numbered marker + name per dish, no editing. The editing
+  // machinery (confirm dots, × delete, manual + box, low-confidence picker,
+  // auto-advance, progress text) is kept in code for Page 4 but switched
+  // off here — via this flag in JS and the .recognize-preview class in CSS.
+  const RECOGNIZE_PREVIEW_ONLY = true;
+  recognizeScreen.classList.toggle('recognize-preview', RECOGNIZE_PREVIEW_ONLY);
+
+  // Every saved meal, with its group and each dish's full-photo box — the
+  // data a later upload / Page 4 needs (the Diary cards are only a view).
+  const mealRecords = [];
   const finishRecognizeBtn = document.getElementById('finishRecognizeBtn');
 
   const strip      = document.getElementById('strip');
@@ -419,13 +438,18 @@
     return row;
   }
 
-  function addMealCard(dataUrl, dishCount, dishes){
+  function addMealCard(dataUrl, dishCount, dishes, record){
     emptyState.style.display = 'none';
     mealCount += 1;
     countTag.textContent = `${mealCount} 筆`;
 
     const card = document.createElement('div');
     card.className = 'meal-card';
+    // data only — the group is never displayed
+    if (record){
+      card.dataset.mealId = record.id;
+      card.dataset.group = record.group;
+    }
 
     const img = document.createElement('img');
     img.className = 'meal-photo';
@@ -455,7 +479,7 @@
     addDishBtn.textContent = '+ 新增菜色';
     addDishBtn.setAttribute('aria-label', '為這筆紀錄新增一道菜');
     addDishBtn.addEventListener('click', () => {
-      addDishTargetMeal = { status, dishCountMeta, cardEl: card };
+      addDishTargetMeal = { status, dishCountMeta, cardEl: card, record };
       goToScreen('camera');
     });
 
@@ -557,6 +581,7 @@
       category: dishInfo.category === 'beverage' ? 'beverage' : 'food',
       thumbUrl: photoDataUrl
     };
+    if (target.record) target.record.dishes.push({ ...dish, confidence: null, box: null });
     target.status.appendChild(renderDiaryDishRow(dish, target.dishCountMeta));
     target.dishCountMeta.dishCount += 1;
     target.dishCountMeta.dishesEl.textContent = `${target.dishCountMeta.dishCount} 道菜`;
@@ -786,6 +811,10 @@
           const det = {
             id: `auto${i}`,
             x: box.x, y: box.y, w: box.w, h: box.h,
+            // the box exactly as /api/detect returned it (% of the full
+            // photo) — x/y/w/h above are normalizeDetectionBox()'s enlarged
+            // / edge-clamped version, whose center can drift off the dish
+            apiBox: { x: Number(d.x), y: Number(d.y), w: Number(d.w), h: Number(d.h) },
             name: `${d.name}(${confidence}%)`,
             confidence,
             category: d.category === 'beverage' ? 'beverage' : 'food',
@@ -802,7 +831,8 @@
         // Clearing the hint resizes the stage; let that re-layout (via the
         // ResizeObserver) land first so it doesn't cut the zoom animation.
         requestAnimationFrame(() => requestAnimationFrame(zoomToFood));
-        if (lowConfidenceDishes.length){
+        // Page 3 is read-only — no low-confidence name picker here (kept for Page 4)
+        if (lowConfidenceDishes.length && !RECOGNIZE_PREVIEW_ONLY){
           lowConfidenceQueue.push(...lowConfidenceDishes);
           processLowConfidenceQueue();
         }
@@ -824,6 +854,8 @@
   // updateProgress() show a distinct "still working" message instead of
   // reusing the same text/color as a genuine "0 dishes" result.
   let isAutoDetecting = false;
+  // True while "下一步" is cropping thumbnails / saving, to block a double tap.
+  let isSavingMeal = false;
 
   // Once every dish is confirmed (and none is mid-edit, mid-recognition, or a
   // freshly-dropped manual box still awaiting its "✓ 確認範圍"), the screen
@@ -847,6 +879,8 @@
   }
 
   function checkAutoAdvance(){
+    // Page 3 has no confirming at all; leaving it is only via "下一步"
+    if (RECOGNIZE_PREVIEW_ONLY) return;
     if (!allDishesConfirmed()){
       cancelAutoAdvance();
       return;
@@ -886,6 +920,11 @@
       finishRecognizeBtn.textContent = `還有 ${total - done} 道菜未確認`;
     }
 
+    // Page 3's only way forward; usable once detection has finished (even
+    // with nothing found — Page 4 is where dishes get added/fixed)
+    recognizeNextBtn.hidden = !RECOGNIZE_PREVIEW_ONLY;
+    recognizeNextBtn.disabled = isAutoDetecting || isSavingMeal;
+
     checkAutoAdvance();
     resolveLabelOverlaps();
   }
@@ -912,10 +951,25 @@
   ];
   const LABEL_NUDGES = [0, -36, 36, -72, 72]; // px, sideways
 
+  // Page 3 (read-only preview): the label goes directly under the dish's
+  // numbered center marker; if that spot is taken, one row lower, then
+  // directly above the marker (or one row higher), then beside it.
+  const PREVIEW_LABEL_SLOTS = [
+    { v: 'under', right: false },
+    { v: 'under2', right: false },
+    { v: 'over', right: false },
+    { v: 'over2', right: false },
+    { v: 'beside-right', right: false },
+    { v: 'beside-left', right: false }
+  ];
+  const LABEL_SLOT_CLASSES = ['det-label-below', 'det-label-inside', 'det-label-right',
+    'det-label-under', 'det-label-under2', 'det-label-over', 'det-label-over2',
+    'det-label-beside-right', 'det-label-beside-left'];
+
   function setLabelSlot(labelEl, slot){
-    labelEl.classList.toggle('det-label-below', slot.v === 'below');
-    labelEl.classList.toggle('det-label-inside', slot.v === 'inside');
-    labelEl.classList.toggle('det-label-right', slot.right);
+    labelEl.classList.remove(...LABEL_SLOT_CLASSES);
+    if (slot.v !== 'above') labelEl.classList.add(`det-label-${slot.v}`);
+    if (slot.right) labelEl.classList.add('det-label-right');
     labelEl.style.transform = '';
   }
 
@@ -929,16 +983,22 @@
       return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
     }
 
-    const dotRects = dets.map(d => d.dotEl.getBoundingClientRect());
+    // what a label must not sit under: on Page 3 every dish's numbered
+    // marker, otherwise every box's confirm dot
+    const dotRects = dets
+      .map(d => (RECOGNIZE_PREVIEW_ONLY && d.markerEl ? d.markerEl : d.dotEl).getBoundingClientRect());
     // controls that sit on the photo itself — a label under them is unreadable
+    // (CSS-hidden ones measure 0x0 and are skipped)
     const controlRects = [recognizeZoomToggle, manualBoxSpawner]
       .filter(el => !el.hidden)
-      .map(el => el.getBoundingClientRect());
+      .map(el => el.getBoundingClientRect())
+      .filter(r => r.width && r.height);
+    const slots = RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS : LABEL_SLOTS;
     const placed = [];
     dets.forEach(d => {
       const el = d.labelEl;
       let best = null;
-      for (const slot of LABEL_SLOTS){
+      for (const slot of slots){
         setLabelSlot(el, slot);
         const r0 = el.getBoundingClientRect();
         // also try sliding sideways a little to clear a neighbor's dot/label;
@@ -1160,6 +1220,26 @@
     // ✏️ editor (see renderDiaryDishRow) — this screen just needs the ✓
     // confirm indicator, so there's no mic/⚙ button here anymore.
     box.append(removeBtn, dot);
+
+    // Page 3's read-only marker: a numbered dot at the box's center, with
+    // the label placed right under it (see resolveLabelOverlaps). The
+    // confirm dot / × above stay in the DOM for Page 4 but are hidden by
+    // the .recognize-preview CSS.
+    if (RECOGNIZE_PREVIEW_ONLY){
+      const marker = document.createElement('span');
+      marker.className = 'det-marker';
+      marker.textContent = String(i + 1);
+      marker.setAttribute('aria-hidden', 'true');
+      det.markerEl = marker;
+      box.appendChild(marker);
+      // The marker (and its label, via the same vars) sits at the center of
+      // the box the backend returned, not the normalized display box.
+      const a = det.apiBox;
+      if (a && [a.x, a.y, a.w, a.h].every(Number.isFinite) && det.w > 0 && det.h > 0){
+        box.style.setProperty('--mx', `${((a.x + a.w / 2) - det.x) / det.w * 100}%`);
+        box.style.setProperty('--my', `${((a.y + a.h / 2) - det.y) / det.h * 100}%`);
+      }
+    }
     recognizeOverlay.appendChild(box);
 
     if (det.manualPendingSubmit){
@@ -1531,7 +1611,14 @@
       return;
     }
     cancelAutoAdvance();
+    await saveCurrentMeal();
+  }
 
+  // Shared save path: Page 3's "下一步" and the (Page 4) confirm flow above.
+  // Builds the meal record — study group + each dish's name, confidence,
+  // category and full-photo box (% coordinates, for later thumbnail crops
+  // and Page 4 marking) — then shows it as a Diary card.
+  async function saveCurrentMeal(){
     const photoDataUrl = currentPhotoData;
     // Each Diary dish gets its own thumbnail — the actual bounding-box crop,
     // not the whole plate photo — so cards stay recognizable at a glance.
@@ -1545,17 +1632,44 @@
       }
       return {
         name: d.name,
+        confidence: d.confidence,
         detail: d.detail ? { ...d.detail } : null,
         category: d.category === 'beverage' ? 'beverage' : 'food',
+        // box = exactly what /api/detect returned (manual boxes: as drawn);
+        // displayBox = the normalized one drawn on screen / used for the thumbnail
+        box: d.apiBox ? { ...d.apiBox } : { x: d.x, y: d.y, w: d.w, h: d.h },
+        displayBox: { x: d.x, y: d.y, w: d.w, h: d.h },
         thumbUrl
       };
     }));
 
-    addMealCard(photoDataUrl, currentDetections.length, dishes);
+    const record = {
+      id: `meal${Date.now()}`,
+      group: STUDY_GROUP,
+      createdAt: new Date().toISOString(),
+      dishes
+    };
+    mealRecords.push(record);
+
+    addMealCard(photoDataUrl, currentDetections.length, dishes, record);
     showToast('這餐記錄好了!');
     currentPhotoData = null;
     goToScreen('diary');
   }
+
+  // Page 3 -> Page 4. Both groups go to the existing Diary page for now
+  // (Group B's chat page comes later); the group is already on the record.
+  recognizeNextBtn.addEventListener('click', async () => {
+    if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
+    isSavingMeal = true;
+    updateProgress();
+    try {
+      await saveCurrentMeal();
+    } finally {
+      isSavingMeal = false;
+      updateProgress();
+    }
+  });
 
   window.addEventListener('beforeunload', () => {
     if (stream) stream.getTracks().forEach(t => t.stop());

@@ -698,6 +698,76 @@ body{
   color: rgba(255,255,255,0.78);
 }
 
+/* ---------- Page 3 read-only "initial result" (.recognize-preview) ----------
+   Toggled from script.js (RECOGNIZE_PREVIEW_ONLY). Each dish = a numbered
+   marker at its box center + its label right under it. No box outline, no
+   editing controls — those elements stay in the DOM for Page 4, just hidden. */
+.recognize-preview .det-box{
+  border: none;
+  background: none;
+}
+.recognize-preview .det-remove,
+.recognize-preview .det-dot,
+.recognize-preview .det-box-resize-handle,
+.recognize-preview .det-box-confirm-range,
+.recognize-preview .manual-box-spawner,
+.recognize-preview .confirm-progress,
+.recognize-preview #finishRecognizeBtn{
+  display: none !important;
+}
+.det-marker{
+  position: absolute;
+  /* --mx/--my: center of the box the backend returned, set per box by JS */
+  left: var(--mx, 50%);
+  top: var(--my, 50%);
+  translate: -50% -50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+  background: var(--purple);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  pointer-events: none;
+  z-index: 6;
+}
+/* label slots relative to the marker (picked by resolveLabelOverlaps);
+   `translate` centers it, leaving `transform` free for sideways nudges */
+.det-label.det-label-under,
+.det-label.det-label-under2,
+.det-label.det-label-over,
+.det-label.det-label-over2{
+  left: var(--mx, 50%);
+  translate: -50% 0;
+}
+.det-label.det-label-under{ bottom: auto; top: calc(var(--my, 50%) + 15px); }
+.det-label.det-label-under2{ bottom: auto; top: calc(var(--my, 50%) + 42px); }
+.det-label.det-label-over{ top: auto; bottom: calc(100% - var(--my, 50%) + 15px); }
+.det-label.det-label-over2{ top: auto; bottom: calc(100% - var(--my, 50%) + 42px); }
+.det-label.det-label-beside-right{
+  bottom: auto;
+  top: var(--my, 50%);
+  left: calc(var(--mx, 50%) + 15px);
+  translate: 0 -50%;
+}
+.det-label.det-label-beside-left{
+  bottom: auto;
+  top: var(--my, 50%);
+  left: auto;
+  right: calc(100% - var(--mx, 50%) + 15px);
+  translate: 0 -50%;
+}
+.recognize-preview .det-label-meta{
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.6);
+}
+
 .det-remove{
   position: absolute;
   top: -9px; right: -9px;

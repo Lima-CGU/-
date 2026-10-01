@@ -19,6 +19,24 @@ Branch: `main`
 - The A/start screen currently shows only the PICTAMEAL title, illustration, start button, and tutorial link. The Home icon, Home label, and introductory copy were removed.
 - The latest UI pass harmonized background, purple primary actions, teal completion states, radii, borders, and shadows.
 
+## Research Study Groups
+
+The app is used in a two-arm study: **Group A** (traditional — report with buttons/options) and **Group B** (conversational — report by chatting with AI).
+
+- Group comes from the URL: `?group=A` or `?group=B` (case-insensitive); missing or anything else = `A`. Read once at startup into `STUDY_GROUP` (`script.js`). Only the URL is consulted — nothing is persisted.
+- The group must NEVER be shown on screen (no labels, no switcher) — participants must not learn another group exists. It is only written into data: each meal record in `mealRecords` has `group`, and its Diary card carries `data-group` (not displayed).
+- Note: the PWA `start_url` is `./index.html` with no query, so a participant launching from the home-screen icon gets the default `A`. Hand out the full `?group=` link and have participants use it (or handle this before relying on installed-PWA launches).
+- Page flow: Page 1 start and Page 2 camera are identical for both groups; Page 3 (`data-screen="recognize"`) is identical for both; only Page 4 differs. Page 4 is not built yet — both groups currently go to the existing Diary screen (`data-screen="diary"`); Group B's chat page comes later.
+- Local testing: `npx serve` redirects `/index.html?group=B` to `/index` and DROPS the query — test with `/?group=B` (GitHub Pages serves `index.html?group=B` fine).
+
+## Page 3 (recognize screen) — read-only "initial result"
+
+- `RECOGNIZE_PREVIEW_ONLY = true` (`script.js`) + the `.recognize-preview` class on the screen make it view-only for both groups: after `/api/detect`, each dish shows a numbered marker (`.det-marker`) at the center of the box the backend returned, with its single-line label (name + smaller, fainter confidence) directly under it. No box outline.
+- Hidden (code kept for Page 4, not deleted): confirm dots, × delete, manual + box spawner, low-confidence candidate sheet, auto-advance, "已確認 N" / "還有 N 道菜未確認". Zoom-to-food and the "查看完整照片" toggle are kept.
+- The only way forward is "下一步" (`#recognizeNextBtn`, enabled once detection finishes, even with 0 dishes) → `saveCurrentMeal()` → Diary.
+- Each det keeps `apiBox` (exactly what `/api/detect` returned, % of the full photo) next to its x/y/w/h (the `normalizeDetectionBox()` display box, which can be enlarged/edge-clamped so its center drifts). Saved dishes store `box` = backend box and `displayBox` = display box; thumbnails still crop from the display box.
+- Label placement (`resolveLabelOverlaps`, preview slots): under the marker → one row lower → above → one row higher → right/left of it, each with small sideways nudges; avoids other labels, every marker, and on-photo controls, staying inside the visible photo.
+
 ## Backend
 
 Main file: `backend/server.js`
@@ -58,7 +76,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v6`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v7`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks
