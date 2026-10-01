@@ -762,6 +762,13 @@ body{
 .det-label.det-label-compact{
   padding: 2px 6px;
 }
+/* calorie on the photo label (Page 4) — small, stays in compact labels */
+.det-label-kcal{
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: rgba(255,255,255,0.92);
+}
 .det-label.det-label-compact .det-label-name{
   font-size: 12px;
 }
@@ -865,6 +872,36 @@ body{
   font-weight: 600;
   color: var(--ink-soft);
 }
+/* calorie beside the dish name; tap to expand the explanation */
+.report-dish-kcal{
+  appearance: none;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--purple-soft);
+  color: var(--purple-deep);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.report-dish-kcal[hidden]{ display: none; }
+.report-dish-kcal.is-loading{ background: transparent; color: var(--ink-soft); font-weight: 600; cursor: default; }
+.report-dish-kcal.is-unavailable{ background: transparent; color: var(--ink-soft); }
+.kcal-explain{
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--purple-soft);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.kcal-explain[hidden]{ display: none; }
+.kcal-explain-row{ display: flex; gap: 8px; }
+.kcal-explain-k{ flex: 0 0 4.5em; font-weight: 700; color: var(--ink-soft); }
+.kcal-explain-v{ flex: 1; min-width: 0; word-break: break-word; }
 .report-icon-btn{
   flex: 0 0 auto;
   width: 34px;
@@ -907,6 +944,15 @@ body{
   gap: 10px;
   min-height: 46px;
 }
+.report-foot{ flex-wrap: wrap; }
+.report-total{
+  flex: 1 0 100%;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.report-total[hidden]{ display: none; }
 .report-progress{
   flex: 1 1 auto;
   font-family: var(--font-body);

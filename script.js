@@ -341,6 +341,16 @@
       metaEl.textContent = metaText;
       labelEl.appendChild(metaEl);
     }
+
+    // Page 4 only (results exist only after a dish is filled in): the dish's
+    // estimated calories, small, at the end of the label.
+    const kcalText = det && window.PictaCalorie ? window.PictaCalorie.labelText(window.PictaCalorie.getState(det.id)) : '';
+    if (kcalText){
+      const kcalEl = document.createElement('span');
+      kcalEl.className = 'det-label-kcal';
+      kcalEl.textContent = kcalText;
+      labelEl.appendChild(kcalEl);
+    }
   }
 
   // Line icons (not emoji — emoji glyphs carry their own fixed colors and
@@ -1817,6 +1827,9 @@
         // photo (tapPoint = where, % of the full photo)
         source: d.addedByUser ? 'user' : 'ai',
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
+        // calorie result for this dish (match level, matched item, source,
+        // numbers, explanation); null when never calculated (Group B for now)
+        nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
         thumbUrl
       };
     }));
@@ -1825,6 +1838,8 @@
       id: `meal${Date.now()}`,
       group: STUDY_GROUP,
       createdAt: new Date().toISOString(),
+      // whole-meal estimate (only dishes with a number add in)
+      nutrition: dishes.some(x => x.nutrition) ? window.PictaCalorie.mealSnapshot(currentDetections.map(d => d.id)) : null,
       dishes
     };
     mealRecords.push(record);
@@ -2093,6 +2108,9 @@
   const reportDishNum       = document.getElementById('reportDishNum');
   const reportDishName      = document.getElementById('reportDishName');
   const reportDishConf      = document.getElementById('reportDishConf');
+  const reportDishKcal      = document.getElementById('reportDishKcal');
+  const reportKcalExplain   = document.getElementById('reportKcalExplain');
+  const reportTotal         = document.getElementById('reportTotal');
   const reportRenameBtn     = document.getElementById('reportRenameBtn');
   const reportDeleteBtn     = document.getElementById('reportDeleteBtn');
   const reportDeleteConfirm = document.getElementById('reportDeleteConfirm');
@@ -2189,7 +2207,51 @@
     reportNextDishBtn.hidden = allDone || !sel || !!sel.loading || !isDishComplete(sel);
     reportDoneBtn.hidden = !allDone;
     reportDoneBtn.disabled = isSavingMeal || !allDone;
+    renderReportTotal();
   }
+
+  /* ---------- calories (shared component: calorie.js) ---------- */
+  const Calorie = window.PictaCalorie;
+  Calorie.init({ backendUrl: BACKEND_URL });
+  let reportKcalOpen = false; // the explanation under the dish name is expanded
+
+  // Whole-meal estimate beside the progress / 完成 button.
+  function renderReportTotal(){
+    const ids = currentDetections.filter(d => !d.loading && isDishComplete(d)).map(d => d.id);
+    const text = Calorie.totalText(Calorie.summary(ids));
+    reportTotal.textContent = text;
+    reportTotal.hidden = !text;
+  }
+
+  // Calories beside the selected dish's name, and its expandable explanation.
+  function renderReportKcal(){
+    const det = selectedReportDet();
+    const st = det ? Calorie.getState(det.id) : null;
+    const expandable = !!st && st.status !== 'loading';
+    if (!expandable) reportKcalOpen = false;
+    reportDishKcal.hidden = !st;
+    reportDishKcal.textContent = Calorie.badgeText(st);
+    reportDishKcal.classList.toggle('is-loading', !!st && st.status === 'loading');
+    reportDishKcal.classList.toggle('is-unavailable', !!st && st.status !== 'loading' && st.status !== 'ok');
+    reportDishKcal.disabled = !expandable;
+    reportDishKcal.setAttribute('aria-expanded', String(reportKcalOpen));
+    reportKcalExplain.hidden = !reportKcalOpen;
+    if (reportKcalOpen) Calorie.renderExplain(reportKcalExplain, st);
+  }
+  reportDishKcal.addEventListener('click', () => {
+    reportKcalOpen = !reportKcalOpen;
+    renderReportKcal();
+  });
+
+  // Any dish's calculation started / finished / was dropped.
+  document.addEventListener('pictameal:calorie-update', e => {
+    const det = currentDetections.find(d => d.id === e.detail.dishId);
+    if (det && det.labelEl) renderDetLabel(det.labelEl, det);
+    if (!reportActive) return;
+    resolveLabelOverlaps(); // label width changed
+    renderReportKcal();
+    renderReportTotal();
+  });
 
   // Next unfilled dish after the selected one, in marker-number order,
   // wrapping to the start; null if none is left.
@@ -2274,6 +2336,7 @@
     reportDeleteBtn.disabled = !!det.loading;
     renderReportCookingOptions(det.category === 'beverage' ? 'beverage' : 'food');
     syncReportChoices(det);
+    renderReportKcal();
 
     reportDishThumb.removeAttribute('src');
     ensureReportThumb(det).then(url => {
@@ -2283,6 +2346,7 @@
 
   function selectReportDish(id){
     reportSelectedId = id;
+    reportKcalOpen = false;
     reportDeleteConfirm.hidden = true;
     refreshMarkerStates();
     renderReportPanel();
@@ -2332,6 +2396,7 @@
   // Hands the photo stage back to Page 3. Safe to call any time.
   function exitReportMode(){
     reportActive = false;
+    Calorie.reset();
     reportSelectedId = null;
     setReportAdding(false);
     if (recognizeStage.parentElement !== recognizeBody) recognizeBody.appendChild(recognizeStage);
@@ -2365,6 +2430,7 @@
         refreshMarkerStates();
         renderReportPanel();
         if (isDishComplete(target)) notifyDishDetailComplete(target, wasComplete ? 'changed' : 'completed');
+        else Calorie.forget(target.id); // lost its cooking method: the old figure no longer applies
       }
     });
     const candidates = await fetchCandidatesForDet(det);
@@ -2382,6 +2448,7 @@
     if (!det) return;
     currentDetections = currentDetections.filter(d => d !== det);
     if (det.boxEl) det.boxEl.remove();
+    Calorie.forget(det.id);
     reportSelectedId = null;
     renumberMarkers();
     renderReportPanel();
@@ -2460,6 +2527,7 @@
     isSavingMeal = true;
     updateReportDone();
     try {
+      await Calorie.settle(currentDetections.map(d => d.id)); // don't save a half-calculated meal
       await saveCurrentMeal();
     } finally {
       isSavingMeal = false;

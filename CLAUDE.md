@@ -62,7 +62,20 @@ Details: `backend/data/README.md`.
 - **TFND** (public, `backend/data/tfnd.json`, built by `backend/scripts/build-tfnd.js`): 2,180 foods, values **per 100 g**, `per100g.kcal` = 修正熱量 (fallback 熱量). License 政府資料開放授權條款-第1版.
 - `backend/nutrition-db.js`: `init()` (called once at server start) loads foods1000 from Firestore into memory; on failure it logs why and keeps working with TFND only. `searchFoods(name)` → foods1000 (exact → partial) → TFND (exact → partial) → core-word guesses; each result carries `source` and `basis` (`perUnit` / `per100g`). Credentials: env `FIREBASE_SERVICE_ACCOUNT` (whole key JSON), else `backend/firebase-key.json` (`backend/firebase-admin-init.js`).
 - **No endpoint may return the foods1000 table.** The future `/api/nutrition` returns one dish's computed result only.
-- Mixed dishes (番茄炒蛋, 煎餃, 雞腿便當) are in neither table — the calorie feature will need a dish → ingredients step.
+- Mixed dishes (番茄炒蛋, 煎餃, 雞腿便當) are in neither table as such — `/api/nutrition` picks the closest item (match level `approx`) or says `none`; a real dish → ingredients step is still open.
+
+## Calorie calculation (Group A Page 4; built on the nutrition data above)
+
+Rules are the teacher's 「熱量計算功能總結」 — do not change them without her. Details + the settings table: README "熱量計算".
+
+- **Backend** — `POST /api/nutrition` (`server.js`) → `nutrition-estimate.js` (candidates + AI pick + cache) → `nutrition-calc.js` (pure arithmetic). Every number lives in `nutrition-config.js` and **each one is marked 「待老師確認」**: size multipliers (default set + `byCategory` overrides, currently none), container × size portion table (plate/bowl g, cup ml), salt teaspoons, 2358 mg sodium per teaspoon, 9.5 kcal/g anomaly limit.
+- **Request** `{ name, category, containerType, size, cookingMethod, sugar, salt }`. **Response** (one dish only — never candidates or table rows): `status` ok/none/anomaly, `match` exact/close/approx/none, `matchedName`, `source` (foods1000|tfnd) + `sourceLabel`, `kcal` (int), `proteinG`, `fatG`, `carbohydrateG`, `sodiumMg`, `basisKind` (discrete|continuous) with `multiplier` or `amount`/`amountUnit`, `explanation`.
+- Candidates: up to 10 from foods1000 + 10 from TFND (whole name, its 2+ char pieces, then its last character, interleaved). The AI (`OPENAI_MODEL`, `max_completion_tokens`, no temperature) returns only `{pick, match}`; it is sent names/units/weights, never kcal or nutrients. Foods1000 names reach OpenAI and the Render log (prompt is logged) — that is by design.
+- **Pick cache** key = name + category + container + (beverage) sugar-free?; size, salt, cooking method and sugar level never change the pick, so editing them only changes numbers the rules say they may change.
+- **Frontend** — `calorie.js` (`window.PictaCalorie`, loaded before `script.js`, shared with the future Group B page). It listens to `pictameal:dish-detail-complete`, debounces (150 ms on 'completed', 700 ms on 'changed'; only the last edit is calculated; stale replies are dropped), calls `/api/nutrition`, and fires `pictameal:calorie-update` {dishId}. `script.js` renders: badge beside the dish name (計算中… / 約 N kcal / 約 N kcal(近似) / 無法估算; tap to expand item / source / explanation), small kcal text on the photo label (re-runs `resolveLabelOverlaps`), whole-meal total in the footer (估算值, 另有 N 道無法估算), and saves `dish.nutrition` + `record.nutrition` ({totalKcal, estimatedDishes, unavailableDishes}). 完成 first awaits `PictaCalorie.settle()`.
+- Group B: no calories yet (`nutrition: null` in its records).
+- Testing: run the backend locally (`PORT=3100 node server.js`, uses `firebase-key.json` without anyone reading it), serve the frontend on 5600, and in Playwright `page.route` the Render `/api/nutrition` to `localhost:3100` — don't edit `BACKEND_URL`. `backend/scripts/test-nutrition-api.js` prints the 14-dish table (console only; don't paste foods1000 names/numbers into repo files).
+- Known limit: with the placeholder portion table, a per-100 g item for a single piece of food (e.g. one boiled egg as a "plate M" = 250 g) overstates calories. Fixing that needs the teacher's per-category portions.
 
 ## Backend
 
@@ -104,7 +117,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v10`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v11`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

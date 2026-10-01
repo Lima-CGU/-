@@ -1,8 +1,9 @@
-const CACHE_NAME = 'pictameal-shell-v10';
+const CACHE_NAME = 'pictameal-shell-v11';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
+  './calorie.js',
   './script.js',
   './home-illustration.png',
   './manifest.json',

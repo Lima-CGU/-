@@ -552,6 +552,23 @@ app.post('/api/detect', async (req, res) => {
   }
 });
 
+// One dish -> calories. The AI only picks a candidate from the nutrition
+// tables (by number); nutrition-calc.js does the math. Returns this dish's
+// figures only — never the candidate list or any table.
+app.post('/api/nutrition', async (req, res) => {
+  if (!OPENAI_API_KEY) {
+    return res.status(500).json({ error: '伺服器還沒設定 OPENAI_API_KEY 環境變數,請先在部署平台設定金鑰。' });
+  }
+  try {
+    const { httpStatus, ...payload } = await require('./nutrition-estimate')
+      .estimate(req.body, prompt => callOpenAIVision(null, prompt, 200));
+    res.status(httpStatus).json(payload);
+  } catch (err) {
+    console.error('[nutrition] failed:', err.message);
+    res.status(502).json({ error: '熱量計算暫時失敗。' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`香互後端啟動,監聽 port ${PORT}`);
