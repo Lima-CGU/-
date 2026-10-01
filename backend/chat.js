@@ -37,7 +37,7 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 
 每道菜有 5 個欄位,值只能從下列選項挑,使用者沒說、也判斷不出來就不要填(不要猜):
 - containerType 容器:plate(盤子)、bowl(碗)、cup(杯子)。使用者說「一碗」→ bowl,「一盤」→ plate,「一杯」→ cup;飲料通常是 cup。
-- size 份量(相對於一般一人份):XS = 半份/一半/幾口;S = 少一點/小份;M = 一份/一碗/一盤/一杯/一個/正常份量;L = 一份半/大碗/多一點;XL = 兩份/兩碗/很多。
+- size 份量(相對於一般一人份):XS = 半份/一半/幾口;S = 少一點/小份;M = 一份/一碗/一盤/一杯/一個/一片/一塊/一顆/一根/一條/正常份量(使用者說了這類數量就要填 size);L = 一份半/大碗/多一點;XL = 兩份/兩碗/很多。
 - cookingMethod 烹調方式:食物用 ${OPTIONS.cookingMethodFood.join('、')};飲料用 ${OPTIONS.cookingMethodBeverage.join('、')}。
 - sugar 糖:${OPTIONS.sugar.join('、')}(多用於飲料)。
 - salt 鹽:${OPTIONS.salt.join('、')}。
@@ -54,6 +54,8 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
    - 不要為了填滿欄位追問容器、糖、鹽、烹調方式這些使用者沒提的細節。
 5. 不追問時,回覆格式參考:「好的,我已記錄:\\n• 白飯(一碗,含一顆蛋)\\n還有其他食物要補充嗎?你也可以點選其他項目,或直接告訴我整餐的感受。」條列只寫這次記錄到的內容。
 6. 菜的編號 no 一律用下面清單裡的編號;新菜不用編號。
+7. 紀錄要等使用者按畫面下方的「完成」才會儲存,所以絕對不要說「已記錄完成」「這餐記錄好了」「已經存檔/儲存」這類表示已存檔的話(「我已記錄:」條列這次的內容可以)。
+8. 使用者表示沒有要補充了(例如「沒有了」「就這些」「吃完了」),不要追問,回覆:「如果都描述完了,請按下方的『完成』。」
 
 請「只」回傳如下 JSON,不要加任何說明文字(沒有的項目給空陣列):
 {"reply":"…","updates":[{"no":1,"fields":{"containerType":"bowl","size":"M"}}],"notes":[{"no":1,"note":"含一顆蛋"}],"newDishes":[{"name":"味噌湯","category":"beverage","fields":{"containerType":"bowl","size":"M"},"note":""}],"renameDishes":[{"no":2,"name":"豬排","category":"food"}],"isClarification":false}`;
@@ -90,10 +92,13 @@ function cleanFields(fields, cat){
 
 // The reply must not state calories / nutrients: drop any line or sentence that does.
 const NUTRITION_WORDS = /熱量|卡路里|大卡|千卡|kcal|蛋白質|脂肪|醣類|碳水|鈉/i;
+// ...nor claim the meal is saved — only 「完成」 saves it.
+const SAVED_WORDS = /記錄完成|紀錄完成|完成記錄|完成紀錄|記錄好了|紀錄好了|記好了|已(經)?(存檔|儲存|保存|存好)/;
 function cleanReply(text){
+  const bad = s => NUTRITION_WORDS.test(s) || SAVED_WORDS.test(s);
   const lines = str(text, 800).split('\n').map(line => {
-    if (!NUTRITION_WORDS.test(line)) return line;
-    return line.split(/(?<=[。!?!?])/).filter(s => !NUTRITION_WORDS.test(s)).join('');
+    if (!bad(line)) return line;
+    return line.split(/(?<=[。!?!?,,])/).filter(s => !bad(s)).join('');
   });
   return lines.filter(l => l.trim()).join('\n').trim();
 }

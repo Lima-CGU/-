@@ -1115,7 +1115,12 @@
       .filter(el => !el.hidden)
       .map(el => el.getBoundingClientRect())
       .filter(r => r.width && r.height);
-    const slots = RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS : LABEL_SLOTS;
+    const allSlots = RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS : LABEL_SLOTS;
+    // Group B's chat photo is smaller, so labels would flip ABOVE their marker
+    // far more often — and a label above one marker reads as the label under
+    // the marker above it. There, try UNDER only first (hiding calorie lines,
+    // then compact), and allow ABOVE only if labels still collide after that.
+    let slots = chatMode && RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS.filter(s => s.v === 'under') : allSlots;
     const fixedRects = dotRects.concat(controlRects);
 
     // Labels start full size; only those that still collide after a full
@@ -1131,6 +1136,10 @@
     }
     if (stillColliding.length){
       stillColliding.forEach(i => dets[i].labelEl.classList.add('det-label-compact'));
+      stillColliding = placeAll();
+    }
+    if (stillColliding.length && slots !== allSlots){
+      slots = allSlots;
       placeAll();
     }
 
@@ -2770,25 +2779,38 @@
     reportAddDishBtn.setAttribute('aria-pressed', String(chatMealSelected));
     const det = selectedReportDet();
     chatSelChip.hidden = !det && !chatMealSelected;
-    chatSelChip.textContent = det ? `已選取:${chatDishNo(det)}. ${chatDishName(det)}(再點一次圓圈取消)`
-      : chatMealSelected ? '已選取:整餐/其他(再點一次按鈕取消)' : '';
+    chatSelChip.textContent = '';
+    if (!det && !chatMealSelected) return;
+    // a thumbnail first: the dish's own box crop (same as Group A's panel),
+    // or the whole photo for 整餐/其他
+    const img = document.createElement('img');
+    img.className = 'chat-sel-thumb';
+    img.alt = '';
+    const label = document.createElement('span');
+    label.textContent = det ? `已選取:${chatDishNo(det)}. ${chatDishName(det)}(再點一次圓圈取消)`
+      : '已選取:整餐/其他(再點一次按鈕取消)';
+    chatSelChip.append(img, label);
+    if (det) ensureReportThumb(det).then(url => { if (url && img.isConnected) img.src = url; });
+    else img.src = currentPhotoData || '';
   }
   function chatSelection(){
     const det = selectedReportDet();
-    if (det) return { type: 'dish', no: chatDishNo(det), name: chatDishName(det) };
+    if (det) return { type: 'dish', no: chatDishNo(det), name: chatDishName(det), det };
     return chatMealSelected ? { type: 'meal' } : null;
   }
 
   /* messages */
+  // extra.thumb: a Promise of a thumbnail URL shown in the bubble (display
+  // only — the record keeps just which dish was selected)
   function addChatMessage(role, content, extra = {}){
     const msg = { role, content, at: new Date().toISOString(), selected: extra.selected || null, ...extra.meta };
     chatMessages.push(msg);
-    const row = renderChatMessage(msg, extra.dishIds || []);
+    const row = renderChatMessage(msg, extra.dishIds || [], extra.thumb);
     scrollChatToEnd();
     return { msg, row };
   }
 
-  function renderChatMessage(msg, dishIds){
+  function renderChatMessage(msg, dishIds, thumb){
     const row = document.createElement('div');
     row.className = `chat-msg ${msg.role === 'assistant' ? 'chat-msg-ai' : 'chat-msg-user'}`;
     const avatar = document.createElement('span');
@@ -2798,7 +2820,19 @@
     wrap.className = 'chat-bubble-wrap';
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble';
-    bubble.textContent = msg.content;
+    if (thumb){
+      // "我點選了 X" with that dish's crop beside it
+      bubble.classList.add('has-thumb');
+      const img = document.createElement('img');
+      img.className = 'chat-msg-thumb';
+      img.alt = '';
+      thumb.then(url => { if (url) img.src = url; });
+      const text = document.createElement('span');
+      text.textContent = msg.content;
+      bubble.append(img, text);
+    } else {
+      bubble.textContent = msg.content;
+    }
     wrap.appendChild(bubble);
     if (dishIds.length){
       const rows = document.createElement('div');
@@ -2888,7 +2922,10 @@
     const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${text}`
       : sel && sel.type === 'meal' ? `關於整餐:${text}` : text;
     const history = chatMessages.slice(-CHAT_HISTORY_SENT).map(m => ({ role: m.role, content: m.content }));
-    addChatMessage('user', content, { selected: sel });
+    addChatMessage('user', content, {
+      selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,
+      thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null
+    });
     chatInput.value = '';
     // the selection applies to this message only
     chatMealSelected = false;
@@ -2897,8 +2934,11 @@
 
     chatBusy = true;
     updateChatBusy();
-    const typing = renderChatMessage({ role: 'assistant', content: '…', at: new Date().toISOString() }, []);
-    typing.querySelector('.chat-bubble').classList.add('is-typing');
+    // "AI is typing" bubble until the reply arrives
+    const typing = renderChatMessage({ role: 'assistant', content: '', at: new Date().toISOString() }, []);
+    const typingBubble = typing.querySelector('.chat-bubble');
+    typingBubble.classList.add('is-typing');
+    typingBubble.innerHTML = '正在整理<span class="chat-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
     typing.querySelector('.chat-time').textContent = '';
     scrollChatToEnd();
 
@@ -2927,7 +2967,9 @@
     if (!reportActive || !chatMode) return; // left the page meanwhile
 
     if (!data){
-      addChatMessage('assistant', '抱歉,連線好像有點問題,請再送一次。', { meta: { failed: true, latencyMs } });
+      addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
+      if (!chatInput.value) chatInput.value = text; // ready to resend
+      chatInput.focus();
       return;
     }
     const touched = applyChatResult(data);
@@ -2943,6 +2985,8 @@
 
   function updateChatBusy(){
     chatSendBtn.disabled = chatBusy;
+    chatInput.disabled = chatBusy;
+    chatMicBtn.disabled = chatBusy;
     chatDoneBtn.disabled = chatBusy || isSavingMeal;
   }
 

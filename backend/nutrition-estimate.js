@@ -61,9 +61,17 @@ function describeCandidate(c){
 
 /* ---------- AI pick ---------- */
 
+// Discrete-unit items (份/碗/顆/根/片/個/杯 …) — in practice foods1000's —
+// come first, as list A; per-100 g / per-g / per-ml items are list B.
+const isDiscrete = c => !calc.isContinuous(c);
+
 function buildPrompt(input, candidates){
   const isBev = input.category === 'beverage';
-  const lines = candidates.map((c, i) => `${i + 1}. ${describeCandidate(c)}`).join('\n');
+  const nA = candidates.filter(isDiscrete).length;
+  const line = (c, i) => `${i + 1}. ${describeCandidate(c)}`;
+  const listA = candidates.slice(0, nA).map(line).join('\n') || '(沒有)';
+  const listB = candidates.slice(nA).map((c, i) => line(c, nA + i)).join('\n') || '(沒有)';
+  const lines = `A. 以「份、碗、顆、根、片、個、杯…」計的品項:\n${listA}\n\nB. 以每 100 g(或公克、毫升)計的品項:\n${listB}`;
   return `你是食物營養資料庫的「比對助手」。使用者記錄了一道菜,請從下面的候選清單中,挑出最能代表這道菜的一筆。
 菜名:${input.name}(${isBev ? '飲料' : '食物'})
 容器:${cfg.CONTAINER_LABELS[input.containerType] || '未記錄'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}
@@ -74,9 +82,9 @@ ${lines}
 規則:
 - 你只能回傳候選的「編號」和「比對程度」,絕對不能回傳任何熱量或營養數字。
 - 比對程度 match:exact = 同一道菜;close = 同一道菜但做法或名稱略有不同;approx = 不同但最接近(例如煎餃→水餃);none = 差太多,不能拿來代表(此時 pick 填 null)。
-- 一樣適合時,優先選單位是「份、碗、杯」這類離散單位的品項(不要選以 g 計的)。
+- 一律優先從 A 清單挑:只要 A 裡有同一種食物,即使名稱不完全相同、做法略有不同(例如「水煮蛋」選以「顆」計的雞蛋類品項、「香蕉切片」選以「根」計的香蕉),就選 A 的那一筆,不要選 B 的每 100 g 品項。只有 A 裡完全沒有合適的,才從 B 挑。
 - 飲料若糖量是「無糖」,優先選不含糖的品項(例如黑咖啡應選美式咖啡,不是冰咖啡)。
-- 像「蘋果切片」這種切開的食物,要考慮份量是否接近:切片不等於一整顆,整顆的份量差太多就不要選。
+- 像「蘋果切片」這種切開的食物,可以選整顆/整根的品項(吃了多少由尺寸換算),但不要選成別的加工品(例如蘋果汁、蘋果派)。
 - 混合菜餚如果清單裡只有生的原料、不適合代表整道菜,請填 none。
 請「只」回傳如下格式的 JSON,不要加任何說明文字:
 {"pick":3,"match":"close"}`;
@@ -103,10 +111,12 @@ async function pickCandidate(input, askAI){
   if (inFlight.has(key)) return inFlight.get(key);
 
   const job = (async () => {
-    const candidates = [
+    const all = [
       ...candidatesFrom('foods1000', input.name),
       ...candidatesFrom('tfnd', input.name)
     ];
+    // list A (discrete units) first, then list B — numbering follows this order
+    const candidates = [...all.filter(isDiscrete), ...all.filter(c => !isDiscrete(c))];
     let result = { item: null, match: 'none' };
     if (candidates.length){
       const parsed = await askAI(buildPrompt(input, candidates));
