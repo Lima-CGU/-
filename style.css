@@ -557,25 +557,71 @@ body{
   border-top-color: var(--ink-soft);
   animation: confirm-progress-spin 0.8s linear infinite;
 }
-.recognize-photo-wrap{
+/* The space available for the photo (plain page background, no tint). */
+.recognize-stage{
   position: relative;
   flex: 1;
   min-height: 0;
 }
-.recognize-photo-wrap img{
+/* The photo's display frame. layoutRecognizePhoto() (script.js) sizes and
+   centers it in px to the photo's own aspect ratio — width-filled, or
+   height-filled only when the photo is too tall — so there is no letterbox.
+   It clips the part of the photo that's zoomed out of view. Everything that
+   sits on the photo (+ button, zoom toggle) is positioned inside it, so it
+   aligns to the photo's visible area, not the stage. */
+.recognize-photo-wrap{
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  /* contain, not cover: /api/detect's percentage boxes are relative to the
-     FULL original photo, so any cropping here shifts every box toward the
-     center (the more the further from center) and squeezes it. */
-  object-fit: contain;
+  overflow: hidden;
   border-radius: 12px;
-  display: block;
-  background: var(--purple-soft);
 }
+/* Holds the photo + boxes; only ever transformed briefly for the zoom
+   animation (layout is always measured with no transform applied). */
+.recognize-content{
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+.recognize-content.zoom-animating{
+  transition: transform 0.35s ease;
+}
+.recognize-photo-wrap img{
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  /* The <img> is always sized to the photo's own aspect ratio by JS, so
+     contain never actually letterboxes; it's kept so a box %-coordinate
+     always maps to the same % of the FULL photo (never crop via cover). */
+  object-fit: contain;
+  display: block;
+}
+.recognize-zoom-toggle{
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 7;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(28, 22, 35, 0.72);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.recognize-zoom-toggle:hover{ background: rgba(28, 22, 35, 0.88); }
 /* left/top/width/height are set in px by layoutRecognizeOverlay()
-   (script.js) to exactly the rectangle the photo is actually drawn in
-   inside the letterboxed <img>; these are only the pre-layout fallback. */
+   (script.js) to exactly the rectangle the FULL photo is drawn in (which,
+   when zoomed in, extends past the clipping frame); these are only the
+   pre-layout fallback. */
 .recognize-overlay{
   position: absolute;
   left: 0;
@@ -592,23 +638,27 @@ body{
   pointer-events: none;
 }
 
+/* One line — name then confidence — sized to its own text and never to the
+   box: no max-width, no overflow clipping, no ellipsis. (69a889c tied the
+   width to the box via a % max-width and a JS clamp down to 20px, which
+   squeezed names into a one-character strip and cut "99%" to "9" once
+   boxes got small.) It sits OUTSIDE the box by default — above its top
+   edge — so it can never land under the box's own confirm dot; which slot
+   (above / below / inside) is picked by resolveLabelOverlaps() in script.js. */
 .det-label{
   position: absolute;
-  left: 6px;
-  top: 6px;
-  /* Fixed px cap, deliberately NOT relative to the box's own width — a
-     narrow box must not force this into a one-character-per-line wrap.
-     width:max-content lets it shrink to fit short names instead of always
-     reserving the full max-width, and it's allowed to visually extend past
-     the box's own edge (the overlay has no overflow:hidden to clip it). */
+  left: 0;
+  bottom: calc(100% + 3px);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   width: max-content;
-  max-width: 200px;
-  background: rgba(28, 22, 35, 0.75);
+  white-space: nowrap;
+  background: rgba(28, 22, 35, 0.78);
   color: #fff;
   font-family: var(--font-body);
-  padding: 5px 10px;
-  border-radius: 12px;
-  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 10px;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   /* Deliberately below every box's confirm dot / remove button (z-index 5+
@@ -621,36 +671,31 @@ body{
 .det-box.confirmed .det-label{
   background: rgba(18, 169, 129, 0.92);
 }
-/* Toggled by resolveLabelOverlaps() (script.js) when this label's default
-   top-left spot overlaps a neighboring box's label in a dense layout.
-   Bottom-right is always reserved for this same box's own confirm dot (see
-   .det-dot), so unlike the default top slot, this one must never claim that
-   full width — cap it structurally (not just via the JS overlap check,
-   which only kicks in after the fact) so it stops short of the dot however
-   long the name is. */
+/* Fallback slots, chosen by resolveLabelOverlaps() when "above" would leave
+   the visible photo or hit another label / confirm dot. */
 .det-label.det-label-below{
-  top: auto;
-  bottom: 6px;
-  max-width: calc(100% - 40px);
+  bottom: auto;
+  top: calc(100% + 3px);
 }
-.det-label-name,
-.det-label-meta{
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+.det-label.det-label-inside{
+  bottom: auto;
+  top: 4px;
+  left: 4px;
+}
+.det-label.det-label-right{
+  left: auto;
+  right: 0;
 }
 .det-label-name{
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 .det-label-meta{
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.2;
-  color: rgba(255,255,255,0.72);
+  line-height: 1.25;
+  color: rgba(255,255,255,0.78);
 }
 
 .det-remove{

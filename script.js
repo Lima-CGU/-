@@ -30,7 +30,10 @@
 
   const reviewImg   = document.getElementById('reviewImg');
 
+  const recognizeStage   = document.getElementById('recognizeStage');
   const recognizeWrap    = document.getElementById('recognizeWrap');
+  const recognizeContent = document.getElementById('recognizeContent');
+  const recognizeZoomToggle = document.getElementById('recognizeZoomToggle');
   const recognizePhoto   = document.getElementById('recognizePhoto');
   const recognizeOverlay = document.getElementById('recognizeOverlay');
   const manualBoxSpawner = document.getElementById('manualBoxSpawner');
@@ -796,6 +799,9 @@
           }
         });
         setRecognizeHint('', false);
+        // Clearing the hint resizes the stage; let that re-layout (via the
+        // ResizeObserver) land first so it doesn't cut the zoom animation.
+        requestAnimationFrame(() => requestAnimationFrame(zoomToFood));
         if (lowConfidenceDishes.length){
           lowConfidenceQueue.push(...lowConfidenceDishes);
           processLowConfidenceQueue();
@@ -884,61 +890,78 @@
     resolveLabelOverlaps();
   }
 
-  // With several boxes packed close together, each box's own top-left label
-  // can land on top of a *different* box's label. Re-checked after every
-  // render/state change (called from updateProgress) since adding, removing,
-  // or resizing any box can change who overlaps whom. Cheap enough for the
-  // handful of boxes (<=8) this screen ever shows — this forces a
-  // getBoundingClientRect layout read per label, which is fine at this scale
-  // but would need debouncing if this screen ever had to handle many more.
+  // Picks where each box's (single-line, never width-clamped) label goes:
+  // above the box's top edge, else below its bottom edge, else inside its
+  // top-left corner — the first slot that stays inside the visible photo
+  // and doesn't hit an already-placed label or any confirm dot. A label is
+  // also shifted sideways to stay inside the visible photo. If no slot is
+  // clean, the least-bad one wins (fewest collisions, staying visible
+  // first). Its size is never reduced — a squeezed, unreadable label is
+  // what this replaced. Re-run after every render/state change (from
+  // updateProgress) and every photo re-layout/zoom; fine for the <=8 boxes
+  // this screen shows (a few getBoundingClientRect reads per label).
+  // Tried in order; 'right' variants right-align the label to the box's
+  // right edge instead of its left (more room to dodge a neighbor in dense
+  // layouts).
+  const LABEL_SLOTS = [
+    { v: 'above', right: false },
+    { v: 'above', right: true },
+    { v: 'below', right: false },
+    { v: 'below', right: true },
+    { v: 'inside', right: false }
+  ];
+  const LABEL_NUDGES = [0, -36, 36, -72, 72]; // px, sideways
+
+  function setLabelSlot(labelEl, slot){
+    labelEl.classList.toggle('det-label-below', slot.v === 'below');
+    labelEl.classList.toggle('det-label-inside', slot.v === 'inside');
+    labelEl.classList.toggle('det-label-right', slot.right);
+    labelEl.style.transform = '';
+  }
+
   function resolveLabelOverlaps(){
     const dets = currentDetections.filter(d => d.labelEl && d.boxEl && d.dotEl);
     if (!dets.length) return;
+    const clip = recognizeWrap.getBoundingClientRect();
+    if (!clip.width || !clip.height) return; // screen hidden
 
     function overlaps(a, b){
       return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
     }
 
-    // Reset to the default top position and full width first, so a label
-    // that no longer overlaps anything (e.g. a neighbor box was just
-    // deleted) moves/widens back instead of staying stuck from an earlier
-    // pass.
+    const dotRects = dets.map(d => d.dotEl.getBoundingClientRect());
+    // controls that sit on the photo itself — a label under them is unreadable
+    const controlRects = [recognizeZoomToggle, manualBoxSpawner]
+      .filter(el => !el.hidden)
+      .map(el => el.getBoundingClientRect());
+    const placed = [];
     dets.forEach(d => {
-      d.labelEl.classList.remove('det-label-below');
-      d.labelEl.style.maxWidth = '';
-    });
-
-    if (dets.length > 1){
-      const rects = dets.map(d => d.labelEl.getBoundingClientRect());
-      for (let i = 0; i < dets.length; i++){
-        for (let j = i + 1; j < dets.length; j++){
-          if (overlaps(rects[i], rects[j])){
-            // Flip the later box's label to its bottom edge and re-measure —
-            // simple, not globally optimal for pathological layouts, but a
-            // single flip resolves the common case of two neighboring boxes
-            // whose top edges sit at nearly the same height.
-            dets[j].labelEl.classList.add('det-label-below');
-            rects[j] = dets[j].labelEl.getBoundingClientRect();
-          }
+      const el = d.labelEl;
+      let best = null;
+      for (const slot of LABEL_SLOTS){
+        setLabelSlot(el, slot);
+        const r0 = el.getBoundingClientRect();
+        // also try sliding sideways a little to clear a neighbor's dot/label;
+        // every candidate is then clamped to stay inside the visible photo
+        for (const nudge of LABEL_NUDGES){
+          let shift = nudge;
+          if (r0.right + shift > clip.right - 4) shift = clip.right - 4 - r0.right;
+          if (r0.left + shift < clip.left + 4) shift = clip.left + 4 - r0.left;
+          const r = { left: r0.left + shift, right: r0.right + shift, top: r0.top, bottom: r0.bottom };
+          const leavesPhoto = r.top < clip.top || r.bottom > clip.bottom;
+          const hits = placed.filter(p => overlaps(r, p)).length
+            + dotRects.filter(dr => overlaps(r, dr)).length
+            + controlRects.filter(cr => overlaps(r, cr)).length;
+          // prefer the plain, unshifted spot when it's as good
+          const score = (leavesPhoto ? 100 : 0) + hits * 10 + (nudge ? 1 : 0);
+          if (!best || score < best.score) best = { slot, shift, rect: r, score };
+          if (score === 0) break;
         }
+        if (best.score === 0) break;
       }
-    }
-
-    // Whichever slot a label ended up in, the dot is always at the box's own
-    // bottom-right corner. The below-state's CSS max-width already reserves
-    // room for it in the common case, but a very narrow box (or the default
-    // top slot, for a very short box) can still reach far enough to cover
-    // it — narrow the label down further to stop just short of the dot.
-    // Always clamp (never skip, even to a tiny width): a barely-readable
-    // sliver of ellipsized text is still strictly better than physically
-    // covering the confirm dot, which is the actual bug this fixes.
-    dets.forEach(d => {
-      const labelRect = d.labelEl.getBoundingClientRect();
-      const dotRect = d.dotEl.getBoundingClientRect();
-      if (overlaps(labelRect, dotRect)){
-        const available = Math.max(20, dotRect.left - labelRect.left - 8); // small gap before the dot
-        d.labelEl.style.maxWidth = `${Math.floor(available)}px`;
-      }
+      setLabelSlot(el, best.slot);
+      el.style.transform = best.shift ? `translateX(${best.shift}px)` : '';
+      placed.push(best.rect);
     });
   }
 
@@ -1071,7 +1094,8 @@
 
   function setupRecognizeScreen(photoDataUrl){
     recognizePhoto.src = photoDataUrl;
-    layoutRecognizeOverlay(); // again on 'load' once natural size is known
+    resetRecognizeZoom(); // full photo while detecting / if nothing is found
+    layoutRecognizePhoto(false); // again on 'load' once natural size is known
     recognizeOverlay.innerHTML = '';
     currentDetections = [];
     lowConfidenceQueue = [];
@@ -1180,12 +1204,157 @@
     resolveLabelOverlaps();
   }
 
-  recognizePhoto.addEventListener('load', layoutRecognizeOverlay);
-  window.addEventListener('resize', layoutRecognizeOverlay);
+  /* ---------- photo display frame + zoom-to-food ---------- */
+  // Display-only zoom: every det keeps its x/y/w/h as % of the FULL photo.
+  // Zooming just draws the whole <img> bigger and shifted inside the
+  // clipping frame (recognizeWrap); photoRect() then reports that full,
+  // partly-offscreen photo rect, so layoutRecognizeOverlay() and
+  // clientToPct() keep mapping boxes / manual drops correctly unchanged.
+  const FOOD_CROP_MARGIN = 8;   // % of the photo added around the dishes, each side
+  const FOOD_CROP_MIN_W = 0.4;  // never zoom in past 40% of the photo's width (one tiny dish)
+
+  let zoomMode = 'full';  // 'full' | 'food'
+  let foodCrop = null;    // {x,y,w,h} in natural px; null = nothing to zoom to
+  let shownCrop = null;   // the crop currently laid out, to animate from
+
+  // Union of every box + margin, grown to the frame's aspect ratio (which
+  // is the photo's own) and kept inside the photo.
+  function computeFoodCrop(){
+    const nw = recognizePhoto.naturalWidth;
+    const nh = recognizePhoto.naturalHeight;
+    if (!nw || !nh || !currentDetections.length) return null;
+    let x0 = 100, y0 = 100, x1 = 0, y1 = 0;
+    currentDetections.forEach(d => {
+      x0 = Math.min(x0, d.x); y0 = Math.min(y0, d.y);
+      x1 = Math.max(x1, d.x + d.w); y1 = Math.max(y1, d.y + d.h);
+    });
+    x0 = Math.max(0, x0 - FOOD_CROP_MARGIN); y0 = Math.max(0, y0 - FOOD_CROP_MARGIN);
+    x1 = Math.min(100, x1 + FOOD_CROP_MARGIN); y1 = Math.min(100, y1 + FOOD_CROP_MARGIN);
+
+    const aspect = nw / nh;
+    let w = (x1 - x0) / 100 * nw;
+    let h = (y1 - y0) / 100 * nh;
+    if (w / h < aspect) w = h * aspect; else h = w / aspect;
+    if (w < nw * FOOD_CROP_MIN_W){ w = nw * FOOD_CROP_MIN_W; h = w / aspect; }
+    w = Math.min(w, nw);
+    h = Math.min(h, nh);
+    if (w >= nw * 0.98) return null; // food already fills the photo — nothing to zoom
+
+    const cx = (x0 + x1) / 2 / 100 * nw;
+    const cy = (y0 + y1) / 2 / 100 * nh;
+    return {
+      x: Math.max(0, Math.min(nw - w, cx - w / 2)),
+      y: Math.max(0, Math.min(nh - h, cy - h / 2)),
+      w, h
+    };
+  }
+
+  // Sizes the frame to the photo's aspect ratio (width-filled; height-filled
+  // only when the photo is too tall), centers it on the plain stage, then
+  // draws the photo at the current crop and re-pins the overlay.
+  function layoutRecognizePhoto(animate){
+    // Always measure with no zoom animation transform in play. Removing the
+    // transition class alone isn't enough: a transition already running
+    // stays applied until the next style flush, so a re-layout mid-animation
+    // (e.g. the ResizeObserver firing as the hint line disappears) would
+    // measure the half-zoomed photo — cancel it explicitly.
+    if (recognizeContent.getAnimations){
+      recognizeContent.getAnimations().forEach(a => a.cancel());
+    }
+    recognizeContent.classList.remove('zoom-animating');
+    recognizeContent.style.transform = '';
+
+    const stage = recognizeStage.getBoundingClientRect();
+    if (!stage.width || !stage.height) return; // screen hidden — redone on show
+    const nw = recognizePhoto.naturalWidth;
+    const nh = recognizePhoto.naturalHeight;
+    if (!nw || !nh){
+      // not loaded yet: CSS fallback (frame = stage, photo contained in it)
+      ['left', 'top', 'width', 'height'].forEach(p => {
+        recognizeWrap.style[p] = '';
+        recognizePhoto.style[p] = '';
+      });
+      layoutRecognizeOverlay();
+      updateZoomToggle();
+      return;
+    }
+
+    const fit = Math.min(stage.width / nw, stage.height / nh);
+    const fw = nw * fit;
+    const fh = nh * fit;
+    recognizeWrap.style.left = `${(stage.width - fw) / 2}px`;
+    recognizeWrap.style.top = `${(stage.height - fh) / 2}px`;
+    recognizeWrap.style.width = `${fw}px`;
+    recognizeWrap.style.height = `${fh}px`;
+
+    const crop = (zoomMode === 'food' && foodCrop) ? foodCrop : { x: 0, y: 0, w: nw, h: nh };
+    const s = fw / crop.w;
+    recognizePhoto.style.left = `${-crop.x * s}px`;
+    recognizePhoto.style.top = `${-crop.y * s}px`;
+    recognizePhoto.style.width = `${nw * s}px`;
+    recognizePhoto.style.height = `${nh * s}px`;
+
+    layoutRecognizeOverlay();
+
+    const prev = shownCrop;
+    shownCrop = crop;
+    if (animate && prev && (prev.x !== crop.x || prev.y !== crop.y || prev.w !== crop.w)){
+      animateZoomFrom(prev, crop, fw);
+    }
+    updateZoomToggle();
+  }
+
+  // FLIP: the final layout is already in place (and was measured); briefly
+  // transform the content back to where the previous crop drew it, then let
+  // it transition to identity.
+  function animateZoomFrom(prev, next, frameW){
+    const sPrev = frameW / prev.w;
+    const sNext = frameW / next.w;
+    const tx = (next.x - prev.x) * sPrev;
+    const ty = (next.y - prev.y) * sPrev;
+    recognizeContent.style.transform = `translate(${tx}px, ${ty}px) scale(${sPrev / sNext})`;
+    recognizeContent.getBoundingClientRect(); // commit the start frame
+    recognizeContent.classList.add('zoom-animating');
+    recognizeContent.style.transform = '';
+    recognizeContent.addEventListener('transitionend', () => {
+      recognizeContent.classList.remove('zoom-animating');
+      resolveLabelOverlaps(); // re-place labels against the settled layout
+    }, { once: true });
+  }
+
+  function updateZoomToggle(){
+    recognizeZoomToggle.hidden = !foodCrop;
+    recognizeZoomToggle.textContent = zoomMode === 'food' ? '查看完整照片' : '放大到食物範圍';
+  }
+
+  function zoomToFood(){
+    foodCrop = computeFoodCrop();
+    zoomMode = foodCrop ? 'food' : 'full';
+    layoutRecognizePhoto(true);
+  }
+
+  function resetRecognizeZoom(){
+    zoomMode = 'full';
+    foodCrop = null;
+    shownCrop = null;
+  }
+
+  recognizeZoomToggle.addEventListener('click', e => {
+    e.stopPropagation();
+    if (zoomMode === 'food'){
+      zoomMode = 'full';
+      layoutRecognizePhoto(true);
+    } else {
+      zoomToFood(); // recompute — manual boxes may have been added since
+    }
+  });
+
+  recognizePhoto.addEventListener('load', () => layoutRecognizePhoto(false));
+  window.addEventListener('resize', () => layoutRecognizePhoto(false));
   // Also catches layout changes that aren't window resizes: the screen
   // becoming visible, the hint line above the photo appearing/disappearing.
   if ('ResizeObserver' in window){
-    new ResizeObserver(layoutRecognizeOverlay).observe(recognizeWrap);
+    new ResizeObserver(() => layoutRecognizePhoto(false)).observe(recognizeStage);
   }
 
   function clientToPct(clientX, clientY){
@@ -1314,8 +1483,12 @@
       document.removeEventListener('pointerup', onUp);
       ghost.remove();
 
+      // must land on the photo AND inside the visible frame (when zoomed,
+      // the photo rect extends past the frame's clipped edges)
       const r = photoRect();
-      if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom){
+      const v = recognizeWrap.getBoundingClientRect();
+      if (ev.clientX < Math.max(r.left, v.left) || ev.clientX > Math.min(r.right, v.right)
+          || ev.clientY < Math.max(r.top, v.top) || ev.clientY > Math.min(r.bottom, v.bottom)){
         return; // dropped outside the photo — do nothing, spawner stays put
       }
       const p = clientToPct(ev.clientX, ev.clientY);

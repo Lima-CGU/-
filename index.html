@@ -126,12 +126,20 @@
     <section class="screen" data-screen="recognize">
       <div class="screen-body recognize-body">
         <p class="recognize-hint" id="recognizeHint">AI 正在自動框出並辨識菜色…</p>
-        <div class="recognize-photo-wrap" id="recognizeWrap">
-          <img id="recognizePhoto" alt="辨識中的餐點照片">
-          <div class="recognize-overlay" id="recognizeOverlay"></div>
-          <button type="button" class="manual-box-spawner" id="manualBoxSpawner" aria-label="拖曳到照片上,手動補框一道菜">
-            <span class="manual-box-spawner-icon" aria-hidden="true">+</span>
-          </button>
+        <!-- recognizeStage = the space available for the photo; recognizeWrap
+             = the photo's display frame, sized by JS to the photo's aspect
+             ratio and clipping whatever part of the photo is zoomed out of view. -->
+        <div class="recognize-stage" id="recognizeStage">
+          <div class="recognize-photo-wrap" id="recognizeWrap">
+            <div class="recognize-content" id="recognizeContent">
+              <img id="recognizePhoto" alt="辨識中的餐點照片">
+              <div class="recognize-overlay" id="recognizeOverlay"></div>
+            </div>
+            <button type="button" class="recognize-zoom-toggle" id="recognizeZoomToggle" hidden>查看完整照片</button>
+            <button type="button" class="manual-box-spawner" id="manualBoxSpawner" aria-label="拖曳到照片上,手動補框一道菜">
+              <span class="manual-box-spawner-icon" aria-hidden="true">+</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="screen-foot recognize-controls">

@@ -31,6 +31,8 @@ Main file: `backend/server.js`
 - `/api/detect` detects multiple dishes and returns percentage-based boxes.
 - Detection uses a strict food-only prompt and box normalization/padding. It is still approximate GPT bounding-box detection, not pixel-accurate segmentation. Backend `normalizeDishBox` only enforces 0–100 bounds and a minimum size (the old 48%/52% size caps and 2200 area cap were removed — they shrank large dishes smaller than the food).
 - Box percentages are relative to the FULL original photo. The recognize screen shows the photo with `object-fit: contain`, and `layoutRecognizeOverlay()` / `photoRect()` in `script.js` pin `.recognize-overlay` and manual-box coordinates to the photo's actual drawn rectangle. Never switch that image back to `cover` or measure boxes against `recognizeWrap` — boxes would drift toward the center.
+- Recognize-screen layout: `#recognizeStage` is the available space; `#recognizeWrap` is the photo frame, sized by `layoutRecognizePhoto()` to the photo's aspect ratio (width-filled; height-filled only if too tall) and centered, clipping overflow. After `/api/detect` returns, `zoomToFood()` zooms the display to the union of all boxes + 8% margin (FLIP animation); `#recognizeZoomToggle` switches between that and the full photo. The zoom is display-only — box coordinates stay % of the full photo, and `photoRect()` reports the full (partly clipped) photo rect so mapping is unchanged.
+- Recognize-screen labels are one line (name + confidence), never width-clamped, and placed OUTSIDE the box by default; `resolveLabelOverlaps()` picks the first of above/below (left- or right-aligned, with small sideways nudges) or inside that stays on the photo and avoids other labels, every confirm dot, and the on-photo controls.
 - An optional external segmentation adapter exists through `SEGMENTATION_API_URL` and `SEGMENTATION_API_KEY`. If configured and it returns boxes, `/api/detect` prefers those boxes; otherwise it falls back to OpenAI detection.
 - `sharp` is installed for the coarse local fallback image-processing heuristic.
 
@@ -56,7 +58,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v5`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v6`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks
