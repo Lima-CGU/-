@@ -53,6 +53,13 @@ The app is used in a two-arm study: **Group A** (traditional — report with but
 - Footer (`updateReportDone()`, re-run on every select / field / rename / add / delete): while any dish is unfilled it shows "已填 N / 總數 道", plus "下一道 ›" once the selected dish is itself filled — that selects the next unfilled dish in marker order, wrapping to the start (`nextUnfilledReportDet()`); tapping markers to jump around still works. Only when every dish is filled does the footer become just "完成". It saves via `saveCurrentMeal()` (record has `group`, each dish has `detail`, `box`, `displayBox`, `source`, `tapPoint`) and goes to the Diary.
 - **Calorie hook:** `notifyDishDetailComplete(det, reason)` dispatches `document` event `pictameal:dish-detail-complete` with `{ dishId, name, confidence, category, detail, group, reason }` — `reason: 'completed'` when a dish first gets all five fields, `'changed'` on any later field/name edit while it is still complete. Hang the calorie calculation there.
 
+## Nutrition data (for calorie calculation)
+
+- `backend/data/tfnd.json`: official TFDA 食品營養成分資料庫 (TFND), 2,180 foods, per-100 g kcal / protein / fat / carbs / sodium. Built by `backend/scripts/build-tfnd.js` (`--download` fetches the current official zip; no npm deps). Version, license (政府資料開放授權條款-第1版) and format: `backend/data/README.md`.
+- Use `per100g.kcal` as THE calorie value (修正熱量, falling back to 熱量).
+- Lookup: `backend/nutrition-db.js` → `searchFoods(keyword)` (exact name → exact 俗名 → partial, preferring head-noun matches and TFND 「平均值」 entries). Not wired into the server or front end yet.
+- TFND is ingredient-level: most dish names (番茄炒蛋, 煎餃) don't match, and there is no generic 「豬肉」 entry — the calorie feature will need a dish → ingredient mapping step.
+
 ## Backend
 
 Main file: `backend/server.js`

@@ -4,7 +4,9 @@
   "description": "香互後端,代理呼叫 OpenAI GPT-4o 食物辨識",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build-tfnd": "node scripts/build-tfnd.js",
+    "test-nutrition-db": "node scripts/test-nutrition-db.js"
   },
   "engines": {
     "node": ">=18"

@@ -6,3 +6,6 @@ firebase-key.json
 *adminsdk*.json
 # also covers a doubled extension like firebase-key.json.json
 firebase-key*.json
+
+# TFND raw download: keep the zip, ignore the extracted ~62MB CSV
+data/raw/*.csv
