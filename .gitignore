@@ -1,7 +1,5 @@
+# Secrets — this repo is public, never commit these
 .env
-node_modules/
-
-# Firebase service-account keys — this repo is public, never commit these
 firebase-key.json
 *adminsdk*.json
 # also covers a doubled extension like firebase-key.json.json
