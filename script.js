@@ -347,10 +347,11 @@
 
     // Page 4 only (results exist only after a dish is filled in): the dish's
     // estimated calories, small, at the end of the label.
-    const kcalText = det && window.PictaCalorie ? window.PictaCalorie.labelText(window.PictaCalorie.getState(det.id)) : '';
+    const kcalState = det && window.PictaCalorie ? window.PictaCalorie.getState(det.id) : null;
+    const kcalText = kcalState ? window.PictaCalorie.labelText(kcalState) : '';
     if (kcalText){
       const kcalEl = document.createElement('span');
-      kcalEl.className = 'det-label-kcal';
+      kcalEl.className = `det-label-kcal ${window.PictaCalorie.labelClass(kcalState)}`.trim();
       kcalEl.textContent = kcalText;
       labelEl.appendChild(kcalEl);
     }

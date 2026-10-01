@@ -772,6 +772,9 @@ body{
   line-height: 1.25;
   color: #5fe3ae;
 }
+/* no number: grey 無法估算 / 計算中… — same size, same all-or-nothing rule */
+.det-label-kcal.is-none,
+.det-label-kcal.is-loading{ color: rgba(255,255,255,0.62); font-weight: 700; }
 .det-label.det-label-nokcal .det-label-kcal{ display: none; }
 .det-label.det-label-compact .det-label-name{
   font-size: 12px;

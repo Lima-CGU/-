@@ -183,9 +183,18 @@
       }
     },
 
-    // Photo label line: only when there is a number.
+    // Photo label line: "N kcal", 計算中…, or 無法估算 (none / anomaly /
+    // failed). '' only for a dish that has never been calculated.
     labelText(st){
-      return st && st.status === 'ok' ? `${st.result.kcal} kcal` : '';
+      if (!st) return '';
+      if (st.status === 'loading') return '計算中…';
+      return st.status === 'ok' ? `${st.result.kcal} kcal` : '無法估算';
+    },
+
+    // Style class for that line: '' (a number), 'is-loading' or 'is-none'.
+    labelClass(st){
+      if (!st || st.status === 'ok') return '';
+      return st.status === 'loading' ? 'is-loading' : 'is-none';
     },
 
     // The expandable explanation: how it was calculated, then 蛋白質 / 脂肪 / 醣類 / 鈉.
