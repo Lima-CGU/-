@@ -776,11 +776,14 @@ body{
 .report-heading{
   margin-bottom: 10px;
 }
-/* Holds the moved-in #recognizeStage; a fixed share of the height so the
-   per-dish panel below always has room. */
+/* Holds the moved-in #recognizeStage. Its height is set by
+   sizeReportPhotoSlot() (script.js): full width, height by the photo's
+   aspect ratio, capped at 50% of the screen — 260px is only the
+   pre-measure fallback. */
 .report-photo-slot{
   flex: 0 0 auto;
-  height: clamp(190px, 45%, 380px);
+  width: 100%;
+  height: 260px;
   display: flex;
 }
 .report-photo-slot .recognize-stage{
@@ -897,6 +900,47 @@ body{
   background: var(--coral);
   color: #fff;
 }
+/* footer: progress (+ "下一道 ›") until everything is filled, then "完成" */
+.report-foot{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+}
+.report-progress{
+  flex: 1 1 auto;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--purple-deep);
+}
+.report-next-dish-btn{
+  flex: 0 0 auto;
+  padding-inline: 20px;
+}
+
+/* Page 4 option rows: every field is a row of small buttons like "尺寸",
+   wrapping when they don't fit (the modal keeps its own layout). */
+.screen-report .detail-cooking-list,
+.screen-report .detail-sugar-list,
+.screen-report .detail-salt-list{
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-right: 0;
+}
+.screen-report .detail-cooking-choice,
+.screen-report .detail-sugar-choice,
+.screen-report .detail-salt-choice{
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: center;
+  text-align: center;
+  padding: 8px 10px;
+}
+.screen-report .detail-scroll-hint{ display: none; }
+
 /* "+ 新增菜色": photo's bottom-right corner, Page 4 only */
 .report-add-dish-btn{
   display: none;

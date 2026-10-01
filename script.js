@@ -2099,6 +2099,9 @@
   const reportDeleteCancel  = document.getElementById('reportDeleteCancel');
   const reportDeleteYes     = document.getElementById('reportDeleteYes');
   const reportDoneBtn       = document.getElementById('reportDoneBtn');
+  const reportProgress      = document.getElementById('reportProgress');
+  const reportPanel         = document.getElementById('reportPanel');
+  const reportNextDishBtn   = document.getElementById('reportNextDishBtn');
   const reportScreenEl      = document.querySelector('.screen[data-screen="report"]');
   const reportLists = {
     containerType: document.getElementById('reportContainerList'),
@@ -2173,10 +2176,31 @@
     refreshMarkerStates();
   }
 
+  // Footer: "已填 N / 總數 道" while anything is unfilled — plus "下一道 ›"
+  // once the selected dish is itself filled — and only "完成" when every
+  // dish is filled. Called on every select / field / rename / add / delete.
   function updateReportDone(){
     const all = currentDetections;
-    reportDoneBtn.disabled = isSavingMeal || !all.length
-      || !all.every(d => !d.loading && isDishComplete(d));
+    const filled = all.filter(d => !d.loading && isDishComplete(d)).length;
+    const allDone = all.length > 0 && filled === all.length;
+    const sel = selectedReportDet();
+    reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
+    reportProgress.hidden = allDone;
+    reportNextDishBtn.hidden = allDone || !sel || !!sel.loading || !isDishComplete(sel);
+    reportDoneBtn.hidden = !allDone;
+    reportDoneBtn.disabled = isSavingMeal || !allDone;
+  }
+
+  // Next unfilled dish after the selected one, in marker-number order,
+  // wrapping to the start; null if none is left.
+  function nextUnfilledReportDet(){
+    const all = currentDetections;
+    const start = all.indexOf(selectedReportDet());
+    for (let k = 1; k <= all.length; k++){
+      const d = all[(start + k + all.length) % all.length];
+      if (!d.loading && !isDishComplete(d)) return d;
+    }
+    return null;
   }
 
   // Option buttons — same markup/classes as the detail-adjust modal.
@@ -2280,8 +2304,30 @@
     renumberMarkers();
     renderReportPanel();
     goToScreen('report');
-    requestAnimationFrame(() => layoutRecognizePhoto(false));
+    requestAnimationFrame(() => {
+      sizeReportPhotoSlot();
+      layoutRecognizePhoto(false);
+    });
   }
+
+  // Page 4's photo area: full content width, height following the photo's
+  // aspect ratio, but never taller than half the Page 4 screen (then the
+  // photo is height-limited inside it — never cropped, since box
+  // coordinates are % of the full photo). The stage's ResizeObserver then
+  // re-lays out the photo, markers and labels.
+  const REPORT_PHOTO_MAX_SCREEN_SHARE = 0.5;
+  function sizeReportPhotoSlot(){
+    if (!reportActive) return;
+    const nw = recognizePhoto.naturalWidth;
+    const nh = recognizePhoto.naturalHeight;
+    const width = reportPhotoSlot.clientWidth;
+    const screenH = reportScreenEl.clientHeight;
+    if (!nw || !nh || !width || !screenH) return;
+    const h = Math.min(width * nh / nw, screenH * REPORT_PHOTO_MAX_SCREEN_SHARE);
+    reportPhotoSlot.style.height = `${Math.round(h)}px`;
+  }
+  window.addEventListener('resize', sizeReportPhotoSlot);
+  recognizePhoto.addEventListener('load', sizeReportPhotoSlot);
 
   // Hands the photo stage back to Page 3. Safe to call any time.
   function exitReportMode(){
@@ -2289,6 +2335,7 @@
     reportSelectedId = null;
     setReportAdding(false);
     if (recognizeStage.parentElement !== recognizeBody) recognizeBody.appendChild(recognizeStage);
+    reportPhotoSlot.style.height = '';
     refreshMarkerStates();
   }
 
@@ -2417,6 +2464,14 @@
     } finally {
       isSavingMeal = false;
       exitReportMode();
+    }
+  });
+
+  reportNextDishBtn.addEventListener('click', () => {
+    const next = nextUnfilledReportDet();
+    if (next){
+      selectReportDish(next.id);
+      reportPanel.scrollTop = 0; // start the next dish at its first field
     }
   });
 

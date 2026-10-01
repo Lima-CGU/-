@@ -222,8 +222,12 @@
           </div>
         </div>
       </div>
+      <!-- not all filled: progress (+ "下一道 ›" once the selected dish is
+           filled); everything filled: only "完成" -->
       <div class="screen-foot report-foot">
-        <button class="btn btn-primary btn-full" id="reportDoneBtn" type="button" disabled>完成</button>
+        <span class="report-progress" id="reportProgress">已填 0 / 0 道</span>
+        <button class="btn btn-primary report-next-dish-btn" id="reportNextDishBtn" type="button" hidden>下一道 ›</button>
+        <button class="btn btn-primary btn-full" id="reportDoneBtn" type="button" hidden disabled>完成</button>
       </div>
     </section>
 
