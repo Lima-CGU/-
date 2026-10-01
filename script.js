@@ -1111,14 +1111,10 @@
     // hidden) and then everything is placed again with their new sizes.
     dets.forEach(d => d.labelEl.classList.remove('det-label-compact', 'det-label-nokcal'));
     let stillColliding = placeAll();
-    // Page 4: colliding labels drop their calorie line first — one at a
-    // time, re-placing after each, so a label keeps its calories whenever
-    // hiding its neighbor's was enough to clear the collision.
-    for (;;){
-      const i = stillColliding.find(k => dets[k].labelEl.querySelector('.det-label-kcal')
-        && !dets[k].labelEl.classList.contains('det-label-nokcal'));
-      if (i === undefined) break;
-      dets[i].labelEl.classList.add('det-label-nokcal');
+    // Page 4: calorie lines are all-or-nothing — if any colliding label has
+    // one, EVERY label drops it (only names), so no dish looks uncalculated.
+    if (stillColliding.some(k => dets[k].labelEl.querySelector('.det-label-kcal'))){
+      dets.forEach(d => d.labelEl.classList.add('det-label-nokcal'));
       stillColliding = placeAll();
     }
     if (stillColliding.length){
