@@ -19,11 +19,6 @@
   const OUT_EVENT = 'pictameal:calorie-update';
   const DEBOUNCE_MS = { completed: 150, changed: 700 };
   const REQUEST_TIMEOUT_MS = 30000;
-  const SOURCE_LABEL = {
-    foods1000: '老師提供的食材資料',
-    tfnd: '衛福部食藥署食品營養成分資料庫'
-  };
-  const MATCH_LABEL = { exact: '完全相符', close: '相近(做法或名稱略有不同)', approx: '近似(不同但最接近)' };
 
   let backendUrl = '';
   const states = new Map(); // dishId -> { status, result, payload, seq, timer, promise }
@@ -148,67 +143,58 @@
 
     /* ----- text helpers ----- */
 
-    // Beside the dish name: 計算中… / 約 N kcal / 約 N kcal(近似) / 無法估算
-    badgeText(st){
-      if (!st) return '';
-      if (st.status === 'loading') return '計算中…';
-      if (st.status === 'ok') return `約 ${st.result.kcal} kcal${st.result.match === 'approx' ? '(近似)' : ''}`;
-      return '無法估算';
+    // The tag right of the dish name: "N kcal" (green) / "N kcal 近似" (orange) /
+    // 計算中… / 無法估算 (grey). Style classes: is-ok is-approx is-loading is-none.
+    renderBadge(el, st){
+      el.textContent = '';
+      el.classList.remove('is-ok', 'is-approx', 'is-loading', 'is-none');
+      if (!st) return;
+      if (st.status === 'loading'){ el.classList.add('is-loading'); el.textContent = '計算中…'; return; }
+      if (st.status !== 'ok'){ el.classList.add('is-none'); el.textContent = '無法估算'; return; }
+      el.classList.add(st.result.match === 'approx' ? 'is-approx' : 'is-ok');
+      el.append(`${st.result.kcal} kcal`);
+      if (st.result.match === 'approx'){
+        const small = document.createElement('small');
+        small.textContent = '近似';
+        el.appendChild(small);
+      }
     },
 
-    // Small text on the photo label: only when there is a number.
+    // Photo label line: only when there is a number.
     labelText(st){
-      return st && st.status === 'ok' ? `${st.result.match === 'approx' ? '≈' : ''}${st.result.kcal} kcal` : '';
+      return st && st.status === 'ok' ? `${st.result.kcal} kcal` : '';
     },
 
-    // 整餐 line under/next to the progress. '' when there is nothing to say yet.
-    totalText(sum){
-      if (!sum || !sum.total) return '';
-      const parts = [];
-      if (sum.estimated) parts.push(`整餐約 ${sum.kcal} kcal`);
-      else if (sum.pending) parts.push('整餐熱量計算中…');
-      if (sum.estimated || sum.pending) parts.push('估算值');
-      if (sum.estimated && sum.pending) parts.push(`${sum.pending} 道計算中`);
-      if (sum.unavailable) parts.push(`另有 ${sum.unavailable} 道無法估算`);
-      return parts.join('・');
-    },
-
-    // Fills `el` with the expandable explanation (item, source, how it was computed).
+    // The expandable explanation: how it was calculated, then 蛋白質 / 脂肪 / 醣類 / 鈉.
     renderExplain(el, st){
       el.textContent = '';
       if (!st || st.status === 'loading') return;
-      const add = (label, value) => {
-        const row = document.createElement('div');
-        row.className = 'kcal-explain-row';
-        const k = document.createElement('span');
-        k.className = 'kcal-explain-k';
-        k.textContent = label;
-        const v = document.createElement('span');
-        v.className = 'kcal-explain-v';
-        v.textContent = value;
-        row.append(k, v);
-        el.appendChild(row);
+      const line = text => {
+        const p = document.createElement('div');
+        p.className = 'kcal-explain-formula';
+        p.textContent = text;
+        el.appendChild(p);
       };
       const r = st.result;
-      if (st.status === 'ok'){
-        add('比對品項', r.matchedName);
-        add('比對程度', MATCH_LABEL[r.match] || r.match);
-        add('資料來源', r.sourceLabel || SOURCE_LABEL[r.source] || r.source);
-        add('計算說明', r.explanation);
-        const n = [];
-        if (r.proteinG != null) n.push(`蛋白質 ${r.proteinG} g`);
-        if (r.fatG != null) n.push(`脂肪 ${r.fatG} g`);
-        if (r.carbohydrateG != null) n.push(`醣類 ${r.carbohydrateG} g`);
-        if (r.sodiumMg != null) n.push(`鈉 ${r.sodiumMg} mg`);
-        if (n.length) add('其他營養', n.join('・'));
-      } else if (st.status === 'anomaly'){
-        add('說明', '比對到的資料換算後熱量異常,視為資料異常,不顯示數字。');
-        if (r && r.matchedName) add('比對品項', r.matchedName);
-      } else if (st.status === 'none'){
-        add('說明', (r && r.explanation) || '資料庫中找不到足以代表這道菜的品項,無法估算。');
-      } else {
-        add('說明', '熱量計算暫時失敗,稍後修改任一欄位會重新計算。');
+      if (st.status !== 'ok'){
+        line(st.status === 'error' ? '熱量計算暫時失敗,修改任一欄位會重新計算。'
+          : (r && r.explanation) || '資料庫中找不到足以代表這道菜的品項,無法估算。');
+        return;
       }
+      line(r.formula);
+      const grid = document.createElement('div');
+      grid.className = 'kcal-explain-grid';
+      [['蛋白質', r.proteinG, 'g'], ['脂肪', r.fatG, 'g'], ['醣類', r.carbohydrateG, 'g'], ['鈉', r.sodiumMg, 'mg']].forEach(([label, v, u]) => {
+        const cell = document.createElement('div');
+        cell.className = 'kcal-explain-cell';
+        const num = document.createElement('b');
+        num.textContent = v == null ? '—' : `${v} ${u}`;
+        const name = document.createElement('span');
+        name.textContent = label;
+        cell.append(num, name);
+        grid.appendChild(cell);
+      });
+      el.appendChild(grid);
     },
 
     // What gets saved with the meal record for one dish (null = never calculated).

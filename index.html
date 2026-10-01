@@ -227,7 +227,11 @@
       <!-- not all filled: progress (+ "下一道 ›" once the selected dish is
            filled); everything filled: only "完成" -->
       <div class="screen-foot report-foot">
-        <div class="report-total" id="reportTotal" hidden></div>
+        <div class="report-total" id="reportTotal" hidden>
+          <span class="report-total-label">整餐熱量</span>
+          <span class="report-total-value"><b class="report-total-num" id="reportTotalNum">0</b><span class="report-total-unit">kcal</span><small>估算值</small></span>
+        </div>
+        <div class="report-total-note" id="reportTotalNote" hidden></div>
         <span class="report-progress" id="reportProgress">已填 0 / 0 道</span>
         <button class="btn btn-primary report-next-dish-btn" id="reportNextDishBtn" type="button" hidden>下一道 ›</button>
         <button class="btn btn-primary btn-full" id="reportDoneBtn" type="button" hidden disabled>完成</button>

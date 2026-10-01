@@ -41,7 +41,7 @@ photo-upload-site/
 
 ## 熱量計算(A 組 Page 4)
 
-每道菜 5 個欄位填完,前端會呼叫 `POST /api/nutrition`,結果顯示在菜名旁、照片上的標籤、底部整餐總熱量(估算值),並和紀錄一起存檔。流程:後端先從 foods1000(老師提供、私有,存在 Firestore)和 TFND(衛福部食藥署,`backend/data/tfnd.json`)各找最接近的 10 筆候選 → 由 AI **只挑編號與比對程度**(exact / close / approx / none,不能回傳任何數字)→ 用固定公式計算。
+每道菜 5 個欄位填完,前端會呼叫 `POST /api/nutrition`,結果顯示在菜名右邊的熱量標籤(點開看算式與蛋白質/脂肪/醣類/鈉)、照片標籤的第二行、底部整餐熱量(估算值),並和紀錄一起存檔。流程:後端先從 foods1000(老師提供、私有,存在 Firestore)和 TFND(衛福部食藥署,`backend/data/tfnd.json`)各找最接近的 10 筆候選 → 由 AI **只挑編號與比對程度**(exact / close / approx / none,不能回傳任何數字)→ 用固定公式計算。
 
 **計算規則(照老師的「熱量計算功能總結」)**
 

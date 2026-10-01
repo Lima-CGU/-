@@ -329,17 +329,20 @@
     const detailText = det && !RECOGNIZE_PREVIEW_ONLY ? formatDishDetail(det.detail) : '';
 
     labelEl.innerHTML = '';
+    const lineEl = document.createElement('span');
+    lineEl.className = 'det-label-line';
+    labelEl.appendChild(lineEl);
     const nameEl = document.createElement('span');
     nameEl.className = 'det-label-name';
     nameEl.textContent = name;
-    labelEl.appendChild(nameEl);
+    lineEl.appendChild(nameEl);
 
     const metaText = [confidence, detailText].filter(Boolean).join(' · ');
     if (metaText){
       const metaEl = document.createElement('span');
       metaEl.className = 'det-label-meta';
       metaEl.textContent = metaText;
-      labelEl.appendChild(metaEl);
+      lineEl.appendChild(metaEl);
     }
 
     // Page 4 only (results exist only after a dish is filled in): the dish's
@@ -1035,8 +1038,18 @@
     // Labels start full size; only those that still collide after a full
     // placement pass get the compact style (≈15% smaller font, confidence
     // hidden) and then everything is placed again with their new sizes.
-    dets.forEach(d => d.labelEl.classList.remove('det-label-compact'));
-    const stillColliding = placeAll();
+    dets.forEach(d => d.labelEl.classList.remove('det-label-compact', 'det-label-nokcal'));
+    let stillColliding = placeAll();
+    // Page 4: colliding labels drop their calorie line first — one at a
+    // time, re-placing after each, so a label keeps its calories whenever
+    // hiding its neighbor's was enough to clear the collision.
+    for (;;){
+      const i = stillColliding.find(k => dets[k].labelEl.querySelector('.det-label-kcal')
+        && !dets[k].labelEl.classList.contains('det-label-nokcal'));
+      if (i === undefined) break;
+      dets[i].labelEl.classList.add('det-label-nokcal');
+      stillColliding = placeAll();
+    }
     if (stillColliding.length){
       stillColliding.forEach(i => dets[i].labelEl.classList.add('det-label-compact'));
       placeAll();
@@ -2111,6 +2124,8 @@
   const reportDishKcal      = document.getElementById('reportDishKcal');
   const reportKcalExplain   = document.getElementById('reportKcalExplain');
   const reportTotal         = document.getElementById('reportTotal');
+  const reportTotalNum      = document.getElementById('reportTotalNum');
+  const reportTotalNote     = document.getElementById('reportTotalNote');
   const reportRenameBtn     = document.getElementById('reportRenameBtn');
   const reportDeleteBtn     = document.getElementById('reportDeleteBtn');
   const reportDeleteConfirm = document.getElementById('reportDeleteConfirm');
@@ -2218,9 +2233,11 @@
   // Whole-meal estimate beside the progress / 完成 button.
   function renderReportTotal(){
     const ids = currentDetections.filter(d => !d.loading && isDishComplete(d)).map(d => d.id);
-    const text = Calorie.totalText(Calorie.summary(ids));
-    reportTotal.textContent = text;
-    reportTotal.hidden = !text;
+    const sum = Calorie.summary(ids);
+    reportTotal.hidden = !(sum.estimated || sum.pending);
+    reportTotalNum.textContent = sum.estimated ? String(sum.kcal) : '…';
+    reportTotalNote.hidden = !sum.unavailable;
+    reportTotalNote.textContent = sum.unavailable ? `另有 ${sum.unavailable} 道無法估算` : '';
   }
 
   // Calories beside the selected dish's name, and its expandable explanation.
@@ -2230,9 +2247,7 @@
     const expandable = !!st && st.status !== 'loading';
     if (!expandable) reportKcalOpen = false;
     reportDishKcal.hidden = !st;
-    reportDishKcal.textContent = Calorie.badgeText(st);
-    reportDishKcal.classList.toggle('is-loading', !!st && st.status === 'loading');
-    reportDishKcal.classList.toggle('is-unavailable', !!st && st.status !== 'loading' && st.status !== 'ok');
+    Calorie.renderBadge(reportDishKcal, st);
     reportDishKcal.disabled = !expandable;
     reportDishKcal.setAttribute('aria-expanded', String(reportKcalOpen));
     reportKcalExplain.hidden = !reportKcalOpen;

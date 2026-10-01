@@ -43,7 +43,7 @@ function compute(item, input){
   if (salt === undefined) return { status: 'unsupported', reason: 'salt' };
   if (!isNum(item.kcal)) return { status: 'unsupported', reason: 'no-kcal' };
 
-  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how;
+  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula;
   const itemUnit = unitLabel(item.unit);
 
   if (isContinuous(item)){
@@ -57,6 +57,8 @@ function compute(item, input){
     factor = served / base;
     grams = served;
     const baseUnit = item.basis === 'per100g' ? '公克' : (itemUnit || '公克');
+    const baseU = /毫升|ml|c\.?c/i.test(itemUnit) ? 'ml' : 'g';
+    formula = `每 ${base}${baseU} ${item.kcal} kcal × ${served}${amountUnit}`;
     how = `以「${item.name}」每 ${base} ${baseUnit}為基準,` +
       `${cfg.CONTAINER_LABELS[input.containerType]} ${input.size} 約 ${served} ${amountUnit === 'ml' ? '毫升' : '公克'}` +
       `(÷ ${base} × ${served})`;
@@ -67,6 +69,7 @@ function compute(item, input){
     multiplier = m;
     factor = m;
     grams = isNum(item.weightG) && item.weightG > 0 ? item.weightG * m : null;
+    formula = `${item.name} 1 ${itemUnit} ${item.kcal} kcal × ${input.size} ${m} 倍`;
     how = `以「${item.name} 1 ${itemUnit}」為基準,尺寸 ${input.size} × ${m}`;
   }
 
@@ -90,7 +93,8 @@ function compute(item, input){
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
     basisKind, multiplier, amount, amountUnit,
-    explanation: how
+    explanation: how,
+    formula
   };
 }
 
