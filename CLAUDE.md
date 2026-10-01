@@ -23,11 +23,12 @@ Branch: `main`
 
 The app is used in a two-arm study: **Group A** (traditional — report with buttons/options) and **Group B** (conversational — report by chatting with AI).
 
-- Group comes from the URL: `?group=A` or `?group=B` (case-insensitive); missing or anything else = `A`. Read once at startup into `STUDY_GROUP` (`script.js`). Only the URL is consulted — nothing is persisted.
+- `STUDY_GROUP` (`script.js`) is resolved once at startup: (1) `?group=A` / `?group=B` in the URL (case-insensitive) always wins and is saved to `localStorage` key `pictameal:studyGroup`; (2) otherwise the saved value — this is what keeps a participant in their group when launching the home-screen PWA, whose `start_url` has no query; (3) otherwise `A`. Any other `?group=` value is ignored (falls through to 2/3). All storage access is in try/catch, so blocked storage just means URL-or-A. A research assistant switches a device by opening the other `?group=` link.
 - The group must NEVER be shown on screen (no labels, no switcher) — participants must not learn another group exists. It is only written into data: each meal record in `mealRecords` has `group`, and its Diary card carries `data-group` (not displayed).
-- Note: the PWA `start_url` is `./index.html` with no query, so a participant launching from the home-screen icon gets the default `A`. Hand out the full `?group=` link and have participants use it (or handle this before relying on installed-PWA launches).
 - Page flow: Page 1 start and Page 2 camera are identical for both groups; Page 3 (`data-screen="recognize"`) is identical for both; only Page 4 differs. Page 4 is not built yet — both groups currently go to the existing Diary screen (`data-screen="diary"`); Group B's chat page comes later.
 - Local testing: `npx serve` redirects `/index.html?group=B` to `/index` and DROPS the query — test with `/?group=B` (GitHub Pages serves `index.html?group=B` fine).
+- Port 5500 is the owner's VS Code Live Server preview — never start or stop anything on it; run test servers on another port (e.g. 5600).
+- Do NOT temporarily edit `BACKEND_URL` in `script.js` for testing. Live Server serves the working copy, and `sw.js` is cache-first, so a preview that loads the edited file caches it under the current `CACHE_NAME` and keeps calling the test URL (showing "自動辨識失敗") until the cache name changes. Test against the real Render backend, or intercept requests in Playwright (`page.route`) instead.
 
 ## Page 3 (recognize screen) — read-only "initial result"
 
@@ -35,7 +36,7 @@ The app is used in a two-arm study: **Group A** (traditional — report with but
 - Hidden (code kept for Page 4, not deleted): confirm dots, × delete, manual + box spawner, low-confidence candidate sheet, auto-advance, "已確認 N" / "還有 N 道菜未確認". Zoom-to-food and the "查看完整照片" toggle are kept.
 - The only way forward is "下一步" (`#recognizeNextBtn`, enabled once detection finishes, even with 0 dishes) → `saveCurrentMeal()` → Diary.
 - Each det keeps `apiBox` (exactly what `/api/detect` returned, % of the full photo) next to its x/y/w/h (the `normalizeDetectionBox()` display box, which can be enlarged/edge-clamped so its center drifts). Saved dishes store `box` = backend box and `displayBox` = display box; thumbnails still crop from the display box.
-- Label placement (`resolveLabelOverlaps`, preview slots): under the marker → one row lower → above → one row higher → right/left of it, each with small sideways nudges; avoids other labels, every marker, and on-photo controls, staying inside the visible photo.
+- Label placement (`resolveLabelOverlaps`, preview slots): a label must read as belonging to its own marker, so it only sits snug directly UNDER its marker (2px gap), shifted sideways by at most 1.5× the marker width (`previewLabelNudges`, smallest shift first), else snug directly ABOVE it the same way. The only further shift allowed is clamping it back inside the visible photo. Placement is greedy, then a small exhaustive search over the labels still in conflict (plus neighbors) repairs dead ends. In very dense photos (e.g. sample-meals 01, 7 dishes) a zero-overlap layout under these rules provably may not exist — then the fewest-overlap layout is used.
 
 ## Backend
 
@@ -76,7 +77,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v7`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v8`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

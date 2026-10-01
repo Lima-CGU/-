@@ -739,30 +739,14 @@ body{
 }
 /* label slots relative to the marker (picked by resolveLabelOverlaps);
    `translate` centers it, leaving `transform` free for sideways nudges */
+/* snug against the marker: 12px marker radius + 2px gap */
 .det-label.det-label-under,
-.det-label.det-label-under2,
-.det-label.det-label-over,
-.det-label.det-label-over2{
+.det-label.det-label-over{
   left: var(--mx, 50%);
   translate: -50% 0;
 }
-.det-label.det-label-under{ bottom: auto; top: calc(var(--my, 50%) + 15px); }
-.det-label.det-label-under2{ bottom: auto; top: calc(var(--my, 50%) + 42px); }
-.det-label.det-label-over{ top: auto; bottom: calc(100% - var(--my, 50%) + 15px); }
-.det-label.det-label-over2{ top: auto; bottom: calc(100% - var(--my, 50%) + 42px); }
-.det-label.det-label-beside-right{
-  bottom: auto;
-  top: var(--my, 50%);
-  left: calc(var(--mx, 50%) + 15px);
-  translate: 0 -50%;
-}
-.det-label.det-label-beside-left{
-  bottom: auto;
-  top: var(--my, 50%);
-  left: auto;
-  right: calc(100% - var(--mx, 50%) + 15px);
-  translate: 0 -50%;
-}
+.det-label.det-label-under{ bottom: auto; top: calc(var(--my, 50%) + 14px); }
+.det-label.det-label-over{ top: auto; bottom: calc(100% - var(--my, 50%) + 14px); }
 .recognize-preview .det-label-meta{
   font-size: 10.5px;
   color: rgba(255,255,255,0.6);

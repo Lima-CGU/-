@@ -41,10 +41,28 @@
   const recognizeScreen  = document.querySelector('.screen[data-screen="recognize"]');
   const recognizeNextBtn = document.getElementById('recognizeNextBtn');
 
-  // Research study arm, from ?group=A / ?group=B (anything else, or none,
-  // is A). Never rendered anywhere on screen — participants must not learn
-  // another group exists; it's only written into each saved meal record.
-  const STUDY_GROUP = (new URLSearchParams(location.search).get('group') || '').trim().toUpperCase() === 'B' ? 'B' : 'A';
+  // Research study arm. Never rendered anywhere on screen — participants
+  // must not learn another group exists; it's only written into each saved
+  // meal record. Resolution order:
+  //   1. ?group=A / ?group=B in the URL (always wins, so a research
+  //      assistant can switch a device by opening a link) — also saved to
+  //      localStorage;
+  //   2. otherwise the last group saved — e.g. when launched from the
+  //      home-screen PWA icon, whose start_url has no query string;
+  //   3. otherwise A.
+  const STUDY_GROUP_STORAGE_KEY = 'pictameal:studyGroup';
+  const STUDY_GROUP = (() => {
+    const fromUrl = (new URLSearchParams(location.search).get('group') || '').trim().toUpperCase();
+    if (fromUrl === 'A' || fromUrl === 'B'){
+      try { localStorage.setItem(STUDY_GROUP_STORAGE_KEY, fromUrl); } catch (err){ /* storage unavailable */ }
+      return fromUrl;
+    }
+    try {
+      const saved = localStorage.getItem(STUDY_GROUP_STORAGE_KEY);
+      if (saved === 'A' || saved === 'B') return saved;
+    } catch (err){ /* storage unavailable */ }
+    return 'A';
+  })();
 
   // Page 3 (this recognize screen) is a read-only "initial result" view for
   // both groups: a numbered marker + name per dish, no editing. The editing
@@ -951,20 +969,22 @@
   ];
   const LABEL_NUDGES = [0, -36, 36, -72, 72]; // px, sideways
 
-  // Page 3 (read-only preview): the label goes directly under the dish's
-  // numbered center marker; if that spot is taken, one row lower, then
-  // directly above the marker (or one row higher), then beside it.
+  // Page 3 (read-only preview): a label must read as belonging to its own
+  // numbered marker at a glance, so it only ever sits snug directly under
+  // that marker — or, if that can't be made clean, directly above it — and
+  // dodges neighbors only by sliding sideways a little (previewLabelNudges).
   const PREVIEW_LABEL_SLOTS = [
     { v: 'under', right: false },
-    { v: 'under2', right: false },
-    { v: 'over', right: false },
-    { v: 'over2', right: false },
-    { v: 'beside-right', right: false },
-    { v: 'beside-left', right: false }
+    { v: 'over', right: false }
   ];
+  // Smallest shift first; never more than 1.5x the marker's own width.
+  function previewLabelNudges(markerWidth){
+    const max = markerWidth * 1.5;
+    const steps = [0, 1 / 3, 2 / 3, 1].map(f => Math.round(f * max));
+    return [0, ...steps.slice(1).flatMap(s => [-s, s])];
+  }
   const LABEL_SLOT_CLASSES = ['det-label-below', 'det-label-inside', 'det-label-right',
-    'det-label-under', 'det-label-under2', 'det-label-over', 'det-label-over2',
-    'det-label-beside-right', 'det-label-beside-left'];
+    'det-label-under', 'det-label-over'];
 
   function setLabelSlot(labelEl, slot){
     labelEl.classList.remove(...LABEL_SLOT_CLASSES);
@@ -994,34 +1014,96 @@
       .map(el => el.getBoundingClientRect())
       .filter(r => r.width && r.height);
     const slots = RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS : LABEL_SLOTS;
-    const placed = [];
-    dets.forEach(d => {
+    const fixedRects = dotRects.concat(controlRects);
+
+    // 1) Every allowed spot for every label, measured once, in preference
+    //    order (earlier slot first, then smallest sideways shift first).
+    //    Each candidate is clamped to stay inside the visible photo — only
+    //    that edge clamp can ever move a label further than its nudge.
+    const cands = dets.map(d => {
       const el = d.labelEl;
-      let best = null;
-      for (const slot of slots){
+      const nudges = RECOGNIZE_PREVIEW_ONLY && d.markerEl
+        ? previewLabelNudges(d.markerEl.getBoundingClientRect().width || 24)
+        : LABEL_NUDGES;
+      const list = [];
+      slots.forEach((slot, si) => {
         setLabelSlot(el, slot);
         const r0 = el.getBoundingClientRect();
-        // also try sliding sideways a little to clear a neighbor's dot/label;
-        // every candidate is then clamped to stay inside the visible photo
-        for (const nudge of LABEL_NUDGES){
+        nudges.forEach(nudge => {
           let shift = nudge;
           if (r0.right + shift > clip.right - 4) shift = clip.right - 4 - r0.right;
           if (r0.left + shift < clip.left + 4) shift = clip.left + 4 - r0.left;
-          const r = { left: r0.left + shift, right: r0.right + shift, top: r0.top, bottom: r0.bottom };
-          const leavesPhoto = r.top < clip.top || r.bottom > clip.bottom;
-          const hits = placed.filter(p => overlaps(r, p)).length
-            + dotRects.filter(dr => overlaps(r, dr)).length
-            + controlRects.filter(cr => overlaps(r, cr)).length;
-          // prefer the plain, unshifted spot when it's as good
-          const score = (leavesPhoto ? 100 : 0) + hits * 10 + (nudge ? 1 : 0);
-          if (!best || score < best.score) best = { slot, shift, rect: r, score };
-          if (score === 0) break;
-        }
-        if (best.score === 0) break;
+          const rect = { left: r0.left + shift, right: r0.right + shift, top: r0.top, bottom: r0.bottom };
+          const leaves = rect.top < clip.top || rect.bottom > clip.bottom;
+          const fixedHits = fixedRects.filter(fr => overlaps(rect, fr)).length;
+          // not counting other labels — those depend on where they end up
+          const base = (leaves ? 100 : 0) + fixedHits * 10 + si * 0.5 + Math.min(0.4, Math.abs(nudge) / 100);
+          list.push({ slot, shift, rect, base, ok: !leaves && fixedHits === 0 });
+        });
+      });
+      return list;
+    });
+
+    const pick = new Array(dets.length);
+    const hitsWith = (i, ci, others) => others.reduce((n, j) =>
+      n + (j !== i && pick[j] !== undefined && overlaps(cands[i][ci].rect, cands[j][pick[j]].rect) ? 1 : 0), 0);
+    const all = dets.map((_, i) => i);
+
+    // 2) Greedy, in order: the first candidate that's clean against the
+    //    labels already placed, else the least bad.
+    all.forEach(i => {
+      let bestC = 0, bestS = Infinity;
+      for (let ci = 0; ci < cands[i].length; ci++){
+        const hits = hitsWith(i, ci, all.slice(0, i));
+        const s = cands[i][ci].base + hits * 10;
+        if (s < bestS){ bestS = s; bestC = ci; }
+        if (cands[i][ci].ok && hits === 0) break;
       }
-      setLabelSlot(el, best.slot);
-      el.style.transform = best.shift ? `translateX(${best.shift}px)` : '';
-      placed.push(best.rect);
+      pick[i] = bestC;
+    });
+
+    // 3) Greedy can paint itself into a corner in dense layouts (a label's
+    //    only free spot is taken by a neighbor that had another option), so
+    //    for the few labels still overlapping — plus the neighbors sitting
+    //    where they could move — try every combination of their allowed
+    //    spots and keep the one with the fewest overlaps.
+    const conflicted = all.filter(i => hitsWith(i, pick[i], all) > 0);
+    if (conflicted.length){
+      const cluster = new Set(conflicted);
+      conflicted.forEach(i => cands[i].forEach(c => all.forEach(j => {
+        if (!cluster.has(j) && overlaps(c.rect, cands[j][pick[j]].rect)) cluster.add(j);
+      })));
+      const members = [...cluster].slice(0, 5);
+      const memberSet = new Set(members);
+      const outside = all.filter(j => !memberSet.has(j));
+      const options = members.map(i => {
+        const ok = cands[i].map((c, ci) => ci).filter(ci => cands[i][ci].ok);
+        return (ok.length ? ok : [pick[i]]).slice(0, 10);
+      });
+      const choice = new Array(members.length);
+      let bestChoice = members.map(i => pick[i]);
+      let bestScore = Infinity;
+      (function search(a, partial){
+        if (partial >= bestScore) return;
+        if (a === members.length){ bestScore = partial; bestChoice = choice.slice(); return; }
+        const i = members[a];
+        for (const ci of options[a]){
+          const r = cands[i][ci].rect;
+          let s = cands[i][ci].base;
+          for (const j of outside) if (overlaps(r, cands[j][pick[j]].rect)) s += 10;
+          for (let b = 0; b < a; b++) if (overlaps(r, cands[members[b]][choice[b]].rect)) s += 10;
+          choice[a] = ci;
+          search(a + 1, partial + s);
+        }
+      })(0, 0);
+      members.forEach((i, a) => { pick[i] = bestChoice[a]; });
+    }
+
+    // 4) Apply.
+    dets.forEach((d, i) => {
+      const c = cands[i][pick[i]];
+      setLabelSlot(d.labelEl, c.slot);
+      d.labelEl.style.transform = c.shift ? `translateX(${c.shift}px)` : '';
     });
   }
 
