@@ -40,6 +40,29 @@
     };
   }
 
+  // POST /api/nutrition once; resolves to a saved-result object
+  // ({ status: ok|none|anomaly, ... } or { status: 'error' }). Never throws.
+  async function request(payload){
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${backendUrl}/api/nutrition`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.status) return { ...data, calculatedAt: new Date().toISOString() };
+      return { status: 'error', calculatedAt: new Date().toISOString() };
+    } catch (err){
+      console.error('[calorie] request failed:', err);
+      return { status: 'error', calculatedAt: new Date().toISOString() };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async function run(dishId, seq){
     const st = states.get(dishId);
     if (!st || st.seq !== seq) return;
@@ -203,6 +226,26 @@
       if (!s) return null;
       if (s.status === 'ok' || s.status === 'none' || s.status === 'anomaly') return { ...s.result };
       return { status: 'error', calculatedAt: new Date().toISOString() };
+    },
+
+    /* ----- saved records (Diary cards) ----- */
+
+    // A saved dish.nutrition -> the { status, result } shape the renderers take.
+    fromSaved(saved){
+      return saved && saved.status ? { status: saved.status, result: saved } : null;
+    },
+
+    // Recalculates one saved dish now (no debounce, no state) — for edits
+    // made after saving. { name, category, detail } -> saved-result object.
+    calculate(dish){
+      return request(toPayload(dish));
+    },
+
+    // Whole-meal figure from saved dishes (only dishes with a number add in).
+    mealFromSaved(dishes){
+      const list = (dishes || []).filter(d => d && d.nutrition);
+      const ok = list.filter(d => d.nutrition.status === 'ok');
+      return { totalKcal: ok.reduce((s, d) => s + d.nutrition.kcal, 0), estimatedDishes: ok.length, unavailableDishes: list.length - ok.length, note: '估算值' };
     },
 
     // What gets saved with the meal record for the whole meal.

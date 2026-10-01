@@ -404,7 +404,53 @@
     const nameEl = document.createElement('span');
     nameEl.className = 'meal-dish-name';
     nameEl.textContent = dish.name;
-    body.appendChild(nameEl);
+    const headEl = document.createElement('div');
+    headEl.className = 'meal-dish-head';
+    headEl.appendChild(nameEl);
+    body.appendChild(headEl);
+
+    // Saved calories (same tag + explanation as Page 4). Only dishes saved
+    // with a result have one — older records and Group B show nothing.
+    const kcalTag = document.createElement('button');
+    kcalTag.type = 'button';
+    kcalTag.className = 'kcal-tag';
+    kcalTag.setAttribute('aria-expanded', 'false');
+    const kcalExplain = document.createElement('div');
+    kcalExplain.className = 'kcal-explain';
+    kcalExplain.hidden = true;
+    let kcalOpen = false;
+    let kcalLoading = false;
+    const renderKcal = () => {
+      const st = kcalLoading ? { status: 'loading' } : window.PictaCalorie.fromSaved(dish.nutrition);
+      const expandable = !!st && st.status !== 'loading';
+      if (!expandable) kcalOpen = false;
+      kcalTag.hidden = !st;
+      window.PictaCalorie.renderBadge(kcalTag, st);
+      kcalTag.disabled = !expandable;
+      kcalTag.setAttribute('aria-expanded', String(kcalOpen));
+      kcalExplain.hidden = !kcalOpen;
+      if (kcalOpen) window.PictaCalorie.renderExplain(kcalExplain, st);
+    };
+    kcalTag.addEventListener('click', () => { kcalOpen = !kcalOpen; renderKcal(); });
+    headEl.appendChild(kcalTag);
+    body.appendChild(kcalExplain);
+    renderKcal();
+
+    // After a ✏️ edit: recalculate a dish that had calories (only the last
+    // edit's reply is kept), then refresh the card's meal total.
+    let kcalSeq = 0;
+    const recalcKcal = async () => {
+      if (!dish.nutrition) return;
+      const seq = ++kcalSeq;
+      kcalLoading = true;
+      renderKcal();
+      const result = await window.PictaCalorie.calculate(dish);
+      if (seq !== kcalSeq) return;
+      kcalLoading = false;
+      dish.nutrition = result;
+      renderKcal();
+      if (meta && meta.refreshTotal) meta.refreshTotal();
+    };
 
     const attrsBox = document.createElement('div');
     attrsBox.className = 'meal-dish-attrs';
@@ -432,6 +478,7 @@
       DIARY_ATTR_FIELDS.forEach((field, i) => {
         attrValueEls[i].textContent = field.get(dish.detail || {});
       });
+      recalcKcal();
     };
 
     const actions = document.createElement('div');
@@ -465,8 +512,11 @@
     deleteBtn.setAttribute('aria-label', `刪除「${dish.name}」這道菜`);
     deleteBtn.addEventListener('click', () => {
       row.remove();
+      kcalSeq += 1; // ignore a recalculation still in flight
       if (meta) meta.dishCount = Math.max(0, meta.dishCount - 1);
       if (meta && meta.dishesEl) meta.dishesEl.textContent = `${meta.dishCount} 道菜`;
+      if (meta && meta.record) meta.record.dishes = meta.record.dishes.filter(d => d !== dish);
+      if (meta && meta.refreshTotal) meta.refreshTotal();
     });
 
     actions.append(actionsTop, deleteBtn);
@@ -503,7 +553,25 @@
     timeEl.className = 'meal-time';
     timeEl.textContent = timestamp();
 
-    const dishCountMeta = { dishCount, dishesEl };
+    // "整餐 N kcal 估算值" beside "N 道菜" — from the saved results only;
+    // hidden for records saved without calories (older ones, Group B).
+    const totalKcalEl = document.createElement('span');
+    totalKcalEl.className = 'meal-total-kcal';
+    const totalNumEl = document.createElement('span');
+    const totalNoteEl = document.createElement('small');
+    totalNoteEl.textContent = '估算值';
+    totalKcalEl.append(totalNumEl, totalNoteEl);
+    const refreshTotal = () => {
+      const saved = record && record.dishes ? record.dishes : [];
+      const hasCalories = saved.some(d => d && d.nutrition);
+      if (record) record.nutrition = hasCalories ? window.PictaCalorie.mealFromSaved(saved) : null;
+      const ok = hasCalories && record.nutrition.estimatedDishes > 0;
+      totalKcalEl.hidden = !ok;
+      totalNumEl.textContent = ok ? `整餐 ${record.nutrition.totalKcal} kcal` : '';
+    };
+    refreshTotal();
+
+    const dishCountMeta = { dishCount, dishesEl, record, refreshTotal };
 
     const status = document.createElement('div');
 
@@ -523,7 +591,10 @@
     const metaRight = document.createElement('div');
     metaRight.className = 'meal-meta-right';
     metaRight.append(addDishBtn, timeEl);
-    meta.append(dishesEl, metaRight);
+    const metaLeft = document.createElement('div');
+    metaLeft.className = 'meal-meta-left';
+    metaLeft.append(dishesEl, totalKcalEl);
+    meta.append(metaLeft, metaRight);
 
     if (dishes && dishes.length){
       status.className = 'meal-status done';

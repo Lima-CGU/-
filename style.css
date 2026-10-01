@@ -876,8 +876,8 @@ body{
   font-weight: 600;
   color: var(--ink-soft);
 }
-/* calorie tag right of the dish name; tap to expand the explanation */
-.report-dish-kcal{
+/* calorie tag right of the dish name (Page 4 + Diary cards); tap to expand the explanation */
+.kcal-tag{
   appearance: none;
   border: 0;
   padding: 2px 10px;
@@ -893,17 +893,17 @@ body{
   align-items: baseline;
   gap: 6px;
 }
-.report-dish-kcal[hidden]{ display: none; }
-.report-dish-kcal small{ font-size: 12px; font-weight: 700; }
-.report-dish-kcal.is-approx{ background: #ffead2; color: #9a4f00; }
-.report-dish-kcal.is-loading,
-.report-dish-kcal.is-none{
+.kcal-tag[hidden]{ display: none; }
+.kcal-tag small{ font-size: 12px; font-weight: 700; }
+.kcal-tag.is-approx{ background: #ffead2; color: #9a4f00; }
+.kcal-tag.is-loading,
+.kcal-tag.is-none{
   background: #ececf1;
   color: #6b6b76;
   font-size: 14px;
   font-weight: 700;
 }
-.report-dish-kcal.is-loading{ background: transparent; cursor: default; }
+.kcal-tag.is-loading{ background: transparent; cursor: default; }
 .kcal-explain{
   margin: 0 0 8px;
   padding: 10px 12px;
@@ -2034,6 +2034,18 @@ body{
   font-size: 11px;
   color: var(--purple-deep);
 }
+/* Diary card: whole-meal calories beside "N 道菜" */
+.meal-meta-left{ display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.meal-total-kcal{ font-family: var(--font-body); font-size: 14px; font-weight: 800; color: var(--purple-deep); }
+.meal-total-kcal small{ font-size: 12px; font-weight: 600; color: var(--ink-soft); margin-left: 4px; }
+.meal-total-kcal[hidden]{ display: none; }
+/* Diary dish: name + calorie tag on one line (wraps when narrow) */
+.meal-dish-head{ display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.meal-dish-head .meal-dish-name{ flex: 0 1 auto; min-width: 0; }
+.meal-dish-body .kcal-explain{ margin: 0; }
+/* the Diary row is narrow: same four cells, 2 x 2, values on one line */
+.meal-dish-body .kcal-explain-grid{ grid-template-columns: repeat(2, 1fr); row-gap: 8px; }
+.meal-dish-body .kcal-explain-cell b{ white-space: nowrap; }
 .meal-status{
   display: inline-flex;
   align-items: center;
