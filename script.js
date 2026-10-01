@@ -39,7 +39,9 @@
   const manualBoxSpawner = document.getElementById('manualBoxSpawner');
   const confirmProgress  = document.getElementById('confirmProgress');
   const recognizeScreen  = document.querySelector('.screen[data-screen="recognize"]');
+  const recognizeBody    = recognizeScreen.querySelector('.recognize-body');
   const recognizeNextBtn = document.getElementById('recognizeNextBtn');
+  const reportAddDishBtn = document.getElementById('reportAddDishBtn');
 
   // Research study arm. Never rendered anywhere on screen — participants
   // must not learn another group exists; it's only written into each saved
@@ -105,7 +107,7 @@
   // transition is a forward "push" (slide from the right) or a backward
   // "pop" (slide from the left) — diary sits after recognize since it's
   // reached once a meal is saved, or from the tab bar.
-  const SCREEN_ORDER = ['start', 'camera', 'review', 'recognize', 'diary'];
+  const SCREEN_ORDER = ['start', 'camera', 'review', 'recognize', 'report', 'diary'];
 
   function getScreenEl(name){
     return document.querySelector(`.screen[data-screen="${name}"]`);
@@ -322,7 +324,9 @@
   function renderDetLabel(labelEl, det){
     const base = det && !det.loading && det.name ? det.name : '辨識中…';
     const { name, confidence } = splitNameConfidence(base);
-    const detailText = det ? formatDishDetail(det.detail) : '';
+    // Page 3/4 labels are just "name + confidence" — the filled-in details
+    // live in Page 4's panel, and would only make crowded labels longer.
+    const detailText = det && !RECOGNIZE_PREVIEW_ONLY ? formatDishDetail(det.detail) : '';
 
     labelEl.innerHTML = '';
     const nameEl = document.createElement('span');
@@ -437,7 +441,9 @@
     editBtn.setAttribute('aria-label', `編輯「${dish.name}」的菜名與細部屬性`);
     editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
 
-    actionsTop.append(micBtn, editBtn);
+    // Group A reports with buttons only — no voice entry point anywhere
+    if (STUDY_GROUP === 'A') actionsTop.append(editBtn);
+    else actionsTop.append(micBtn, editBtn);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
@@ -1009,102 +1015,123 @@
       .map(d => (RECOGNIZE_PREVIEW_ONLY && d.markerEl ? d.markerEl : d.dotEl).getBoundingClientRect());
     // controls that sit on the photo itself — a label under them is unreadable
     // (CSS-hidden ones measure 0x0 and are skipped)
-    const controlRects = [recognizeZoomToggle, manualBoxSpawner]
+    const controlRects = [recognizeZoomToggle, manualBoxSpawner, reportAddDishBtn]
       .filter(el => !el.hidden)
       .map(el => el.getBoundingClientRect())
       .filter(r => r.width && r.height);
     const slots = RECOGNIZE_PREVIEW_ONLY ? PREVIEW_LABEL_SLOTS : LABEL_SLOTS;
     const fixedRects = dotRects.concat(controlRects);
 
-    // 1) Every allowed spot for every label, measured once, in preference
-    //    order (earlier slot first, then smallest sideways shift first).
-    //    Each candidate is clamped to stay inside the visible photo — only
-    //    that edge clamp can ever move a label further than its nudge.
-    const cands = dets.map(d => {
-      const el = d.labelEl;
-      const nudges = RECOGNIZE_PREVIEW_ONLY && d.markerEl
-        ? previewLabelNudges(d.markerEl.getBoundingClientRect().width || 24)
-        : LABEL_NUDGES;
-      const list = [];
-      slots.forEach((slot, si) => {
-        setLabelSlot(el, slot);
-        const r0 = el.getBoundingClientRect();
-        nudges.forEach(nudge => {
-          let shift = nudge;
-          if (r0.right + shift > clip.right - 4) shift = clip.right - 4 - r0.right;
-          if (r0.left + shift < clip.left + 4) shift = clip.left + 4 - r0.left;
-          const rect = { left: r0.left + shift, right: r0.right + shift, top: r0.top, bottom: r0.bottom };
-          const leaves = rect.top < clip.top || rect.bottom > clip.bottom;
-          const fixedHits = fixedRects.filter(fr => overlaps(rect, fr)).length;
-          // not counting other labels — those depend on where they end up
-          const base = (leaves ? 100 : 0) + fixedHits * 10 + si * 0.5 + Math.min(0.4, Math.abs(nudge) / 100);
-          list.push({ slot, shift, rect, base, ok: !leaves && fixedHits === 0 });
-        });
-      });
-      return list;
-    });
-
-    const pick = new Array(dets.length);
-    const hitsWith = (i, ci, others) => others.reduce((n, j) =>
-      n + (j !== i && pick[j] !== undefined && overlaps(cands[i][ci].rect, cands[j][pick[j]].rect) ? 1 : 0), 0);
-    const all = dets.map((_, i) => i);
-
-    // 2) Greedy, in order: the first candidate that's clean against the
-    //    labels already placed, else the least bad.
-    all.forEach(i => {
-      let bestC = 0, bestS = Infinity;
-      for (let ci = 0; ci < cands[i].length; ci++){
-        const hits = hitsWith(i, ci, all.slice(0, i));
-        const s = cands[i][ci].base + hits * 10;
-        if (s < bestS){ bestS = s; bestC = ci; }
-        if (cands[i][ci].ok && hits === 0) break;
-      }
-      pick[i] = bestC;
-    });
-
-    // 3) Greedy can paint itself into a corner in dense layouts (a label's
-    //    only free spot is taken by a neighbor that had another option), so
-    //    for the few labels still overlapping — plus the neighbors sitting
-    //    where they could move — try every combination of their allowed
-    //    spots and keep the one with the fewest overlaps.
-    const conflicted = all.filter(i => hitsWith(i, pick[i], all) > 0);
-    if (conflicted.length){
-      const cluster = new Set(conflicted);
-      conflicted.forEach(i => cands[i].forEach(c => all.forEach(j => {
-        if (!cluster.has(j) && overlaps(c.rect, cands[j][pick[j]].rect)) cluster.add(j);
-      })));
-      const members = [...cluster].slice(0, 5);
-      const memberSet = new Set(members);
-      const outside = all.filter(j => !memberSet.has(j));
-      const options = members.map(i => {
-        const ok = cands[i].map((c, ci) => ci).filter(ci => cands[i][ci].ok);
-        return (ok.length ? ok : [pick[i]]).slice(0, 10);
-      });
-      const choice = new Array(members.length);
-      let bestChoice = members.map(i => pick[i]);
-      let bestScore = Infinity;
-      (function search(a, partial){
-        if (partial >= bestScore) return;
-        if (a === members.length){ bestScore = partial; bestChoice = choice.slice(); return; }
-        const i = members[a];
-        for (const ci of options[a]){
-          const r = cands[i][ci].rect;
-          let s = cands[i][ci].base;
-          for (const j of outside) if (overlaps(r, cands[j][pick[j]].rect)) s += 10;
-          for (let b = 0; b < a; b++) if (overlaps(r, cands[members[b]][choice[b]].rect)) s += 10;
-          choice[a] = ci;
-          search(a + 1, partial + s);
-        }
-      })(0, 0);
-      members.forEach((i, a) => { pick[i] = bestChoice[a]; });
+    // Labels start full size; only those that still collide after a full
+    // placement pass get the compact style (≈15% smaller font, confidence
+    // hidden) and then everything is placed again with their new sizes.
+    dets.forEach(d => d.labelEl.classList.remove('det-label-compact'));
+    const stillColliding = placeAll();
+    if (stillColliding.length){
+      stillColliding.forEach(i => dets[i].labelEl.classList.add('det-label-compact'));
+      placeAll();
     }
 
-    // 4) Apply.
-    dets.forEach((d, i) => {
-      const c = cands[i][pick[i]];
-      setLabelSlot(d.labelEl, c.slot);
-      d.labelEl.style.transform = c.shift ? `translateX(${c.shift}px)` : '';
-    });
+    // Places every label; returns the indices of labels that still overlap
+    // another label, a marker/dot, or an on-photo control afterwards.
+    function placeAll(){
+      // 1) Every allowed spot for every label, measured once, in preference
+      //    order (earlier slot first, then smallest sideways shift first).
+      //    Each candidate is clamped to stay inside the visible photo — only
+      //    that edge clamp can ever move a label further than its nudge.
+      const cands = dets.map(d => {
+        const el = d.labelEl;
+        const markerW = RECOGNIZE_PREVIEW_ONLY && d.markerEl ? (d.markerEl.getBoundingClientRect().width || 24) : 0;
+        const nudges = markerW ? previewLabelNudges(markerW) : LABEL_NUDGES;
+        // Page 3/4: the edge clamp pushing a label further than 1.5x the
+        // marker width also breaks "reads as its own marker's label", so
+        // treat that like a collision (it then gets the compact style).
+        const maxShift = markerW ? markerW * 1.5 + 0.5 : Infinity;
+        const list = [];
+        slots.forEach((slot, si) => {
+          setLabelSlot(el, slot);
+          const r0 = el.getBoundingClientRect();
+          nudges.forEach(nudge => {
+            let shift = nudge;
+            if (r0.right + shift > clip.right - 4) shift = clip.right - 4 - r0.right;
+            if (r0.left + shift < clip.left + 4) shift = clip.left + 4 - r0.left;
+            const rect = { left: r0.left + shift, right: r0.right + shift, top: r0.top, bottom: r0.bottom };
+            const leaves = rect.top < clip.top || rect.bottom > clip.bottom;
+            const fixedHits = fixedRects.filter(fr => overlaps(rect, fr)).length;
+            // not counting other labels — those depend on where they end up
+            const tooFar = Math.abs(shift) > maxShift;
+            const base = (leaves ? 100 : 0) + fixedHits * 10 + (tooFar ? 10 : 0)
+              + si * 0.5 + Math.min(0.4, Math.abs(nudge) / 100);
+            list.push({ slot, shift, rect, base, ok: !leaves && fixedHits === 0 && !tooFar });
+          });
+        });
+        return list;
+      });
+
+      const pick = new Array(dets.length);
+      const hitsWith = (i, ci, others) => others.reduce((n, j) =>
+        n + (j !== i && pick[j] !== undefined && overlaps(cands[i][ci].rect, cands[j][pick[j]].rect) ? 1 : 0), 0);
+      const all = dets.map((_, i) => i);
+
+      // 2) Greedy, in order: the first candidate that's clean against the
+      //    labels already placed, else the least bad.
+      all.forEach(i => {
+        let bestC = 0, bestS = Infinity;
+        for (let ci = 0; ci < cands[i].length; ci++){
+          const hits = hitsWith(i, ci, all.slice(0, i));
+          const s = cands[i][ci].base + hits * 10;
+          if (s < bestS){ bestS = s; bestC = ci; }
+          if (cands[i][ci].ok && hits === 0) break;
+        }
+        pick[i] = bestC;
+      });
+
+      // 3) Greedy can paint itself into a corner in dense layouts (a label's
+      //    only free spot is taken by a neighbor that had another option), so
+      //    for the few labels still overlapping — plus the neighbors sitting
+      //    where they could move — try every combination of their allowed
+      //    spots and keep the one with the fewest overlaps.
+      const conflicted = all.filter(i => hitsWith(i, pick[i], all) > 0);
+      if (conflicted.length){
+        const cluster = new Set(conflicted);
+        conflicted.forEach(i => cands[i].forEach(c => all.forEach(j => {
+          if (!cluster.has(j) && overlaps(c.rect, cands[j][pick[j]].rect)) cluster.add(j);
+        })));
+        const members = [...cluster].slice(0, 5);
+        const memberSet = new Set(members);
+        const outside = all.filter(j => !memberSet.has(j));
+        const options = members.map(i => {
+          const ok = cands[i].map((c, ci) => ci).filter(ci => cands[i][ci].ok);
+          return (ok.length ? ok : [pick[i]]).slice(0, 10);
+        });
+        const choice = new Array(members.length);
+        let bestChoice = members.map(i => pick[i]);
+        let bestScore = Infinity;
+        (function search(a, partial){
+          if (partial >= bestScore) return;
+          if (a === members.length){ bestScore = partial; bestChoice = choice.slice(); return; }
+          const i = members[a];
+          for (const ci of options[a]){
+            const r = cands[i][ci].rect;
+            let s = cands[i][ci].base;
+            for (const j of outside) if (overlaps(r, cands[j][pick[j]].rect)) s += 10;
+            for (let b = 0; b < a; b++) if (overlaps(r, cands[members[b]][choice[b]].rect)) s += 10;
+            choice[a] = ci;
+            search(a + 1, partial + s);
+          }
+        })(0, 0);
+        members.forEach((i, a) => { pick[i] = bestChoice[a]; });
+      }
+
+      // 4) Apply.
+      dets.forEach((d, i) => {
+        const c = cands[i][pick[i]];
+        setLabelSlot(d.labelEl, c.slot);
+        d.labelEl.style.transform = c.shift ? `translateX(${c.shift}px)` : '';
+      });
+
+      return all.filter(i => !cands[i][pick[i]].ok || hitsWith(i, pick[i], all) > 0);
+    }
   }
 
   // Drives the three-state ✓ indicator: pending (hollow) -> editing (thin
@@ -1139,10 +1166,14 @@
   const candidateCancelBtn  = document.getElementById('candidateCancelBtn');
   const candidateConfirmBtn = document.getElementById('candidateConfirmBtn');
 
+  const candidateCustomInput = document.getElementById('candidateCustomInput');
+  const candidateLoading     = document.getElementById('candidateLoading');
+
   let candidateTargetDet = null;
   let candidateChoices = [];
   let candidateSelectedIndex = 0;
   let candidateOnClose = null;
+  let candidateOnConfirm = null;
   let candidateHideTimer = null;
 
   function renderCandidateList(){
@@ -1154,16 +1185,39 @@
       row.textContent = choice.confidence ? `${choice.name}(${choice.confidence}%)` : choice.name;
       row.addEventListener('click', () => {
         candidateSelectedIndex = i;
+        candidateCustomInput.value = ''; // a picked candidate replaces any typed name
         renderCandidateList();
       });
       candidateList.appendChild(row);
     });
   }
 
+  // Page 4 rename: the sheet opens right away (loading) and candidates
+  // arrive later from /api/recognize.
+  function setCandidateChoices(choices){
+    candidateChoices = choices;
+    candidateSelectedIndex = choices.length ? 0 : -1;
+    candidateLoading.hidden = true;
+    renderCandidateList();
+  }
+
+  // Typing a name deselects any picked candidate — the typed name wins.
+  candidateCustomInput.addEventListener('input', () => {
+    if (candidateCustomInput.value.trim() && candidateSelectedIndex !== -1){
+      candidateSelectedIndex = -1;
+      renderCandidateList();
+    }
+  });
+
   // onClose is called after the sheet fully closes, whether by Cancel or
   // Confirm — the low-confidence queue uses it to chain to the next dish.
-  function openCandidateDialog(det, choices, onClose){
-    if (!choices.length){
+  // opts (Page 4 rename): allowCustom shows the "type a name" field and
+  // lets the sheet open with no candidates yet; loading shows a
+  // "searching" line until setCandidateChoices(); onConfirm(det,
+  // prevCategory) runs after a confirmed rename.
+  function openCandidateDialog(det, choices, onClose, opts){
+    opts = opts || {};
+    if (!choices.length && !opts.allowCustom){
       if (onClose) onClose();
       return;
     }
@@ -1171,8 +1225,12 @@
 
     candidateTargetDet = det;
     candidateChoices = choices;
-    candidateSelectedIndex = 0;
+    candidateSelectedIndex = choices.length ? 0 : -1;
     candidateOnClose = onClose || null;
+    candidateOnConfirm = opts.onConfirm || null;
+    candidateCustomInput.hidden = !opts.allowCustom;
+    candidateCustomInput.value = '';
+    candidateLoading.hidden = !opts.loading;
 
     det.preEditState = det.confirmState;
     setConfirmState(det, 'editing');
@@ -1194,6 +1252,10 @@
     candidateTargetDet = null;
     candidateChoices = [];
     candidateOnClose = null;
+    candidateOnConfirm = null;
+    candidateCustomInput.hidden = true;
+    candidateCustomInput.value = '';
+    candidateLoading.hidden = true;
     if (!silent && cb) cb();
   }
 
@@ -1206,8 +1268,21 @@
 
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;
+    const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim();
     const choice = candidateChoices[candidateSelectedIndex];
-    if (det && choice){
+    if (det && !custom && !choice && !candidateCustomInput.hidden){
+      showToast('請選一個菜名,或自己輸入');
+      return;
+    }
+    const onConfirm = candidateOnConfirm;
+    const prevCategory = det ? det.category : null;
+    if (det && custom){
+      // typed by the user: no AI confidence, category left as it was
+      det.name = custom;
+      det.confidence = null;
+      if (det.labelEl) renderDetLabel(det.labelEl, det);
+      setConfirmState(det, 'confirmed');
+    } else if (det && choice){
       det.name = `${choice.name}(${choice.confidence}%)`;
       det.confidence = choice.confidence;
       det.category = choice.category === 'beverage' ? 'beverage' : 'food';
@@ -1215,6 +1290,7 @@
       setConfirmState(det, 'confirmed');
     }
     closeCandidateDialog();
+    if (det && onConfirm) onConfirm(det, prevCategory);
   });
 
   // Low-confidence auto-detected dishes queue up here and are reviewed one
@@ -1235,6 +1311,7 @@
   }
 
   function setupRecognizeScreen(photoDataUrl){
+    exitReportMode(); // a new photo always starts back on Page 3
     recognizePhoto.src = photoDataUrl;
     resetRecognizeZoom(); // full photo while detecting / if nothing is found
     layoutRecognizePhoto(false); // again on 'load' once natural size is known
@@ -1315,12 +1392,27 @@
       det.markerEl = marker;
       box.appendChild(marker);
       // The marker (and its label, via the same vars) sits at the center of
-      // the box the backend returned, not the normalized display box.
+      // the box the backend returned, not the normalized display box — or,
+      // for a dish added on Page 4, exactly where the user tapped.
       const a = det.apiBox;
-      if (a && [a.x, a.y, a.w, a.h].every(Number.isFinite) && det.w > 0 && det.h > 0){
-        box.style.setProperty('--mx', `${((a.x + a.w / 2) - det.x) / det.w * 100}%`);
-        box.style.setProperty('--my', `${((a.y + a.h / 2) - det.y) / det.h * 100}%`);
+      const center = a && [a.x, a.y, a.w, a.h].every(Number.isFinite)
+        ? { x: a.x + a.w / 2, y: a.y + a.h / 2 }
+        : det.tapPoint || null;
+      if (center && det.w > 0 && det.h > 0){
+        box.style.setProperty('--mx', `${(center.x - det.x) / det.w * 100}%`);
+        box.style.setProperty('--my', `${(center.y - det.y) / det.h * 100}%`);
       }
+      // Page 4 (Group A) selects a dish by tapping its marker; inert on Page 3
+      marker.addEventListener('click', e => {
+        if (!reportActive) return;
+        e.stopPropagation();
+        onReportMarkerTap(det);
+      });
+      marker.addEventListener('keydown', e => {
+        if (!reportActive || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        onReportMarkerTap(det);
+      });
     }
     recognizeOverlay.appendChild(box);
 
@@ -1721,6 +1813,10 @@
         // displayBox = the normalized one drawn on screen / used for the thumbnail
         box: d.apiBox ? { ...d.apiBox } : { x: d.x, y: d.y, w: d.w, h: d.h },
         displayBox: { x: d.x, y: d.y, w: d.w, h: d.h },
+        // 'ai' = from /api/detect; 'user' = added on Page 4 by tapping the
+        // photo (tapPoint = where, % of the full photo)
+        source: d.addedByUser ? 'user' : 'ai',
+        tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
         thumbUrl
       };
     }));
@@ -1739,10 +1835,15 @@
     goToScreen('diary');
   }
 
-  // Page 3 -> Page 4. Both groups go to the existing Diary page for now
-  // (Group B's chat page comes later); the group is already on the record.
+  // Page 3 -> Page 4. Group A fills in each dish on its own Page 4 (report
+  // screen); Group B still saves straight to the existing Diary page for
+  // now (its chat page comes later). The group goes onto the record.
   recognizeNextBtn.addEventListener('click', async () => {
     if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
+    if (STUDY_GROUP === 'A'){
+      enterReportMode();
+      return;
+    }
     isSavingMeal = true;
     updateProgress();
     try {
@@ -1974,6 +2075,359 @@
   detailAdjustClose.addEventListener('click', cancelDetailAdjust);
   detailAdjustCancelBtn.addEventListener('click', cancelDetailAdjust);
   detailAdjustConfirmBtn.addEventListener('click', confirmDetailAdjust);
+
+  /* ---------- Page 4, Group A: fill in each dish ----------
+     Same photo, markers, labels and zoom as Page 3: the #recognizeStage
+     node is moved into #reportPhotoSlot, so photoRect() /
+     layoutRecognizeOverlay() / zoom / resolveLabelOverlaps() all keep
+     working unchanged (the report screen also carries .recognize-preview).
+     Tap a marker -> that one dish shows below; its five fields use the same
+     option lists as the detail-adjust modal. */
+  const reportPhotoSlot     = document.getElementById('reportPhotoSlot');
+  const reportCountTag      = document.getElementById('reportCountTag');
+  const reportCameraBtn     = document.getElementById('reportCameraBtn');
+  const reportAddHint       = document.getElementById('reportAddHint');
+  const reportEmptyHint     = document.getElementById('reportEmptyHint');
+  const reportDish          = document.getElementById('reportDish');
+  const reportDishThumb     = document.getElementById('reportDishThumb');
+  const reportDishNum       = document.getElementById('reportDishNum');
+  const reportDishName      = document.getElementById('reportDishName');
+  const reportDishConf      = document.getElementById('reportDishConf');
+  const reportRenameBtn     = document.getElementById('reportRenameBtn');
+  const reportDeleteBtn     = document.getElementById('reportDeleteBtn');
+  const reportDeleteConfirm = document.getElementById('reportDeleteConfirm');
+  const reportDeleteCancel  = document.getElementById('reportDeleteCancel');
+  const reportDeleteYes     = document.getElementById('reportDeleteYes');
+  const reportDoneBtn       = document.getElementById('reportDoneBtn');
+  const reportScreenEl      = document.querySelector('.screen[data-screen="report"]');
+  const reportLists = {
+    containerType: document.getElementById('reportContainerList'),
+    size: document.getElementById('reportSizeList'),
+    cookingMethod: document.getElementById('reportCookingList'),
+    sugar: document.getElementById('reportSugarList'),
+    salt: document.getElementById('reportSaltList')
+  };
+  // A dish is "filled" only when all five have a value.
+  const REPORT_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+
+  let reportActive = false;      // Page 4 is showing (and owns the photo stage)
+  let reportSelectedId = null;   // det.id shown in the panel, or null
+  let reportAddingDish = false;  // waiting for a tap on the photo
+  let reportRenaming = false;    // a rename sheet is open / loading
+
+  function isDishComplete(det){
+    const d = det.detail || {};
+    return REPORT_FIELDS.every(k => !!d[k]);
+  }
+
+  // THE hook for the upcoming calorie feature. Fired on document whenever a
+  // dish has all five fields filled: reason 'completed' the moment it first
+  // becomes complete, 'changed' on any later edit (a field or its name) to
+  // a dish that is still complete. Listen with
+  //   document.addEventListener('pictameal:dish-detail-complete', e => ...)
+  function notifyDishDetailComplete(det, reason){
+    document.dispatchEvent(new CustomEvent('pictameal:dish-detail-complete', {
+      detail: {
+        dishId: det.id,
+        name: splitNameConfidence(det.name || '').name,
+        confidence: det.confidence ?? null,
+        category: det.category === 'beverage' ? 'beverage' : 'food',
+        detail: { ...det.detail },
+        group: STUDY_GROUP,
+        reason
+      }
+    }));
+  }
+
+  function selectedReportDet(){
+    return currentDetections.find(d => d.id === reportSelectedId) || null;
+  }
+
+  // White hollow = not filled, green ring = selected, solid green = filled.
+  function refreshMarkerStates(){
+    currentDetections.forEach((d, i) => {
+      const m = d.markerEl;
+      if (!m) return;
+      const done = reportActive && isDishComplete(d);
+      m.classList.toggle('marker-empty', reportActive && !done);
+      m.classList.toggle('marker-done', done);
+      m.classList.toggle('marker-active', reportActive && d.id === reportSelectedId);
+      if (reportActive){
+        m.setAttribute('role', 'button');
+        m.setAttribute('tabindex', '0');
+        m.removeAttribute('aria-hidden');
+        m.setAttribute('aria-label', `第 ${i + 1} 道菜${done ? '(已填完)' : ''}`);
+      } else {
+        m.removeAttribute('role');
+        m.removeAttribute('tabindex');
+        m.removeAttribute('aria-label');
+        m.setAttribute('aria-hidden', 'true');
+      }
+    });
+  }
+
+  function renumberMarkers(){
+    currentDetections.forEach((d, i) => {
+      if (d.markerEl) d.markerEl.textContent = String(i + 1);
+    });
+    refreshMarkerStates();
+  }
+
+  function updateReportDone(){
+    const all = currentDetections;
+    reportDoneBtn.disabled = isSavingMeal || !all.length
+      || !all.every(d => !d.loading && isDishComplete(d));
+  }
+
+  // Option buttons — same markup/classes as the detail-adjust modal.
+  function choiceHtml(kind, value, inner, aria){
+    return `<button type="button" class="detail-choice detail-${kind === 'containerType' ? 'container' : kind === 'cookingMethod' ? 'cooking' : kind}-choice" data-kind="${kind}" data-value="${value}" aria-label="${aria}">${inner}</button>`;
+  }
+  function renderReportCookingOptions(category){
+    if (reportLists.cookingMethod.dataset.category === category) return;
+    reportLists.cookingMethod.dataset.category = category;
+    const methods = category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
+    reportLists.cookingMethod.innerHTML = methods.map(o => choiceHtml('cookingMethod', o.value,
+      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, o.value)).join('');
+  }
+  function renderReportChoiceLists(){
+    reportLists.containerType.innerHTML = containerOptions.map(o => choiceHtml('containerType', o.value,
+      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.label}</span>`, o.label)).join('');
+    reportLists.size.innerHTML = sizeOptions.map(s => choiceHtml('size', s, s, `尺寸 ${s}`)).join('');
+    reportLists.sugar.innerHTML = sugarOptions.map(o => choiceHtml('sugar', o.value,
+      `<span class="detail-sugar-cup" aria-hidden="true"><span class="detail-sugar-fill" style="height:${o.level}%"></span></span><span class="detail-choice-label">${o.value}</span>`, `糖 ${o.value}`)).join('');
+    reportLists.salt.innerHTML = saltOptions.map(o => choiceHtml('salt', o.value,
+      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, `鹽 ${o.value}`)).join('');
+    renderReportCookingOptions('food');
+  }
+  function syncReportChoices(det){
+    const d = det.detail || {};
+    Object.entries(reportLists).forEach(([kind, list]) => {
+      list.querySelectorAll('.detail-choice').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.value === d[kind]);
+      });
+    });
+  }
+  Object.values(reportLists).forEach(list => {
+    list.addEventListener('click', e => {
+      const btn = e.target.closest('.detail-choice');
+      if (btn) setReportField(btn.dataset.kind, btn.dataset.value);
+    });
+  });
+
+  function setReportField(kind, value){
+    const det = selectedReportDet();
+    if (!det || det.loading) return;
+    const wasComplete = isDishComplete(det);
+    det.detail = { ...(det.detail || {}), [kind]: value };
+    syncReportChoices(det);
+    refreshMarkerStates();
+    updateReportDone();
+    if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
+  }
+
+  // Thumbnail = the dish's own (padded) box, cropped once and cached.
+  function ensureReportThumb(det){
+    if (!det.reportThumb){
+      const p = padBoxForThumbnail(det.x, det.y, det.w, det.h);
+      det.reportThumb = cropRegionToDataUrl(currentPhotoData, p.x, p.y, p.w, p.h).catch(() => '');
+    }
+    return det.reportThumb;
+  }
+
+  function renderReportPanel(){
+    const det = selectedReportDet();
+    reportEmptyHint.hidden = !!det;
+    reportDish.hidden = !det;
+    updateReportDone();
+    if (!det) return;
+
+    const { name, confidence } = splitNameConfidence(det.loading ? '辨識中…' : (det.name || ''));
+    reportDishNum.textContent = String(currentDetections.indexOf(det) + 1);
+    reportDishName.textContent = name;
+    reportDishConf.textContent = confidence;
+    reportRenameBtn.disabled = !!det.loading || reportRenaming;
+    reportDeleteBtn.disabled = !!det.loading;
+    renderReportCookingOptions(det.category === 'beverage' ? 'beverage' : 'food');
+    syncReportChoices(det);
+
+    reportDishThumb.removeAttribute('src');
+    ensureReportThumb(det).then(url => {
+      if (reportSelectedId === det.id && url) reportDishThumb.src = url;
+    });
+  }
+
+  function selectReportDish(id){
+    reportSelectedId = id;
+    reportDeleteConfirm.hidden = true;
+    refreshMarkerStates();
+    renderReportPanel();
+  }
+
+  function onReportMarkerTap(det){
+    if (reportAddingDish) return;
+    selectReportDish(det.id);
+  }
+
+  function enterReportMode(){
+    reportActive = true;
+    reportSelectedId = null; // nothing selected until the user taps a dish
+    setReportAdding(false);
+    reportDeleteConfirm.hidden = true;
+    currentDetections.forEach(d => { d.detail = d.detail || {}; });
+    reportPhotoSlot.appendChild(recognizeStage);
+    reportCountTag.textContent = countTag.textContent;
+    renumberMarkers();
+    renderReportPanel();
+    goToScreen('report');
+    requestAnimationFrame(() => layoutRecognizePhoto(false));
+  }
+
+  // Hands the photo stage back to Page 3. Safe to call any time.
+  function exitReportMode(){
+    reportActive = false;
+    reportSelectedId = null;
+    setReportAdding(false);
+    if (recognizeStage.parentElement !== recognizeBody) recognizeBody.appendChild(recognizeStage);
+    refreshMarkerStates();
+  }
+
+  /* rename: up to 3 candidates from /api/recognize, or type one */
+  reportRenameBtn.addEventListener('click', async () => {
+    const det = selectedReportDet();
+    if (!det || det.loading || reportRenaming) return;
+    reportRenaming = true;
+    renderReportPanel();
+    const wasComplete = isDishComplete(det);
+    openCandidateDialog(det, [], () => {
+      reportRenaming = false;
+      renderReportPanel();
+    }, {
+      allowCustom: true,
+      loading: true,
+      onConfirm(target, prevCategory){
+        // a category switch (food <-> beverage) swaps the cooking options;
+        // drop a cooking method the new list doesn't have
+        if (target.category !== prevCategory && target.detail && target.detail.cookingMethod){
+          const methods = target.category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
+          if (!methods.some(m => m.value === target.detail.cookingMethod)){
+            target.detail = { ...target.detail, cookingMethod: undefined };
+          }
+        }
+        resolveLabelOverlaps();
+        refreshMarkerStates();
+        renderReportPanel();
+        if (isDishComplete(target)) notifyDishDetailComplete(target, wasComplete ? 'changed' : 'completed');
+      }
+    });
+    const candidates = await fetchCandidatesForDet(det);
+    if (candidateTargetDet === det) setCandidateChoices(candidates);
+  });
+
+  /* delete, with a second confirmation */
+  reportDeleteBtn.addEventListener('click', () => {
+    if (selectedReportDet()) reportDeleteConfirm.hidden = false;
+  });
+  reportDeleteCancel.addEventListener('click', () => { reportDeleteConfirm.hidden = true; });
+  reportDeleteYes.addEventListener('click', () => {
+    const det = selectedReportDet();
+    reportDeleteConfirm.hidden = true;
+    if (!det) return;
+    currentDetections = currentDetections.filter(d => d !== det);
+    if (det.boxEl) det.boxEl.remove();
+    reportSelectedId = null;
+    renumberMarkers();
+    renderReportPanel();
+    resolveLabelOverlaps();
+    showToast('已刪除這道菜');
+  });
+
+  /* add a dish the AI missed: tap the photo where it is */
+  function setReportAdding(on){
+    reportAddingDish = on;
+    reportAddHint.hidden = !on;
+    reportAddDishBtn.textContent = on ? '取消新增' : '+ 新增菜色';
+    reportScreenEl.classList.toggle('report-adding', on);
+  }
+  reportAddDishBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (reportActive) setReportAdding(!reportAddingDish);
+  });
+  recognizeWrap.addEventListener('click', e => {
+    if (!reportActive || !reportAddingDish || e.target.closest('button')) return;
+    const r = photoRect();
+    const v = recognizeWrap.getBoundingClientRect();
+    if (e.clientX < Math.max(r.left, v.left) || e.clientX > Math.min(r.right, v.right)
+        || e.clientY < Math.max(r.top, v.top) || e.clientY > Math.min(r.bottom, v.bottom)) return;
+    const p = clientToPct(e.clientX, e.clientY);
+    setReportAdding(false);
+    addReportDishAt(p.x, p.y);
+  });
+
+  async function addReportDishAt(cx, cy){
+    const w = MANUAL_BOX_DEFAULT_SIZE;
+    const h = MANUAL_BOX_DEFAULT_SIZE;
+    const det = {
+      id: `added${Date.now()}`,
+      // crop box centered on the tap (kept inside the photo)
+      x: Math.max(0, Math.min(100 - w, cx - w / 2)),
+      y: Math.max(0, Math.min(100 - h, cy - h / 2)),
+      w, h,
+      tapPoint: { x: cx, y: cy },
+      addedByUser: true,
+      name: null,
+      confidence: null,
+      category: 'food',
+      loading: true,
+      confirmState: 'pending',
+      detail: {}
+    };
+    currentDetections.push(det);
+    renderOneDetection(det, currentDetections.length - 1);
+    renumberMarkers();
+    selectReportDish(det.id);
+    resolveLabelOverlaps();
+
+    const candidates = await fetchCandidatesForDet(det);
+    if (!currentDetections.includes(det)) return; // deleted while recognizing
+    det.loading = false;
+    if (det.dotEl) det.dotEl.classList.remove('loading');
+    if (candidates.length){
+      const top = candidates[0];
+      det.name = `${top.name}(${top.confidence}%)`;
+      det.confidence = top.confidence;
+      det.category = top.category === 'beverage' ? 'beverage' : 'food';
+    } else {
+      det.name = '沒認出來,請改菜名';
+    }
+    renderDetLabel(det.labelEl, det);
+    resolveLabelOverlaps();
+    refreshMarkerStates();
+    if (reportSelectedId === det.id) renderReportPanel();
+    else updateReportDone();
+  }
+
+  /* done: every dish filled -> save (with group) -> Diary */
+  reportDoneBtn.addEventListener('click', async () => {
+    if (reportDoneBtn.disabled || isSavingMeal) return;
+    isSavingMeal = true;
+    updateReportDone();
+    try {
+      await saveCurrentMeal();
+    } finally {
+      isSavingMeal = false;
+      exitReportMode();
+    }
+  });
+
+  reportCameraBtn.addEventListener('click', () => {
+    const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean));
+    if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')) return;
+    exitReportMode();
+    goToScreen('start');
+  });
+
+  renderReportChoiceLists();
 
   /* ---------- voice correction + feedback translation (Web Speech API) ---------- */
   const voiceModal            = document.getElementById('voiceModal');

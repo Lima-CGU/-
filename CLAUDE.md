@@ -25,7 +25,8 @@ The app is used in a two-arm study: **Group A** (traditional — report with but
 
 - `STUDY_GROUP` (`script.js`) is resolved once at startup: (1) `?group=A` / `?group=B` in the URL (case-insensitive) always wins and is saved to `localStorage` key `pictameal:studyGroup`; (2) otherwise the saved value — this is what keeps a participant in their group when launching the home-screen PWA, whose `start_url` has no query; (3) otherwise `A`. Any other `?group=` value is ignored (falls through to 2/3). All storage access is in try/catch, so blocked storage just means URL-or-A. A research assistant switches a device by opening the other `?group=` link.
 - The group must NEVER be shown on screen (no labels, no switcher) — participants must not learn another group exists. It is only written into data: each meal record in `mealRecords` has `group`, and its Diary card carries `data-group` (not displayed).
-- Page flow: Page 1 start and Page 2 camera are identical for both groups; Page 3 (`data-screen="recognize"`) is identical for both; only Page 4 differs. Page 4 is not built yet — both groups currently go to the existing Diary screen (`data-screen="diary"`); Group B's chat page comes later.
+- Page flow: Page 1 start and Page 2 camera are identical for both groups; Page 3 (`data-screen="recognize"`) is identical for both; only Page 4 differs. Group A → Page 4 report screen (`data-screen="report"`, below). Group B → still saves straight to the Diary screen (`data-screen="diary"`); its chat page comes later.
+- Group A has no voice (🎤) entry points anywhere: none on Page 4, and `renderDiaryDishRow` skips the mic button when `STUDY_GROUP === 'A'`.
 - Local testing: `npx serve` redirects `/index.html?group=B` to `/index` and DROPS the query — test with `/?group=B` (GitHub Pages serves `index.html?group=B` fine).
 - Port 5500 is the owner's VS Code Live Server preview — never start or stop anything on it; run test servers on another port (e.g. 5600).
 - Do NOT temporarily edit `BACKEND_URL` in `script.js` for testing. Live Server serves the working copy, and `sw.js` is cache-first, so a preview that loads the edited file caches it under the current `CACHE_NAME` and keeps calling the test URL (showing "自動辨識失敗") until the cache name changes. Test against the real Render backend, or intercept requests in Playwright (`page.route`) instead.
@@ -38,6 +39,19 @@ The app is used in a two-arm study: **Group A** (traditional — report with but
 - Each det keeps `apiBox` (exactly what `/api/detect` returned, % of the full photo) next to its x/y/w/h (the `normalizeDetectionBox()` display box, which can be enlarged/edge-clamped so its center drifts). Saved dishes store `box` = backend box and `displayBox` = display box; thumbnails still crop from the display box.
 - Label placement (`resolveLabelOverlaps`, preview slots): a label must read as belonging to its own marker, so it only sits snug directly UNDER its marker (2px gap), shifted sideways by at most 1.5× the marker width (`previewLabelNudges`, smallest shift first), else snug directly ABOVE it the same way. The only further shift allowed is clamping it back inside the visible photo. Placement is greedy, then a small exhaustive search over the labels still in conflict (plus neighbors) repairs dead ends. In very dense photos (e.g. sample-meals 01, 7 dishes) a zero-overlap layout under these rules provably may not exist — then the fewest-overlap layout is used.
 
+- Labels that still collide (or would have to be clamped further than 1.5× the marker width to stay on the photo) after placement get `.det-label-compact` (~15% smaller name, confidence hidden) and placement runs again; all other labels stay full size. Labels show only name + confidence (no filled-in details).
+
+## Page 4, Group A (report screen) — fill in each dish
+
+- Entered from Page 3's "下一步" when `STUDY_GROUP === 'A'` (`enterReportMode()`). The Page 3 photo stage node (`#recognizeStage`) is MOVED into `#reportPhotoSlot`, so the same photo / markers / labels / zoom / coordinate code is reused unchanged; `exitReportMode()` moves it back (also called by `setupRecognizeScreen()` for every new photo). The report screen carries `.recognize-preview` too.
+- Top row = the Diary heading (title, count, camera button — camera asks before discarding a half-filled meal).
+- Markers are tappable on Page 4 with three states: `.marker-empty` (white hollow, not filled), `.marker-active` (green ring, selected), `.marker-done` (solid green — all five fields set). Nothing is selected on entry; the panel shows "點選照片上的菜色開始填寫" until a marker is tapped, then only that dish: thumbnail (cropped from its box), name + small confidence, and the five fields (`containerType`, `size`, `cookingMethod`, `sugar`, `salt`) built from the detail-adjust modal's own option arrays (`containerOptions`, `sizeOptions`, `FOOD_/BEVERAGE_COOKING_METHODS`, `sugarOptions`, `saltOptions`). Values live in `det.detail`, same shape as the modal.
+- Rename (pencil): opens the existing candidate sheet immediately (loading), fills up to 3 candidates from `/api/recognize` (`fetchCandidatesForDet`), and lets the user type a name instead (typed name wins; confidence becomes null). A food↔beverage switch drops a cooking method the new list lacks.
+- Delete (trash): asks once more inline; the box is removed and markers renumber.
+- "+ 新增菜色" (photo bottom-right): next tap on the photo adds a dish — a `MANUAL_BOX_DEFAULT_SIZE` box centered on the tap is cropped and sent to `/api/recognize`; the new marker sits exactly on the tap point (`det.tapPoint`), is auto-selected, and is saved with `source: 'user'`.
+- "完成" is enabled only when there is ≥1 dish and every dish is filled; it saves via `saveCurrentMeal()` (record has `group`, each dish has `detail`, `box`, `displayBox`, `source`, `tapPoint`) and goes to the Diary.
+- **Calorie hook:** `notifyDishDetailComplete(det, reason)` dispatches `document` event `pictameal:dish-detail-complete` with `{ dishId, name, confidence, category, detail, group, reason }` — `reason: 'completed'` when a dish first gets all five fields, `'changed'` on any later field/name edit while it is still complete. Hang the calorie calculation there.
+
 ## Backend
 
 Main file: `backend/server.js`
@@ -46,6 +60,7 @@ Main file: `backend/server.js`
 - `gpt-6.1-sol` is the currently configured model (upgraded from `gpt-4.1`).
 - The request body uses `max_completion_tokens`, not `max_tokens`. Every `gpt-5.x`/`gpt-6.x` model rejects `max_tokens` with a 400 `unsupported_parameter` error; `gpt-4.1` and earlier accept `max_completion_tokens` too, so this one param name works across all of them. **This was the actual root cause of the `gpt-5.6-sol`/`gpt-5.6-terra` failures below — not a model-access problem.**
 - ~~`gpt-5.6-sol` and `gpt-5.6-terra` previously failed in the deployed test~~ — corrected: both work fine once the request uses `max_completion_tokens`. Verified directly against `/api/detect`'s real prompt. Also verified working (non-reasoning, fast): `gpt-5.5`, `gpt-5.6-luna`, `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`. Do not use bare `gpt-5` for this app — it's a reasoning model and burns most of its completion-token budget on hidden reasoning tokens before producing visible output, which is both slower and more expensive for this latency-sensitive per-photo recognition flow.
+- `gpt-6.1-sol` does NOT accept `temperature` other than the default 1 (400 `unsupported_value` for 0.2), so `/api/detect` and `/api/recognize` send no temperature. Re-check before adding one after a model change.
 - `/api/recognize` recognizes one cropped dish.
 - `/api/detect` detects multiple dishes and returns percentage-based boxes.
 - Detection uses a strict food-only prompt and box normalization/padding. It is still approximate GPT bounding-box detection, not pixel-accurate segmentation. Backend `normalizeDishBox` only enforces 0–100 bounds and a minimum size (the old 48%/52% size caps and 2200 area cap were removed — they shrank large dishes smaller than the food).
@@ -77,7 +92,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v8`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v9`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

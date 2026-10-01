@@ -751,6 +751,224 @@ body{
   font-size: 10.5px;
   color: rgba(255,255,255,0.6);
 }
+/* Page 3/4 labels stay one neutral color — dish state is shown only by the
+   marker (a rename marks the det "confirmed", which would otherwise tint
+   just that one label green). */
+.recognize-preview .det-box.confirmed .det-label{
+  background: rgba(28, 22, 35, 0.78);
+}
+/* Only for labels that still collide after placement (resolveLabelOverlaps):
+   ~15% smaller name, confidence hidden. */
+.det-label.det-label-compact{
+  padding: 2px 6px;
+}
+.det-label.det-label-compact .det-label-name{
+  font-size: 12px;
+}
+.det-label.det-label-compact .det-label-meta{
+  display: none;
+}
+
+/* ---------- Page 4, Group A (report screen) ---------- */
+.report-body{
+  gap: 0;
+}
+.report-heading{
+  margin-bottom: 10px;
+}
+/* Holds the moved-in #recognizeStage; a fixed share of the height so the
+   per-dish panel below always has room. */
+.report-photo-slot{
+  flex: 0 0 auto;
+  height: clamp(190px, 45%, 380px);
+  display: flex;
+}
+.report-photo-slot .recognize-stage{
+  flex: 1;
+}
+.report-add-hint{
+  margin: 8px 0 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--purple-deep);
+}
+.report-adding .recognize-photo-wrap{
+  cursor: crosshair;
+  box-shadow: 0 0 0 3px var(--purple);
+}
+.report-panel{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.report-empty-hint{
+  margin: 28px 0 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.report-dish-head{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.report-dish-thumb{
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--purple-soft);
+}
+.report-dish-title{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.report-dish-num{
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  align-self: center;
+}
+.report-dish-name{
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  word-break: break-word;
+}
+.report-dish-conf{
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.report-icon-btn{
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  color: var(--purple-deep);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.report-icon-btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+.report-delete-btn{ color: var(--coral); }
+.report-delete-confirm{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff1ee;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.report-delete-confirm[hidden]{ display: none; }
+.report-delete-confirm span{ flex: 1 1 auto; }
+.report-delete-yes{
+  background: var(--coral);
+  color: #fff;
+}
+/* "+ 新增菜色": photo's bottom-right corner, Page 4 only */
+.report-add-dish-btn{
+  display: none;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 7;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--purple);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.screen-report .report-add-dish-btn{ display: inline-flex; }
+.report-adding .report-add-dish-btn{ background: var(--ink); }
+
+/* Page 4 markers: tappable, three states. A bigger invisible hit area
+   makes the small circle easy to tap. */
+.screen-report .det-marker{
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.screen-report .det-marker::before{
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+}
+.det-marker.marker-empty{       /* not filled: white, hollow */
+  background: rgba(28, 22, 35, 0.35);
+  border-color: #fff;
+  color: #fff;
+}
+.det-marker.marker-active{      /* selected: green ring */
+  border: 3px solid var(--teal);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 2px 6px rgba(0,0,0,0.3);
+}
+.det-marker.marker-done{        /* all five fields filled: solid green */
+  background: var(--teal);
+  border-color: #fff;
+  color: #fff;
+}
+.det-marker.marker-done.marker-active{
+  border-color: #fff;
+  box-shadow: 0 0 0 3px var(--teal), 0 2px 6px rgba(0,0,0,0.3);
+}
+
+/* rename sheet (Page 4): type-your-own field + loading line */
+.candidate-custom-input{
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--ink);
+}
+.candidate-custom-input:focus{ outline: none; border-color: var(--purple); }
+.candidate-loading{
+  margin: 0 0 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
 
 .det-remove{
   position: absolute;
