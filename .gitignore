@@ -4,3 +4,9 @@ firebase-key.json
 *adminsdk*.json
 # also covers a doubled extension like firebase-key.json.json
 firebase-key*.json
+
+# Teacher-provided private food table (foods1000) — must never be committed:
+# spreadsheets anywhere, and any export/dump of the table
+*.xls
+*.xlsx
+foods1000*.json

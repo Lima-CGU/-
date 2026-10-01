@@ -55,10 +55,14 @@ The app is used in a two-arm study: **Group A** (traditional — report with but
 
 ## Nutrition data (for calorie calculation)
 
-- `backend/data/tfnd.json`: official TFDA 食品營養成分資料庫 (TFND), 2,180 foods, per-100 g kcal / protein / fat / carbs / sodium. Built by `backend/scripts/build-tfnd.js` (`--download` fetches the current official zip; no npm deps). Version, license (政府資料開放授權條款-第1版) and format: `backend/data/README.md`.
-- Use `per100g.kcal` as THE calorie value (修正熱量, falling back to 熱量).
-- Lookup: `backend/nutrition-db.js` → `searchFoods(keyword)` (exact name → exact 俗名 → partial, preferring head-noun matches and TFND 「平均值」 entries). Not wired into the server or front end yet.
-- TFND is ingredient-level: most dish names (番茄炒蛋, 煎餃) don't match, and there is no generic 「豬肉」 entry — the calorie feature will need a dish → ingredient mapping step.
+Details: `backend/data/README.md`.
+
+- **foods1000 = the teacher's PRIVATE 1000-item table. It must NEVER enter this repo** (public repo + GitHub Pages publishes every file): not the spreadsheet, not any JSON/CSV/dump of it, not in tests, fixtures, logs or commit messages. The source is outside the repo (`C:\code\pictameal-private\foods-1000.xls`); it lives only in Firestore (`foods1000_chunks`, `foods1000_meta/current`), uploaded by `backend/scripts/upload-foods1000.js` (in-memory, writes no files). `.gitignore` blocks `*.xls`, `*.xlsx`, `foods1000*.json`. Before committing anything nutrition-related, `git grep` a few foods1000 names to confirm nothing leaked. Values are **per one unit** of each food (one 碗 / 份 / 個 …), not per 100 g. Never use real foods1000 names or numbers as examples in code, docs or commits — use TFND ones.
+- Firestore rules deny all client access (`if false`); only the backend's service account reads it. Don't open the rules.
+- **TFND** (public, `backend/data/tfnd.json`, built by `backend/scripts/build-tfnd.js`): 2,180 foods, values **per 100 g**, `per100g.kcal` = 修正熱量 (fallback 熱量). License 政府資料開放授權條款-第1版.
+- `backend/nutrition-db.js`: `init()` (called once at server start) loads foods1000 from Firestore into memory; on failure it logs why and keeps working with TFND only. `searchFoods(name)` → foods1000 (exact → partial) → TFND (exact → partial) → core-word guesses; each result carries `source` and `basis` (`perUnit` / `per100g`). Credentials: env `FIREBASE_SERVICE_ACCOUNT` (whole key JSON), else `backend/firebase-key.json` (`backend/firebase-admin-init.js`).
+- **No endpoint may return the foods1000 table.** The future `/api/nutrition` returns one dish's computed result only.
+- Mixed dishes (番茄炒蛋, 煎餃, 雞腿便當) are in neither table — the calorie feature will need a dish → ingredients step.
 
 ## Backend
 

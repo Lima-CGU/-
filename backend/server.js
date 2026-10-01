@@ -556,3 +556,10 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`香互後端啟動,監聽 port ${PORT}`);
 });
+
+// Nutrition tables for the upcoming calorie feature: loads the private
+// foods1000 table from Firestore into memory once. Never throws — if
+// Firestore is unreachable it logs why and falls back to the public TFND
+// table, so recognition keeps working. (No endpoint exposes the tables;
+// a future /api/nutrition returns one dish's result only.)
+require('./nutrition-db').init();
