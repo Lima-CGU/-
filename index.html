@@ -195,6 +195,15 @@
               <button type="button" class="btn report-delete-yes" id="reportDeleteYes">刪除</button>
             </div>
             <div class="kcal-explain" id="reportKcalExplain" hidden></div>
+            <!-- countable dishes only (AI counted them); not one of the five required fields -->
+            <div class="count-row" id="reportCountRow" hidden>
+              <span class="count-label">數量</span>
+              <div class="count-stepper" role="group" aria-label="數量">
+                <button type="button" class="count-btn" id="reportCountMinus" aria-label="少一個">−</button>
+                <span class="count-value" id="reportCountValue" aria-live="polite">1</span>
+                <button type="button" class="count-btn" id="reportCountPlus" aria-label="多一個">+</button>
+              </div>
+            </div>
             <div class="detail-section">
               <div class="detail-section-head">份量</div>
               <div class="detail-option-group">
@@ -347,6 +356,16 @@
         <div class="detail-name-field" id="detailNameField" hidden>
           <p class="detail-option-label">菜名</p>
           <input type="text" class="detail-name-input" id="detailNameInput" placeholder="輸入菜名">
+        </div>
+
+        <!-- Diary dishes with a count only -->
+        <div class="count-row" id="detailCountRow" hidden>
+          <span class="count-label">數量</span>
+          <div class="count-stepper" role="group" aria-label="數量">
+                <button type="button" class="count-btn" id="detailCountMinus" aria-label="少一個">−</button>
+                <span class="count-value" id="detailCountValue" aria-live="polite">1</span>
+                <button type="button" class="count-btn" id="detailCountPlus" aria-label="多一個">+</button>
+              </div>
         </div>
 
         <div class="detail-section">

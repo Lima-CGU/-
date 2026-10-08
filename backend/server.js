@@ -78,9 +78,13 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 
 每一道也請判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘固體或半固體食物(包含湯品)一律填 "food"。
 
+數量:如果一道菜是由「可以一個一個數」的食物組成(例如雞腿、雞翅、雞蛋、水餃、煎餃、壽司、香蕉、蝦、香蕉切片、蛋的切塊),請加上 count(整數,照片上看得到的數量)和 countUnit(只能是 隻、顆、個、片、根、塊、粒、條 其中之一)。
+- 疊在一起或被遮住的部分可以合理估計,但不要亂猜;完全看不出有幾個就不要回傳 count。
+- 無法逐一數的菜(炒麵、炒青菜、白飯、湯、沙拉、飲料)不要回傳 count 和 countUnit。
+
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
-請「只」回傳如下格式的 JSON,不要加任何說明文字:
-{"dishes":[{"name":"菜名","confidence":90,"category":"food","x":10,"y":15,"w":30,"h":25}]}
+請「只」回傳如下格式的 JSON,不要加任何說明文字(count、countUnit 只在可數時才加):
+{"dishes":[{"name":"菜名","confidence":90,"category":"food","x":10,"y":15,"w":30,"h":25},{"name":"滷雞腿","confidence":88,"category":"food","x":50,"y":20,"w":30,"h":30,"count":3,"countUnit":"隻"}]}
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜。`;
 
 // imageUrl 可傳 null,這時只送純文字給 GPT-4o(不需要 vision)
@@ -251,6 +255,16 @@ function clampPct(n){
 // but one of the two known values, defaulting to "food".
 function normalizeCategory(value){
   return value === 'beverage' ? 'beverage' : 'food';
+}
+
+// How many of a countable food the photo shows: an integer 1–50 and one of
+// the countable units, or nothing at all (an invalid pair is dropped).
+const COUNT_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條'];
+function normalizeCount(d){
+  const count = Number(d && d.count);
+  const unit = String((d && d.countUnit) || '').trim();
+  if (!Number.isInteger(count) || count < 1 || count > 50 || !COUNT_UNITS.includes(unit)) return {};
+  return { count, countUnit: unit };
 }
 
 function normalizeDishBox(rawBox){
@@ -540,7 +554,8 @@ app.post('/api/detect', async (req, res) => {
             name: String(d.name || '').trim(),
             confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
             category: normalizeCategory(d.category),
-            ...padded
+            ...padded,
+            ...normalizeCount(d)
           };
         })
         .filter(d => d.name);

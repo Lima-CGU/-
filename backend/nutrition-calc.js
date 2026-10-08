@@ -44,7 +44,7 @@ function compute(item, input){
   if (salt === undefined) return { status: 'unsupported', reason: 'salt' };
   if (!isNum(item.kcal)) return { status: 'unsupported', reason: 'no-kcal' };
 
-  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula;
+  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula, countUsed = null;
   const itemUnit = unitLabel(item.unit);
 
   if (isContinuous(item)){
@@ -70,9 +70,16 @@ function compute(item, input){
     basisKind = 'discrete';
     multiplier = m;
     factor = m;
-    grams = isNum(item.weightG) && item.weightG > 0 ? item.weightG * m : null;
-    formula = `${item.name} 1 ${itemUnit} ${item.kcal} kcal × ${input.size} ${m} 倍`;
-    how = `以「${item.name} 1 ${itemUnit}」為基準,尺寸 ${input.size} × ${m}`;
+    // countable unit (隻/顆/個 …) + a count: size is each piece's size, × count
+    const sameKind = (a, b) => !a || cfg.COUNT_UNIT_GROUPS.some(g => g.includes(a) && g.includes(b));
+    const counted = Number.isInteger(input.count) && cfg.COUNTABLE_UNITS.includes(itemUnit) && sameKind(input.countUnit, itemUnit);
+    if (counted) factor = m * input.count;
+    grams = isNum(item.weightG) && item.weightG > 0 ? item.weightG * factor : null;
+    formula = counted
+      ? `${item.name} 每${itemUnit} ${item.kcal} kcal × ${input.size} ${m} 倍 × ${input.count} ${itemUnit}`
+      : `${item.name} 1 ${itemUnit} ${item.kcal} kcal × ${input.size} ${m} 倍`;
+    how = `以「${item.name} 1 ${itemUnit}」為基準,尺寸 ${input.size} × ${m}${counted ? `,共 ${input.count} ${itemUnit}` : ''}`;
+    if (counted) countUsed = input.count;
   }
 
   const kcal = item.kcal * factor;
@@ -94,7 +101,7 @@ function compute(item, input){
     carbohydrateG: scale(item.carbohydrateG),
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
-    basisKind, multiplier, amount, amountUnit,
+    basisKind, multiplier, amount, amountUnit, countUsed,
     explanation: how,
     formula
   };

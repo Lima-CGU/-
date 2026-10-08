@@ -2415,3 +2415,12 @@ body.candidate-sheet-open .toast{
 .meal-sync.is-synced{ color: #0b6b4f; }
 .meal-meta{ flex-wrap: wrap; gap: 6px; }
 .meal-add-dish-btn{ white-space: nowrap; }
+
+/* 數量 row: "−  N 隻  +" (countable dishes; buttons only, no typing) */
+.count-row{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; background: var(--purple-soft); font-family: var(--font-body); }
+.count-row[hidden]{ display: none; }
+.count-label{ font-size: 14px; font-weight: 800; color: var(--ink); }
+.count-stepper{ display: inline-flex; align-items: center; gap: 4px; }
+.count-btn{ width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--purple); background: #fff; color: var(--purple-deep); font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.count-btn:disabled{ opacity: 0.35; cursor: not-allowed; }
+.count-value{ min-width: 64px; text-align: center; font-size: 18px; font-weight: 800; color: var(--ink); user-select: none; }

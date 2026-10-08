@@ -88,6 +88,11 @@
   // (Firestore "photos" collection). false = never upload photos.
   const SAVE_PHOTOS = true;
 
+  // Countable foods (/api/detect count): the units, and 1..COUNT_MAX
+  const COUNT_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條'];
+  const COUNT_MAX = 50;
+  const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : name);
+
   // App version stored with every record = sw.js's CACHE_NAME (read from the
   // cached sw.js, so it is the version of the shell actually running).
   let APP_VERSION = 'unknown';
@@ -382,7 +387,7 @@
     labelEl.appendChild(lineEl);
     const nameEl = document.createElement('span');
     nameEl.className = 'det-label-name';
-    nameEl.textContent = name;
+    nameEl.textContent = det && det.count && !det.loading ? `${name} ×${det.count}` : name;
     lineEl.appendChild(nameEl);
 
     const metaText = [confidence, detailText].filter(Boolean).join(' · ');
@@ -452,7 +457,7 @@
 
     const nameEl = document.createElement('span');
     nameEl.className = 'meal-dish-name';
-    nameEl.textContent = dish.name;
+    nameEl.textContent = withCount(dish.name, dish);
     const headEl = document.createElement('div');
     headEl.className = 'meal-dish-head';
     headEl.appendChild(nameEl);
@@ -532,7 +537,7 @@
     // Recognize-screen dets refresh their own labelEl; a Diary dish has no
     // labelEl, so applyVoiceResult/confirmDetailAdjust call this instead.
     dish.refreshRow = () => {
-      nameEl.textContent = dish.name;
+      nameEl.textContent = withCount(dish.name, dish);
       DIARY_ATTR_FIELDS.forEach((field, i) => {
         attrValueEls[i].textContent = field.get(dish.detail || {});
       });
@@ -1090,7 +1095,14 @@
             confirmState: 'pending'
           };
           // what the AI said, kept even if the user renames / deletes the dish
-          det.aiOriginal = { name: String(d.name || ''), confidence, category: det.category, box: { ...det.apiBox } };
+          // countable foods: how many the AI saw (the user can change it on Page 4)
+          if (Number.isInteger(d.count) && d.count >= 1 && d.count <= COUNT_MAX && COUNT_UNITS.includes(d.countUnit)){
+            det.count = d.count;
+            det.countUnit = d.countUnit;
+            det.countEdits = 0;
+          }
+          det.aiOriginal = { name: String(d.name || ''), confidence, category: det.category, box: { ...det.apiBox },
+            ...(det.count ? { count: det.count, countUnit: det.countUnit } : {}) };
           if (currentMealMeta) currentMealMeta.aiDetections.push({ no: i + 1, ...det.aiOriginal });
           currentDetections.push(det);
           renderOneDetection(det, i);
@@ -2079,6 +2091,7 @@
           category: d.category === 'beverage' ? 'beverage' : 'food',
           box: null, displayBox: null, source: 'chat', tapPoint: null,
           notes: [...(d.notes || [])],
+          ...(d.count ? { count: d.count, countUnit: d.countUnit || null, countEdits: d.countEdits || 0 } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
           thumbUrl
         };
@@ -2096,6 +2109,8 @@
         // photo (tapPoint = where, % of the full photo)
         source: d.addedByUser ? 'user' : 'ai',
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
+        // countable dishes: final count (AI's is in aiOriginal.count) + edits
+        ...(d.count ? { count: d.count, countUnit: d.countUnit || null, countEdits: d.countEdits || 0 } : {}),
         // calorie result for this dish (match level, matched item, source,
         // numbers, explanation); null when never calculated (Group B for now)
         nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
@@ -2256,6 +2271,15 @@
 
   let detailAdjustTarget = null;
   let detailDraft = {};
+  let detailCountDraft = null; // the Diary edit sheet's 數量 (null = no count row)
+  const detailCountRow = document.getElementById('detailCountRow');
+  const stepDetailCount = delta => {
+    if (!detailCountDraft) return;
+    detailCountDraft = Math.max(1, Math.min(COUNT_MAX, detailCountDraft + delta));
+    renderCountStepper('detailCount', detailCountDraft, detailAdjustTarget && detailAdjustTarget.countUnit);
+  };
+  document.getElementById('detailCountMinus').addEventListener('click', () => stepDetailCount(-1));
+  document.getElementById('detailCountPlus').addEventListener('click', () => stepDetailCount(1));
 
   // Rebuilds the cooking-method picker for the given dish category, reusing
   // the same list/scroll-hint UI for both — only which array feeds it differs.
@@ -2379,6 +2403,10 @@
     // attributes only, with 🎤 staying its separate name-correction entry.
     const isDiaryDish = typeof det.refreshRow === 'function';
     detailNameField.hidden = !isDiaryDish;
+    // 數量: Diary dishes that have a count
+    detailCountDraft = isDiaryDish && det.count ? det.count : null;
+    detailCountRow.hidden = !detailCountDraft;
+    if (detailCountDraft) renderCountStepper('detailCount', detailCountDraft, det.countUnit);
     if (isDiaryDish){
       detailNameInput.value = stripConfidenceText(det.name || '');
     }
@@ -2389,6 +2417,10 @@
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     detailAdjustTarget.detail = { ...detailDraft };
+    if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
+      detailAdjustTarget.count = detailCountDraft;
+      detailAdjustTarget.countEdits = (detailAdjustTarget.countEdits || 0) + 1;
+    }
     if (!detailNameField.hidden){
       const newName = detailNameInput.value.trim();
       if (newName) detailAdjustTarget.name = newName;
@@ -2475,6 +2507,8 @@
         confidence: det.confidence ?? null,
         category: det.category === 'beverage' ? 'beverage' : 'food',
         detail: { ...det.detail },
+        count: Number.isInteger(det.count) ? det.count : null,
+        countUnit: det.countUnit || null,
         group: STUDY_GROUP,
         reason
       }
@@ -2531,6 +2565,36 @@
     reportDoneBtn.disabled = isSavingMeal || !allDone;
     renderReportTotal();
   }
+
+  /* ---------- 數量 (countable dishes) ---------- */
+  // Shared by Page 4 (Group A) and the Diary edit sheet: "−  N 隻  +",
+  // 1..COUNT_MAX, buttons only.
+  function renderCountStepper(prefix, count, unit){
+    document.getElementById(`${prefix}Value`).textContent = `${count} ${unit || '個'}`;
+    document.getElementById(`${prefix}Minus`).disabled = count <= 1;
+    document.getElementById(`${prefix}Plus`).disabled = count >= COUNT_MAX;
+  }
+  const reportCountRow = document.getElementById('reportCountRow');
+  function renderReportCount(det){
+    const has = !!(det && det.count && !det.loading);
+    reportCountRow.hidden = !has;
+    if (has) renderCountStepper('reportCount', det.count, det.countUnit);
+  }
+  function changeReportCount(delta){
+    const det = selectedReportDet();
+    if (!det || !det.count || det.loading) return;
+    const next = Math.max(1, Math.min(COUNT_MAX, det.count + delta));
+    if (next === det.count) return;
+    det.count = next;
+    det.countEdits = (det.countEdits || 0) + 1;
+    renderReportCount(det);
+    if (det.labelEl) renderDetLabel(det.labelEl, det);
+    resolveLabelOverlaps();
+    // not one of the five required fields: only recalculates a filled dish
+    if (isDishComplete(det)) notifyDishDetailComplete(det, 'changed');
+  }
+  document.getElementById('reportCountMinus').addEventListener('click', () => changeReportCount(-1));
+  document.getElementById('reportCountPlus').addEventListener('click', () => changeReportCount(1));
 
   /* ---------- calories (shared component: calorie.js) ---------- */
   const Calorie = window.PictaCalorie;
@@ -2669,6 +2733,7 @@
     renderReportCookingOptions(det.category === 'beverage' ? 'beverage' : 'food');
     syncReportChoices(det);
     renderReportKcal();
+    renderReportCount(det);
 
     reportDishThumb.removeAttribute('src');
     ensureReportThumb(det).then(url => {
@@ -3116,7 +3181,10 @@
       fields: { ...(d.detail || {}) },
       notes: [...(d.notes || [])],
       // calorie.js couldn't estimate it yet (a gram / ml item with no container)
-      needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion'
+      needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion',
+      count: d.count || null,
+      aiCount: (d.aiOriginal && d.aiOriginal.count) || null,
+      countUnit: d.countUnit || null
     }));
   }
 
@@ -3233,6 +3301,13 @@
         if (prev) currentMealMeta.editLog.fieldChangeCount += 1;
       });
       det.detail = { ...(det.detail || {}), ...u.fields };
+      // "雞腿吃了 4 隻": what the user ate wins over the photo's count
+      if (Number.isInteger(u.count) && u.count !== det.count){
+        det.count = u.count;
+        det.countUnit = det.countUnit || COUNT_UNITS[2];
+        det.countEdits = (det.countEdits || 0) + 1;
+        if (det.labelEl) renderDetLabel(det.labelEl, det);
+      }
       det.chatDescribed = true;
       touch(det);
     });
@@ -3251,6 +3326,7 @@
         category: nd.category === 'beverage' ? 'beverage' : 'food',
         detail: { ...(nd.fields || {}) },
         notes: nd.note ? [nd.note] : [],
+        ...(Number.isInteger(nd.count) ? { count: nd.count, countUnit: COUNT_UNITS[2], countEdits: 0 } : {}),
         onPhoto: false,
         chatDescribed: true
       };
@@ -3275,7 +3351,7 @@
     return touched;
   }
   // What the calorie depends on (notes alone never trigger a recalculation)
-  const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}]);
+  const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}, d.count || null]);
 
   chatForm.addEventListener('submit', e => {
     e.preventDefault();

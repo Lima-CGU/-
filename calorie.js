@@ -41,7 +41,10 @@
       size: x.size,
       cookingMethod: x.cookingMethod,
       sugar: x.sugar,
-      salt: x.salt
+      salt: x.salt,
+      // countable dishes: how many (only used with a per-piece item)
+      count: Number.isInteger(d.count) ? d.count : undefined,
+      countUnit: d.countUnit || undefined
     };
   }
 

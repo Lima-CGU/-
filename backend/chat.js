@@ -56,17 +56,24 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 6. 菜的編號 no 一律用下面清單裡的編號;新菜不用編號。
 7. 紀錄要等使用者按畫面下方的「完成」才會儲存,所以絕對不要說「已記錄完成」「這餐記錄好了」「已經存檔/儲存」這類表示已存檔的話(「我已記錄:」條列這次的內容可以)。
 8. 使用者表示沒有要補充了(例如「沒有了」「就這些」「吃完了」),不要追問,回覆:「如果都描述完了,請按下方的『完成』。」
+9. 數量 count:清單裡的「照片上數量」是盤子上看得到的數量,不一定是使用者吃掉的數量。使用者說自己吃了幾個(例如「雞腿吃了 4 隻」「只吃了 2 顆」)時,一律以使用者說的為準,在 updates 填 "count"(1~50 的整數)。「只吃一半」這類可以換算成整數的(照片 4 隻、吃一半 → 2)就填換算後的整數;半顆、半根這種不是整數的,寫進 notes,count 不改。沒提到數量就不要填 count。可數的菜如果使用者說了吃了幾個,就不必再追問份量;這時如果這道菜還沒有 size,size 填 M(代表每一個是一般大小),除非使用者說每個比較大或比較小。
 
 請「只」回傳如下 JSON,不要加任何說明文字(沒有的項目給空陣列):
-{"reply":"…","updates":[{"no":1,"fields":{"containerType":"bowl","size":"M"}}],"notes":[{"no":1,"note":"含一顆蛋"}],"newDishes":[{"name":"味噌湯","category":"beverage","fields":{"containerType":"bowl","size":"M"},"note":""}],"renameDishes":[{"no":2,"name":"豬排","category":"food"}],"isClarification":false}`;
+{"reply":"…","updates":[{"no":1,"fields":{"containerType":"bowl","size":"M"}},{"no":2,"fields":{},"count":4}],"notes":[{"no":1,"note":"含一顆蛋"}],"newDishes":[{"name":"味噌湯","category":"beverage","fields":{"containerType":"bowl","size":"M"},"note":""}],"renameDishes":[{"no":2,"name":"豬排","category":"food"}],"isClarification":false}`;
 
 const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
 const category = v => (v === 'beverage' ? 'beverage' : 'food');
+
+const COUNT_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條'];
+const cleanCount = v => (Number.isInteger(v) && v >= 1 && v <= 50 ? v : null);
 
 function describeDish(d){
   const f = d.fields || {};
   const parts = FIELDS.filter(k => f[k]).map(k => (k === 'containerType' ? `容器:${CONTAINER_LABEL[f[k]] || f[k]}` : `${{ size: '份量', cookingMethod: '烹調', sugar: '糖', salt: '鹽' }[k]}:${f[k]}`));
   if (d.notes && d.notes.length) parts.push(`備註:${d.notes.join(';')}`);
+  const unit = d.countUnit || '個';
+  if (d.aiCount) parts.push(`照片上數量:${d.aiCount} ${unit}`);
+  if (d.count && d.count !== d.aiCount) parts.push(`使用者吃的數量:${d.count} ${unit}`);
   const kcal = d.needsPortion ? '(還無法估算熱量:需要知道份量,例如用碗、盤、杯裝或吃了多少)' : '';
   return `${d.no}. ${d.name}(${d.category === 'beverage' ? '飲料' : '食物'}${d.onPhoto ? '' : ',照片上沒有'})${parts.length ? ' — 已記錄 ' + parts.join('、') : ' — 尚未記錄'}${kcal}`;
 }
@@ -118,13 +125,17 @@ function validate(parsed, dishes){
   const catOf = no => (renameDishes.find(r => r.no === no) || byNo.get(no)).category;
 
   const merged = new Map(); // no -> fields (several updates for one dish are merged)
+  const counts = new Map(); // no -> count (an integer 1–50; anything else is dropped)
   for (const u of list(p.updates)){
     const d = byNo.get(Number(u && u.no));
     if (!d) continue;
     const f = cleanFields(u.fields, catOf(d.no));
     if (Object.keys(f).length) merged.set(d.no, { ...(merged.get(d.no) || {}), ...f });
+    const c = cleanCount(u.count != null ? u.count : (u.fields && u.fields.count));
+    if (c) counts.set(d.no, c);
   }
-  const updates = [...merged].map(([no, fields]) => ({ no, fields }));
+  const updates = [...new Set([...merged.keys(), ...counts.keys()])]
+    .map(no => ({ no, fields: merged.get(no) || {}, ...(counts.has(no) ? { count: counts.get(no) } : {}) }));
 
   const notes = [];
   for (const n of list(p.notes)){
@@ -138,7 +149,8 @@ function validate(parsed, dishes){
     const name = str(nd && nd.name, 30);
     if (!name || dishes.some(d => d.name === name)) continue;
     const cat = category(nd.category);
-    newDishes.push({ name, category: cat, fields: cleanFields(nd.fields, cat), note: str(nd.note, 60) });
+    const c = cleanCount(nd.count);
+    newDishes.push({ name, category: cat, fields: cleanFields(nd.fields, cat), note: str(nd.note, 60), ...(c ? { count: c } : {}) });
   }
 
   return {
@@ -162,7 +174,10 @@ function parseRequest(body){
     onPhoto: !(d && d.onPhoto === false),
     fields: cleanFields(d && d.fields, category(d && d.category)),
     notes: (Array.isArray(d && d.notes) ? d.notes : []).map(n => str(n, 60)).filter(Boolean).slice(0, 10),
-    needsPortion: !!(d && d.needsPortion)
+    needsPortion: !!(d && d.needsPortion),
+    count: cleanCount(d && d.count),
+    aiCount: cleanCount(d && d.aiCount),
+    countUnit: COUNT_UNITS.includes(d && d.countUnit) ? d.countUnit : null
   })).filter(d => Number.isInteger(d.no) && d.no > 0 && d.name);
   const sel = b.selected || null;
   const selected = sel && sel.type === 'meal' ? { type: 'meal' }

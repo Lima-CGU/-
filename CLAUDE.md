@@ -132,6 +132,16 @@ SEGMENTATION_API_KEY=...
 
 Never commit `backend/.env` or API keys. Render must be configured with the environment variables above and redeployed after changes.
 
+## Countable dishes (數量) — both groups
+
+- `/api/detect`: DETECT_PROMPT asks for `count` (integer seen on the photo) + `countUnit` (隻/顆/個/片/根/塊/粒/條) for foods that can be counted one by one (雞腿, 蛋, 水餃, 香蕉, 蝦 …), none for 炒麵/青菜/白飯/湯/沙拉/飲料; `normalizeCount()` keeps only an integer 1–50 with a valid unit.
+- Frontend: `det.count`, `det.countUnit`, `det.countEdits`; `det.aiOriginal.count/countUnit` keep the AI's. Labels (Page 3/4) and Diary rows show "名 ×N" (`withCount`). `notifyDishDetailComplete` / `calorie.js toPayload` send `count`, `countUnit`.
+- Group A Page 4: a 「數量」 row (`#reportCountRow`, "−  N 隻  +", 1–50, buttons only) only for dishes with a count — NOT one of the five required fields; a change re-labels and, if the dish is filled, recalculates. Diary ✏️ sheet: `#detailCountRow` (Diary dishes with a count) → `countEdits`, recalculation and re-upload via `refreshRow`.
+- Group B: `/api/chat` updates may carry `count` (1–50 integer, else dropped); the prompt says the photo count is what is on the plate and what the user says they ate wins; non-integers (半顆) go to notes; with a count and no size the AI sets size M. The dish list sent to the AI includes 照片上數量 / 使用者吃的數量.
+- `/api/nutrition` (`count`, `countUnit` optional): if the matched item's unit is countable (`COUNTABLE_UNITS`) AND of the same kind as the dish's count unit (`COUNT_UNIT_GROUPS`: 個=顆=粒, 隻, 片, 根=條, 塊), total = item × size multiplier × count (protein/fat/carbs/sodium too); formula "<item> 每隻 N kcal × M 1 倍 × 9 隻". Otherwise (per 100 g, 份/碗, or a different unit kind — e.g. 香蕉切片 ×8 片 vs a banana item per 根) the count is ignored. A count biases the pick toward per-piece items of the same unit (pick-cache key includes whether a count exists). Both rules are marked 待老師確認 in `nutrition-config.js`.
+- Saved per dish: `count`, `countUnit`, `countEdits`, `aiOriginal.count`; CSV columns `aiCount`, `finalCount`, `countUnit`, `countEdits`.
+- Measured (2 runs each): sample 06 drumsticks AI 7–8 vs ~9 visible (some hidden); sample 01 banana slices 8 vs ~9, apple slices 3 vs 3, egg pieces 2 (halves = 1 egg), bread 2 片 vs 1 thick slice.
+
 ## Study data (Firestore) — both groups
 
 - **Only the backend writes** (firebase-admin via `backend/firebase-admin-init.js`). No Firebase config/key in the frontend, no client SDK; Firestore rules stay deny-all. Never read or print `backend/firebase-key.json`.
@@ -146,7 +156,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v18`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v19`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

@@ -74,7 +74,7 @@ function buildPrompt(input, candidates){
   const lines = `A. 以「份、碗、顆、根、片、個、杯…」計的品項:\n${listA}\n\nB. 以每 100 g(或公克、毫升)計的品項:\n${listB}`;
   return `你是食物營養資料庫的「比對助手」。使用者記錄了一道菜,請從下面的候選清單中,挑出最能代表這道菜的一筆。
 菜名:${input.name}(${isBev ? '飲料' : '食物'})
-容器:${cfg.CONTAINER_LABELS[input.containerType] || '未記錄'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}
+容器:${cfg.CONTAINER_LABELS[input.containerType] || '未記錄'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}${input.count ? `\n數量:${input.count} ${input.countUnit || '個'}(這道菜是可數的)` : ''}
 
 候選清單:
 ${lines}
@@ -83,6 +83,7 @@ ${lines}
 - 你只能回傳候選的「編號」和「比對程度」,絕對不能回傳任何熱量或營養數字。
 - 比對程度 match:exact = 同一道菜;close = 同一道菜但做法或名稱略有不同;approx = 不同但最接近(例如煎餃→水餃);none = 差太多,不能拿來代表(此時 pick 填 null)。
 - 一律優先從 A 清單挑:只要 A 裡有同一種食物,即使名稱不完全相同、做法略有不同(例如「水煮蛋」選以「顆」計的雞蛋類品項、「香蕉切片」選以「根」計的香蕉),就選 A 的那一筆,不要選 B 的每 100 g 品項。只有 A 裡完全沒有合適的,才從 B 挑。
+- 這道菜有「數量」時,一樣適合的品項中優先選以「隻、顆、個、片、根、塊、粒、條」計的品項(每一個的熱量),而且單位最好和數量的單位相同(例如 9 隻雞腿 → 以「隻」計的雞腿),不要選「份、碗」或每 100 g 的。
 - 飲料若糖量是「無糖」,優先選不含糖的品項(例如黑咖啡應選美式咖啡,不是冰咖啡)。
 - 像「蘋果切片」這種切開的食物,可以選整顆/整根的品項(吃了多少由尺寸換算),但不要選成別的加工品(例如蘋果汁、蘋果派)。
 - 混合菜餚如果清單裡只有生的原料、不適合代表整道菜,請填 none。
@@ -102,7 +103,8 @@ const inFlight = new Map();
 
 function pickKey(input){
   const sugarFree = input.category === 'beverage' ? (input.sugar === '無糖' ? 'sf' : 'sw') : '-';
-  return [nutrition.normalize(input.name), input.category, input.containerType, sugarFree].join('|');
+  // a count changes which item fits best (per piece vs per serving)
+  return [nutrition.normalize(input.name), input.category, input.containerType, sugarFree, input.count ? 'n' : '-'].join('|');
 }
 
 async function pickCandidate(input, askAI){
@@ -147,13 +149,18 @@ function validate(body){
   if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup。' };
   if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
+  const hasCount = b.count != null && b.count !== '';
+  if (hasCount && !(Number.isInteger(b.count) && b.count >= 1 && b.count <= cfg.MAX_COUNT)) return { error: `count 必須是 1~${cfg.MAX_COUNT} 的整數。` };
+  const countUnit = cfg.COUNTABLE_UNITS.includes(b.countUnit) ? b.countUnit : null;
   return {
     input: {
       name, category,
       containerType: hasContainer ? b.containerType : null, size: b.size,
       cookingMethod: String(b.cookingMethod || '').slice(0, 20),   // recorded only
       sugar: String(b.sugar || '').slice(0, 20),
-      salt: hasSalt ? String(b.salt) : null   // null = not recorded: sodium is the item's own only
+      salt: hasSalt ? String(b.salt) : null,  // null = not recorded: sodium is the item's own only
+      count: hasCount ? b.count : null,        // only used with a countable-unit item
+      countUnit
     }
   };
 }

@@ -48,6 +48,19 @@ const SALT_TEASPOONS = {        // 【待老師確認】
 };
 const SODIUM_MG_PER_TEASPOON = 2358; // 【待老師確認】
 
+/* 4. Countable foods (待老師確認): when the dish has a count (e.g. 9 雞腿)
+ *    and the matched item is measured per one of these units, the total is
+ *    database value × size multiplier × count — i.e. 「可數食物的尺寸代表每一個
+ *    的大小」 (size = how big EACH piece is). 【待老師確認】
+ *    Items per 100 g or per 份/碗 ignore the count (unchanged rules). */
+const COUNTABLE_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條']; // 【待老師確認】
+const MAX_COUNT = 50;
+/*    The count is used only when the dish's count unit is the SAME kind as
+ *    the item's unit — otherwise e.g. 「香蕉切片 ×8 片」 matched to 「香蕉 1 根」
+ *    would become 8 bananas, and 2 egg halves (塊) 2 eggs (個). Units in one
+ *    group count as the same kind. 【待老師確認】 */
+const COUNT_UNIT_GROUPS = [['個', '顆', '粒'], ['隻'], ['片'], ['根', '條'], ['塊']]; // 【待老師確認】
+
 /* Sanity check: a converted result above this many kcal per gram is treated
  * as bad data (pure fat is ~9). 【待老師確認】 */
 const MAX_KCAL_PER_GRAM = 9.5;
@@ -58,5 +71,6 @@ const CONTINUOUS_UNIT = /^(公克|克|g\b|毫升|ml\b|c\.?c\.?)/i;
 
 module.exports = {
   SIZE_MULTIPLIERS, PORTION_TABLE, CONTAINER_LABELS, SALT_TEASPOONS,
-  SODIUM_MG_PER_TEASPOON, MAX_KCAL_PER_GRAM, CONTINUOUS_UNIT
+  SODIUM_MG_PER_TEASPOON, MAX_KCAL_PER_GRAM, CONTINUOUS_UNIT,
+  COUNTABLE_UNITS, MAX_COUNT, COUNT_UNIT_GROUPS
 };
