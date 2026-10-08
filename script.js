@@ -91,7 +91,7 @@
   // Countable foods (/api/detect count): the units, and 1..COUNT_MAX
   const COUNT_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條'];
   const COUNT_MAX = 50;
-  const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : name);
+  const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : d && d.countable ? `${name} ×?` : name);
 
   // App version stored with every record = sw.js's CACHE_NAME (read from the
   // cached sw.js, so it is the version of the shell actually running).
@@ -387,7 +387,7 @@
     labelEl.appendChild(lineEl);
     const nameEl = document.createElement('span');
     nameEl.className = 'det-label-name';
-    nameEl.textContent = det && det.count && !det.loading ? `${name} ×${det.count}` : name;
+    nameEl.textContent = det && !det.loading ? withCount(name, det) : name;
     lineEl.appendChild(nameEl);
 
     const metaText = [confidence, detailText].filter(Boolean).join(' · ');
@@ -510,6 +510,11 @@
       if (seq !== kcalSeq) return;
       kcalLoading = false;
       dish.nutrition = result;
+      if (result && (result.status === 'needs-count' || result.countable) && !dish.countable){
+        dish.countable = true;
+        dish.countUnit = dish.countUnit || result.countUnit || result.itemUnit || null;
+        nameEl.textContent = withCount(dish.name, dish);
+      }
       renderKcal();
       if (meta && meta.refreshTotal) meta.refreshTotal();
       if (meta && meta.record) syncRecordSoon(meta.record);
@@ -2091,7 +2096,7 @@
           category: d.category === 'beverage' ? 'beverage' : 'food',
           box: null, displayBox: null, source: 'chat', tapPoint: null,
           notes: [...(d.notes || [])],
-          ...(d.count ? { count: d.count, countUnit: d.countUnit || null, countEdits: d.countEdits || 0 } : {}),
+          ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, countConfirmed: !!d.countConfirmed } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
           thumbUrl
         };
@@ -2110,7 +2115,10 @@
         source: d.addedByUser ? 'user' : 'ai',
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
         // countable dishes: final count (AI's is in aiOriginal.count) + edits
-        ...(d.count ? { count: d.count, countUnit: d.countUnit || null, countEdits: d.countEdits || 0 } : {}),
+        ...(d.count || d.countable ? {
+          count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true,
+          ...(chatMode ? { countConfirmed: !!d.countConfirmed } : {})
+        } : {}),
         // calorie result for this dish (match level, matched item, source,
         // numbers, explanation); null when never calculated (Group B for now)
         nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
@@ -2271,11 +2279,12 @@
 
   let detailAdjustTarget = null;
   let detailDraft = {};
-  let detailCountDraft = null; // the Diary edit sheet's 數量 (null = no count row)
+  let detailCountDraft = null; // the Diary edit sheet's 數量 (null = not known yet: "?")
+  let detailCountShown = false;
   const detailCountRow = document.getElementById('detailCountRow');
   const stepDetailCount = delta => {
-    if (!detailCountDraft) return;
-    detailCountDraft = Math.max(1, Math.min(COUNT_MAX, detailCountDraft + delta));
+    if (!detailCountShown) return;
+    detailCountDraft = stepCount(detailCountDraft, delta);
     renderCountStepper('detailCount', detailCountDraft, detailAdjustTarget && detailAdjustTarget.countUnit);
   };
   document.getElementById('detailCountMinus').addEventListener('click', () => stepDetailCount(-1));
@@ -2404,9 +2413,10 @@
     const isDiaryDish = typeof det.refreshRow === 'function';
     detailNameField.hidden = !isDiaryDish;
     // 數量: Diary dishes that have a count
-    detailCountDraft = isDiaryDish && det.count ? det.count : null;
-    detailCountRow.hidden = !detailCountDraft;
-    if (detailCountDraft) renderCountStepper('detailCount', detailCountDraft, det.countUnit);
+    detailCountShown = isDiaryDish && !!(det.count || det.countable);
+    detailCountDraft = detailCountShown ? (det.count || null) : null;
+    detailCountRow.hidden = !detailCountShown;
+    if (detailCountShown) renderCountStepper('detailCount', detailCountDraft, det.countUnit);
     if (isDiaryDish){
       detailNameInput.value = stripConfidenceText(det.name || '');
     }
@@ -2491,7 +2501,9 @@
 
   function isDishComplete(det){
     const d = det.detail || {};
-    return REPORT_FIELDS.every(k => !!d[k]);
+    // a countable dish (AI counted it, or its matched item is per 隻/顆/個 …)
+    // also needs its 數量 — never silently 1
+    return REPORT_FIELDS.every(k => !!d[k]) && (!det.countable || Number.isInteger(det.count));
   }
 
   // THE hook for the upcoming calorie feature. Fired on document whenever a
@@ -2507,7 +2519,9 @@
         confidence: det.confidence ?? null,
         category: det.category === 'beverage' ? 'beverage' : 'food',
         detail: { ...det.detail },
-        count: Number.isInteger(det.count) ? det.count : null,
+        // Group B: the photo's count is not what was eaten — only a count the
+        // user confirmed is calculated (otherwise 待補數量)
+        count: Number.isInteger(det.count) && (!chatMode || det.countConfirmed) ? det.count : null,
         countUnit: det.countUnit || null,
         group: STUDY_GROUP,
         reason
@@ -2570,28 +2584,33 @@
   // Shared by Page 4 (Group A) and the Diary edit sheet: "−  N 隻  +",
   // 1..COUNT_MAX, buttons only.
   function renderCountStepper(prefix, count, unit){
-    document.getElementById(`${prefix}Value`).textContent = `${count} ${unit || '個'}`;
-    document.getElementById(`${prefix}Minus`).disabled = count <= 1;
-    document.getElementById(`${prefix}Plus`).disabled = count >= COUNT_MAX;
+    document.getElementById(`${prefix}Value`).textContent = `${count || '?'} ${unit || '個'}`;
+    document.getElementById(`${prefix}Minus`).disabled = !count || count <= 1;
+    document.getElementById(`${prefix}Plus`).disabled = !!count && count >= COUNT_MAX;
   }
+  // 1 + 1 = 2, ? + 1 = 1 (a missing count starts at 1), ? − 1 = ?
+  const stepCount = (count, delta) => (count ? Math.max(1, Math.min(COUNT_MAX, count + delta)) : (delta > 0 ? 1 : null));
   const reportCountRow = document.getElementById('reportCountRow');
   function renderReportCount(det){
-    const has = !!(det && det.count && !det.loading);
+    const has = !!(det && (det.count || det.countable) && !det.loading);
     reportCountRow.hidden = !has;
     if (has) renderCountStepper('reportCount', det.count, det.countUnit);
   }
   function changeReportCount(delta){
     const det = selectedReportDet();
-    if (!det || !det.count || det.loading) return;
-    const next = Math.max(1, Math.min(COUNT_MAX, det.count + delta));
-    if (next === det.count) return;
+    if (!det || !(det.count || det.countable) || det.loading) return;
+    const next = stepCount(det.count, delta);
+    if (next === (det.count || null)) return;
+    const wasComplete = isDishComplete(det);
     det.count = next;
     det.countEdits = (det.countEdits || 0) + 1;
     renderReportCount(det);
     if (det.labelEl) renderDetLabel(det.labelEl, det);
     resolveLabelOverlaps();
-    // not one of the five required fields: only recalculates a filled dish
-    if (isDishComplete(det)) notifyDishDetailComplete(det, 'changed');
+    refreshMarkerStates();
+    updateReportDone();
+    // only a filled dish is (re)calculated
+    if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
   }
   document.getElementById('reportCountMinus').addEventListener('click', () => changeReportCount(-1));
   document.getElementById('reportCountPlus').addEventListener('click', () => changeReportCount(1));
@@ -2631,7 +2650,19 @@
 
   // Any dish's calculation started / finished / was dropped.
   document.addEventListener('pictameal:calorie-update', e => {
-    const det = currentDetections.find(d => d.id === e.detail.dishId);
+    const det = (chatMode ? chatAllDets() : currentDetections).find(d => d.id === e.detail.dishId);
+    // the matched item is counted per 隻/顆/個 …: the dish needs a 數量
+    const st = Calorie.getState(e.detail.dishId);
+    const r = st && st.result;
+    if (det && r && (st.status === 'needs-count' || r.countable) && !det.countable){
+      det.countable = true;
+      det.countUnit = det.countUnit || r.countUnit || r.itemUnit || null;
+      if (reportActive && !chatMode){
+        refreshMarkerStates();
+        updateReportDone();
+        if (det.id === reportSelectedId) renderReportCount(det);
+      }
+    }
     if (det && det.labelEl) renderDetLabel(det.labelEl, det);
     if (!reportActive) return;
     resolveLabelOverlaps(); // label width changed
@@ -2821,6 +2852,7 @@
       loading: true,
       onConfirm(target, prevCategory){
         if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
+        if (target.name !== nameBefore && !target.count) target.countable = false; // re-learned from the next calculation
         // a category switch (food <-> beverage) swaps the cooking options;
         // drop a cooking method the new list doesn't have
         if (target.category !== prevCategory && target.detail && target.detail.cookingMethod){
@@ -3166,6 +3198,7 @@
     chatTotalNum.textContent = sum.estimated ? String(sum.kcal) : (sum.pending ? '…' : '0');
     const notes = [];
     if (sum.needsPortion) notes.push(`${sum.needsPortion} 道待補份量`);
+    if (sum.needsCount) notes.push(`${sum.needsCount} 道待補數量`);
     if (sum.unavailable) notes.push(`另有 ${sum.unavailable} 道無法估算`);
     chatTotalNote.hidden = !notes.length;
     chatTotalNote.textContent = notes.join('・');
@@ -3184,7 +3217,10 @@
       needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion',
       count: d.count || null,
       aiCount: (d.aiOriginal && d.aiOriginal.count) || null,
-      countUnit: d.countUnit || null
+      countUnit: d.countUnit || null,
+      countable: !!(d.count || d.countable),
+      countConfirmed: !!d.countConfirmed,
+      countAsked: !!d.countAsked
     }));
   }
 
@@ -3302,10 +3338,12 @@
       });
       det.detail = { ...(det.detail || {}), ...u.fields };
       // "雞腿吃了 4 隻": what the user ate wins over the photo's count
-      if (Number.isInteger(u.count) && u.count !== det.count){
+      if (Number.isInteger(u.count)){
+        if (u.count !== det.count) det.countEdits = (det.countEdits || 0) + 1;
         det.count = u.count;
+        det.countConfirmed = true;
+        det.countable = true;
         det.countUnit = det.countUnit || COUNT_UNITS[2];
-        det.countEdits = (det.countEdits || 0) + 1;
         if (det.labelEl) renderDetLabel(det.labelEl, det);
       }
       det.chatDescribed = true;
@@ -3334,9 +3372,18 @@
       touch(det);
     });
 
+    // the AI asked how many of this dish were eaten (asked once per dish)
+    const asked = byNo(data.askCountFor);
+    if (asked){ asked.countAsked = true; asked.countable = true; }
+
     resolveLabelOverlaps();
     refreshMarkerStates();
     touched.forEach(det => {
+      if ((det.count || det.countable) && !det.countConfirmed){
+        Calorie.markNeedsCount(det.id, det.countUnit); // 待補數量
+        det.kcalStarted = false;
+        return;
+      }
       if (!det.detail || !det.detail.size){
         Calorie.markNeedsPortion(det.id); // 待補份量
         det.kcalStarted = false;
@@ -3351,7 +3398,7 @@
     return touched;
   }
   // What the calorie depends on (notes alone never trigger a recalculation)
-  const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}, d.count || null]);
+  const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}, d.count || null, !!d.countConfirmed]);
 
   chatForm.addEventListener('submit', e => {
     e.preventDefault();
@@ -3411,7 +3458,8 @@
   chatDoneBtn.addEventListener('click', async () => {
     if (chatBusy || isSavingMeal) return;
     const all = chatAllDets();
-    const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !d.detail.size).length;
+    const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !d.detail.size
+      || ((d.count || d.countable) && !d.countConfirmed)).length; // count not confirmed yet
     if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)) return;
     isSavingMeal = true;
     updateChatBusy();

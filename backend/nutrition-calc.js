@@ -72,7 +72,10 @@ function compute(item, input){
     factor = m;
     // countable unit (隻/顆/個 …) + a count: size is each piece's size, × count
     const sameKind = (a, b) => !a || cfg.COUNT_UNIT_GROUPS.some(g => g.includes(a) && g.includes(b));
-    const counted = Number.isInteger(input.count) && cfg.COUNTABLE_UNITS.includes(itemUnit) && sameKind(input.countUnit, itemUnit);
+    const countableItem = cfg.COUNTABLE_UNITS.includes(itemUnit);
+    // a per-piece item but no count yet: don't silently use 1 — ask for it
+    if (countableItem && !Number.isInteger(input.count)) return { status: 'needs-count', countUnit: itemUnit };
+    const counted = Number.isInteger(input.count) && countableItem && sameKind(input.countUnit, itemUnit);
     if (counted) factor = m * input.count;
     grams = isNum(item.weightG) && item.weightG > 0 ? item.weightG * factor : null;
     formula = counted
@@ -102,6 +105,9 @@ function compute(item, input){
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
     basisKind, multiplier, amount, amountUnit, countUsed,
+    // the matched item is counted per 隻/顆/個 … (the page shows the 數量 row)
+    countable: basisKind === 'discrete' && cfg.COUNTABLE_UNITS.includes(itemUnit),
+    itemUnit,
     explanation: how,
     formula
   };

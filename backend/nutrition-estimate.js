@@ -186,6 +186,9 @@ async function estimate(body, askAI){
     console.warn(`[nutrition] ANOMALY: "${input.name}" matched "${item.name}" (${item.source}) -> ${r.perGram} kcal/g over ${r.grams} g, exceeds ${cfg.MAX_KCAL_PER_GRAM}; numbers withheld`);
     return { httpStatus: 200, status: 'anomaly', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '換算後的熱量異常,視為資料異常,不顯示數字。' };
   }
+  if (r.status === 'needs-count'){
+    return { httpStatus: 200, status: 'needs-count', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], countable: true, countUnit: r.countUnit, ...base, explanation: `這個品項以「${r.countUnit}」計,需要知道吃了幾${r.countUnit}才能估算熱量。` };
+  }
   if (r.status === 'needs-portion'){
     return { httpStatus: 200, status: 'needs-portion', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '這個品項以公克/毫升計,需要知道容器(碗、盤、杯)才能估算份量。' };
   }

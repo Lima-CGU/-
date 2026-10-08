@@ -139,7 +139,10 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 - Group A Page 4: a 「數量」 row (`#reportCountRow`, "−  N 隻  +", 1–50, buttons only) only for dishes with a count — NOT one of the five required fields; a change re-labels and, if the dish is filled, recalculates. Diary ✏️ sheet: `#detailCountRow` (Diary dishes with a count) → `countEdits`, recalculation and re-upload via `refreshRow`.
 - Group B: `/api/chat` updates may carry `count` (1–50 integer, else dropped); the prompt says the photo count is what is on the plate and what the user says they ate wins; non-integers (半顆) go to notes; with a count and no size the AI sets size M. The dish list sent to the AI includes 照片上數量 / 使用者吃的數量.
 - `/api/nutrition` (`count`, `countUnit` optional): if the matched item's unit is countable (`COUNTABLE_UNITS`) AND of the same kind as the dish's count unit (`COUNT_UNIT_GROUPS`: 個=顆=粒, 隻, 片, 根=條, 塊), total = item × size multiplier × count (protein/fat/carbs/sodium too); formula "<item> 每隻 N kcal × M 1 倍 × 9 隻". Otherwise (per 100 g, 份/碗, or a different unit kind — e.g. 香蕉切片 ×8 片 vs a banana item per 根) the count is ignored. A count biases the pick toward per-piece items of the same unit (pick-cache key includes whether a count exists). Both rules are marked 待老師確認 in `nutrition-config.js`.
-- Saved per dish: `count`, `countUnit`, `countEdits`, `aiOriginal.count`; CSV columns `aiCount`, `finalCount`, `countUnit`, `countEdits`.
+- **Never a silent 1.** If the matched item is per 隻/顆/個 … and there is no count, `/api/nutrition` returns `status: 'needs-count'` (+ `countUnit`), shown as 「待補數量」; `ok` results carry `countable` / `itemUnit`. The `pictameal:calorie-update` handler then sets `det.countable` (+ `countUnit`): the label shows "名 ×?", the 數量 row appears with "?" (− disabled, + starts at 1), and `isDishComplete` requires a count for countable dishes (the 5 fields + count) — so the marker, 已填 N / 總數 and 完成 wait for it. A rename resets `countable` (unless counted) and re-learns it.
+- Group B: the AI's photo count is NOT what was eaten — the calculation only gets a count the user confirmed (`det.countConfirmed`, set by an update with `count`); until then `PictaCalorie.markNeedsCount` → 「待補數量」 (tag, label, footer "N 道待補數量"), and 完成's confirm counts it as 資訊不完整. Prompt rule 10: for a countable dish described without a count, ask once ("照片上大約有 8 隻雞腿,你吃了幾隻呢?" / "你吃了幾隻雞腿呢?"), `isClarification` true, `askCountFor: no` → `det.countAsked` (sent back as "已問過數量" so it isn't asked again).
+- DETECT_PROMPT: count is mandatory for clearly countable foods (雞腿, 雞翅, 雞塊, 排骨, 蛋, 水餃, 煎餃, 包子, 壽司, 蝦, 香蕉); count one by one, estimate hidden ones; omit only when truly impossible. 5 runs each: sample 06 drumsticks ×8 every time, sample 07 煎餃 ×8 every time.
+- Saved per dish: `count`, `countUnit`, `countEdits`, `countable`, (B) `countConfirmed`, `aiOriginal.count`; CSV columns `aiCount`, `finalCount`, `countUnit`, `countEdits`.
 - Measured (2 runs each): sample 06 drumsticks AI 7–8 vs ~9 visible (some hidden); sample 01 banana slices 8 vs ~9, apple slices 3 vs 3, egg pieces 2 (halves = 1 egg), bread 2 片 vs 1 thick slice.
 
 ## Study data (Firestore) — both groups
@@ -156,7 +159,7 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v19`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v20`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

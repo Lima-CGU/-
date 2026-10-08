@@ -165,7 +165,8 @@
     // Meal total over the given dish ids: only dishes with a number add in.
     summary(ids){
       // needsPortion: Group B dishes still missing a portion (待補份量)
-      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, needsPortion: 0, total: 0 };
+      // needsCount: countable dishes whose count isn't known yet (待補數量)
+      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, needsPortion: 0, needsCount: 0, total: 0 };
       (ids || []).forEach(id => {
         const s = states.get(id);
         if (!s) return;
@@ -173,6 +174,7 @@
         if (s.status === 'loading') out.pending += 1;
         else if (s.status === 'ok'){ out.kcal += s.result.kcal; out.estimated += 1; }
         else if (s.status === 'needs-portion') out.needsPortion += 1;
+        else if (s.status === 'needs-count') out.needsCount += 1;
         else out.unavailable += 1;
       });
       return out;
@@ -188,6 +190,7 @@
       if (!st) return;
       if (st.status === 'loading'){ el.classList.add('is-loading'); el.textContent = '計算中…'; return; }
       if (st.status === 'needs-portion'){ el.classList.add('is-none'); el.textContent = '待補份量'; return; }
+      if (st.status === 'needs-count'){ el.classList.add('is-none'); el.textContent = '待補數量'; return; }
       if (st.status !== 'ok'){ el.classList.add('is-none'); el.textContent = '無法估算'; return; }
       el.classList.add(st.result.match === 'approx' ? 'is-approx' : 'is-ok');
       el.append(`${st.result.kcal} kcal`);
@@ -204,6 +207,7 @@
       if (!st) return '';
       if (st.status === 'loading') return '計算中…';
       if (st.status === 'needs-portion') return '待補份量';
+      if (st.status === 'needs-count') return '待補數量';
       return st.status === 'ok' ? `${st.result.kcal} kcal` : '無法估算';
     },
 
@@ -226,6 +230,10 @@
       const r = st.result;
       if (st.status === 'needs-portion'){
         line((r && r.explanation) || '還不知道吃了多少,補充份量後就能估算熱量。');
+        return;
+      }
+      if (st.status === 'needs-count'){
+        line((r && r.explanation) || '還不知道吃了幾個,補上數量後就能估算熱量。');
         return;
       }
       if (st.status !== 'ok'){
@@ -255,6 +263,7 @@
       if (!s) return null;
       if (s.status === 'ok' || s.status === 'none' || s.status === 'anomaly') return { ...s.result };
       if (s.status === 'needs-portion') return s.result ? { ...s.result } : { status: 'needs-portion' };
+      if (s.status === 'needs-count') return s.result ? { ...s.result } : { status: 'needs-count' };
       return { status: 'error', calculatedAt: new Date().toISOString() };
     },
 
@@ -281,7 +290,18 @@
     // What gets saved with the meal record for the whole meal.
     mealSnapshot(ids){
       const sum = API.summary(ids);
-      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending + sum.needsPortion, note: '估算值' };
+      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending + sum.needsPortion + sum.needsCount, note: '估算值' };
+    },
+
+    // Group B: a countable dish whose count the user hasn't confirmed: 待補數量
+    markNeedsCount(id, countUnit){
+      let s = states.get(id);
+      if (!s){ s = { seq: 0 }; states.set(id, s); }
+      clearTimeout(s.timer);
+      s.seq += 1;
+      s.status = 'needs-count';
+      s.result = { status: 'needs-count', countUnit: countUnit || null };
+      emit(id);
     },
 
     // Group B: a described dish that can't be calculated yet (no portion):
