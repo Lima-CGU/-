@@ -418,7 +418,18 @@
 <script src="script.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
+    // Local preview (localhost / 127.0.0.1): no service worker — remove any
+    // left from earlier so every reload shows the current files. The live
+    // site registers it for the offline cache.
+    const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
     window.addEventListener('load', () => {
+      if (isLocal){
+        navigator.serviceWorker.getRegistrations()
+          .then(regs => regs.forEach(reg => reg.unregister()))
+          .catch(() => {});
+        if (window.caches) caches.keys().then(keys => keys.forEach(key => caches.delete(key))).catch(() => {});
+        return;
+      }
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     });
   }

@@ -157,9 +157,10 @@ Never commit `backend/.env` or API keys. Render must be configured with the envi
 
 ## PWA
 
-- `index.html` registers `./sw.js` on page load.
+- **Local preview never caches.** On `localhost` / `127.0.0.1` (VS Code Live Server / Simple Browser on 5500, http-server …) `index.html` does NOT register the service worker — it unregisters any registration and deletes every cache — and `sw.js` itself (`IS_LOCAL`) caches nothing and has no-op `fetch` (every request goes to the network). An older caching worker still installed there is replaced on the first reload: the new worker deletes all caches, claims the page and reloads it once (`client.navigate`), and the fresh `index.html` unregisters it. So an edit shows after one reload.
+- Live site (`lima-cgu.github.io`): `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v20`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v21`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks
