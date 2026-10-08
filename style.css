@@ -2409,3 +2409,9 @@ body.candidate-sheet-open .toast{
 
 /* Diary card (Group B): notes collected from the chat */
 .meal-dish-notes{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-soft); line-height: 1.4; word-break: break-word; }
+
+/* Diary card: upload state of the record (small, never in the way) */
+.meal-sync{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.meal-sync.is-synced{ color: #0b6b4f; }
+.meal-meta{ flex-wrap: wrap; gap: 6px; }
+.meal-add-dish-btn{ white-space: nowrap; }

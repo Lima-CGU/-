@@ -587,6 +587,66 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+/* ---------- study data (Firestore, via the service account only) ---------- */
+// POST /api/records { record, photo? } — one meal; the record id is the
+// document id, so retries never duplicate. GET /api/admin/* need ADMIN_TOKEN.
+const records = require('./records');
+function studyDb(){
+  return require('./firebase-admin-init').getFirestore().db;
+}
+
+app.post('/api/records', async (req, res) => {
+  try {
+    const out = await records.saveRecord(studyDb(), req.body);
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    if (err instanceof records.BadRequest) return res.status(400).json({ ok: false, error: err.message });
+    console.error('[records] save failed:', err.message);
+    res.status(500).json({ ok: false, error: '紀錄暫時無法寫入,稍後會自動重試。' });
+  }
+});
+
+app.get('/api/admin/export', async (req, res) => {
+  const auth = records.checkAdmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  const format = String(req.query.format || 'json').toLowerCase();
+  if (format !== 'csv' && format !== 'json') return res.status(400).json({ error: 'format 必須是 csv 或 json。' });
+  try {
+    const pid = typeof req.query.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(req.query.pid) ? req.query.pid : null;
+    const group = req.query.group === 'A' || req.query.group === 'B' ? req.query.group : null;
+    const list = await records.loadRecords(studyDb(), { pid, group });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    res.set('Cache-Control', 'no-store');
+    if (format === 'csv'){
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename="pictameal-meals-${stamp}.csv"`);
+      return res.send(records.toCsv(list));
+    }
+    res.set('Content-Disposition', `attachment; filename="pictameal-meals-${stamp}.json"`);
+    res.json({ exportedAt: new Date().toISOString(), count: list.length, records: list });
+  } catch (err) {
+    console.error('[admin] export failed:', err.message);
+    res.status(500).json({ error: '匯出失敗。' });
+  }
+});
+
+app.get('/api/admin/photo', async (req, res) => {
+  const auth = records.checkAdmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  try {
+    const buf = await records.getPhoto(studyDb(), String(req.query.id || ''));
+    if (!buf) return res.status(404).json({ error: '找不到這筆紀錄的照片。' });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Disposition', `attachment; filename="${req.query.id}.jpg"`);
+    res.send(buf);
+  } catch (err) {
+    if (err instanceof records.BadRequest) return res.status(400).json({ error: err.message });
+    console.error('[admin] photo failed:', err.message);
+    res.status(500).json({ error: '讀取照片失敗。' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`香互後端啟動,監聽 port ${PORT}`);

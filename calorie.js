@@ -23,6 +23,11 @@
   let backendUrl = '';
   const states = new Map(); // dishId -> { status, result, payload, seq, timer, promise }
 
+  // Failed calls are reported to the page (which logs them in the record).
+  function reportError(message){
+    document.dispatchEvent(new CustomEvent('pictameal:api-error', { detail: { api: 'nutrition', message: String(message).slice(0, 200) } }));
+  }
+
   function emit(dishId){
     document.dispatchEvent(new CustomEvent(OUT_EVENT, { detail: { dishId } }));
   }
@@ -54,9 +59,11 @@
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data && data.status) return { ...data, calculatedAt: new Date().toISOString() };
+      reportError((data && data.error) || `HTTP ${res.status}`);
       return { status: 'error', calculatedAt: new Date().toISOString() };
     } catch (err){
       console.error('[calorie] request failed:', err);
+      reportError(err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || err);
       return { status: 'error', calculatedAt: new Date().toISOString() };
     } finally {
       clearTimeout(timeout);
@@ -82,12 +89,14 @@
         st.status = data.status;       // 'ok' | 'none' | 'anomaly' | 'needs-portion'
         st.result = { ...data, calculatedAt: new Date().toISOString() };
       } else {
+        reportError((data && data.error) || `HTTP ${res.status}`);
         st.status = 'error';
         st.result = null;
       }
     } catch (err){
       if (states.get(dishId) !== st || st.seq !== seq) return;
       console.error('[calorie] request failed:', err);
+      reportError(err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || err);
       st.status = 'error';
       st.result = null;
     } finally {

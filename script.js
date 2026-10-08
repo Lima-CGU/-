@@ -66,6 +66,36 @@
     return 'A';
   })();
 
+  // Participant id for the study data — like the group: ?pid=P001 wins and
+  // is remembered (localStorage); otherwise the saved one; otherwise "TEST".
+  // Never shown on screen.
+  const PID_STORAGE_KEY = 'pictameal:pid';
+  const PARTICIPANT_ID = (() => {
+    const ok = v => /^[A-Za-z0-9_-]{1,40}$/.test(v);
+    const fromUrl = (new URLSearchParams(location.search).get('pid') || '').trim();
+    if (ok(fromUrl)){
+      try { localStorage.setItem(PID_STORAGE_KEY, fromUrl); } catch (err){ /* storage unavailable */ }
+      return fromUrl;
+    }
+    try {
+      const saved = localStorage.getItem(PID_STORAGE_KEY);
+      if (saved && ok(saved)) return saved;
+    } catch (err){ /* storage unavailable */ }
+    return 'TEST';
+  })();
+
+  // Upload a compressed copy of each meal photo with the record
+  // (Firestore "photos" collection). false = never upload photos.
+  const SAVE_PHOTOS = true;
+
+  // App version stored with every record = sw.js's CACHE_NAME (read from the
+  // cached sw.js, so it is the version of the shell actually running).
+  let APP_VERSION = 'unknown';
+  fetch('./sw.js').then(r => r.text()).then(t => {
+    const m = /CACHE_NAME\s*=\s*['"]([^'"]+)['"]/.exec(t);
+    if (m) APP_VERSION = m[1];
+  }).catch(() => {});
+
   // Page 3 (this recognize screen) is a read-only "initial result" view for
   // both groups: a numbered marker + name per dish, no editing. The editing
   // machinery (confirm dots, × delete, manual + box, low-confidence picker,
@@ -86,6 +116,24 @@
 
   let stream = null;
   let currentPhotoData = null;
+  // Study data for the meal in progress (times, AI originals, edits, API
+  // errors) — reset for every new photo, saved with the record.
+  let currentMealMeta = null;
+  function newMealMeta(){
+    return {
+      startedAt: new Date().toISOString(), nextAt: null,
+      aiDetections: [],
+      editLog: { renameCount: 0, fieldSetCount: 0, fieldChangeCount: 0, deletedDishes: [], addedDishes: [], diaryEditCount: 0, diaryDeletedDishes: [] },
+      apiErrors: []
+    };
+  }
+  function logApiError(api, message){
+    if (!currentMealMeta) return;
+    currentMealMeta.apiErrors.push({ api, at: new Date().toISOString(), message: String(message || '').slice(0, 200) });
+  }
+  document.addEventListener('pictameal:api-error', e => {
+    if (reportActive) logApiError(e.detail.api, e.detail.message);
+  });
   let mealCount = 0;
   // Set while the camera is being used to add one more dish to an already-
   // saved meal record, instead of starting a brand-new one — holds refs to
@@ -459,6 +507,7 @@
       dish.nutrition = result;
       renderKcal();
       if (meta && meta.refreshTotal) meta.refreshTotal();
+      if (meta && meta.record) syncRecordSoon(meta.record);
     };
 
     const attrsBox = document.createElement('div');
@@ -487,6 +536,12 @@
       DIARY_ATTR_FIELDS.forEach((field, i) => {
         attrValueEls[i].textContent = field.get(dish.detail || {});
       });
+      if (meta && meta.record){
+        meta.record.editLog = meta.record.editLog || {};
+        meta.record.editLog.diaryEditCount = (meta.record.editLog.diaryEditCount || 0) + 1;
+        meta.record.lastEditedAt = new Date().toISOString();
+        syncRecordSoon(meta.record);
+      }
       recalcKcal();
     };
 
@@ -529,6 +584,12 @@
       if (meta && meta.dishesEl) meta.dishesEl.textContent = `${meta.dishCount} 道菜`;
       if (meta && meta.record) meta.record.dishes = meta.record.dishes.filter(d => d !== dish);
       if (meta && meta.refreshTotal) meta.refreshTotal();
+      if (meta && meta.record){
+        const log = meta.record.editLog = meta.record.editLog || {};
+        log.diaryDeletedDishes = (log.diaryDeletedDishes || []).concat({ name: splitNameConfidence(dish.name || '').name, at: new Date().toISOString() });
+        meta.record.lastEditedAt = new Date().toISOString();
+        syncRecordSoon(meta.record);
+      }
     });
 
     actions.append(actionsTop, deleteBtn);
@@ -563,7 +624,17 @@
 
     const timeEl = document.createElement('span');
     timeEl.className = 'meal-time';
-    timeEl.textContent = timestamp();
+    timeEl.textContent = record && record.createdAt ? formatMealTime(record.createdAt) : timestamp();
+
+    // upload state, small: 已同步 / 等待上傳
+    const syncEl = document.createElement('span');
+    syncEl.className = 'meal-sync';
+    if (record){
+      card.dataset.recordId = record.id;
+      renderSyncStatus(syncEl, record.syncStatus);
+    } else {
+      syncEl.hidden = true;
+    }
 
     // "整餐 N kcal 估算值" beside "N 道菜" — from the saved results only;
     // hidden for records saved without calories (older ones, Group B).
@@ -602,7 +673,7 @@
 
     const metaRight = document.createElement('div');
     metaRight.className = 'meal-meta-right';
-    metaRight.append(addDishBtn, timeEl);
+    metaRight.append(addDishBtn, syncEl, timeEl);
     const metaLeft = document.createElement('div');
     metaLeft.className = 'meal-meta-left';
     metaLeft.append(dishesEl, totalKcalEl);
@@ -627,11 +698,64 @@
       mealCount = Math.max(0, mealCount - 1);
       countTag.textContent = `${mealCount} 筆`;
       if (mealCount === 0) emptyState.style.display = 'block';
+      // the study data keeps it, marked as removed from the Diary
+      if (record){
+        record.deletedFromDiary = true;
+        record.deletedFromDiaryAt = new Date().toISOString();
+        syncRecordSoon(record);
+      }
     });
 
     card.append(img, meta, status, removeBtn);
     strip.prepend(card);
   }
+
+  /* ---------- study data: upload + this device's Diary copy (sync.js) ---------- */
+  function formatMealTime(iso){
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return timestamp();
+    const pad = n => String(n).padStart(2, '0');
+    const today = new Date().toDateString() === d.toDateString();
+    return `${today ? '' : `${d.getMonth() + 1}/${d.getDate()} `}${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function renderSyncStatus(el, status){
+    const synced = status === 'synced';
+    el.textContent = synced ? '已同步' : '等待上傳';
+    el.classList.toggle('is-synced', synced);
+  }
+  // What goes to /api/records: the record without images or UI-only fields.
+  const LOCAL_ONLY_KEYS = new Set(['thumbUrl', 'localPhoto', 'syncStatus']);
+  function uploadableRecord(record){
+    return JSON.parse(JSON.stringify(record, (k, v) => (LOCAL_ONLY_KEYS.has(k) ? undefined : v)));
+  }
+  // This device's Diary (records with small thumbnails + a small photo), so
+  // it survives a reload. Removed meals are not kept here.
+  function persistDiary(){
+    window.PictaSync.saveDiary(mealRecords.filter(r => !r.deletedFromDiary).map(r => ({
+      record: JSON.parse(JSON.stringify(r, (k, v) => (k === 'localPhoto' || k === 'syncStatus' ? undefined : v))),
+      photo: r.localPhoto || ''
+    })));
+  }
+  // Diary edits after saving: upload the changed record again (same id).
+  const syncTimers = new Map();
+  function syncRecordSoon(record){
+    clearTimeout(syncTimers.get(record.id));
+    syncTimers.set(record.id, setTimeout(() => {
+      syncTimers.delete(record.id);
+      record.syncStatus = 'pending';
+      persistDiary();
+      window.PictaSync.enqueue(uploadableRecord(record), null);
+    }, 1200));
+  }
+  document.addEventListener('pictameal:sync-update', e => {
+    const { id, status } = e.detail;
+    const record = mealRecords.find(r => r.id === id);
+    if (!record) return;
+    record.syncStatus = status;
+    const el = document.querySelector(`.meal-card[data-record-id="${id}"] .meal-sync`);
+    if (el) renderSyncStatus(el, status);
+    persistDiary();
+  });
 
   confirmUploadBtn.addEventListener('click', () => {
     if (!currentPhotoData) return;
@@ -701,8 +825,16 @@
       category: dishInfo.category === 'beverage' ? 'beverage' : 'food',
       thumbUrl: photoDataUrl
     };
-    if (target.record) target.record.dishes.push({ ...dish, confidence: null, box: null });
+    // the same object in the record and the row, so later edits reach both
+    Object.assign(dish, { confidence: null, box: null, source: 'diary' });
+    if (target.record){
+      target.record.dishes.push(dish);
+      const log = target.record.editLog = target.record.editLog || {};
+      log.addedDishes = (log.addedDishes || []).concat({ name: splitNameConfidence(dish.name || '').name, source: 'diary' });
+      target.record.lastEditedAt = new Date().toISOString();
+    }
     target.status.appendChild(renderDiaryDishRow(dish, target.dishCountMeta));
+    if (target.record) syncRecordSoon(target.record);
     target.dishCountMeta.dishCount += 1;
     target.dishCountMeta.dishesEl.textContent = `${target.dishCountMeta.dishCount} 道菜`;
 
@@ -733,6 +865,21 @@
 
   /* ---------- real recognition via backend (Hugging Face food model) ---------- */
   const BACKEND_URL = 'https://xianghu-backend.onrender.com';
+  // Start the upload queue (retries anything left from earlier), then restore
+  // this device's Diary. Here, after BACKEND_URL exists.
+  window.PictaSync.init({ backendUrl: BACKEND_URL });
+  (function restoreDiary(){
+    const entries = window.PictaSync.loadDiary();
+    entries.forEach(entry => {
+      const record = entry && entry.record;
+      if (!record || !record.id || !Array.isArray(record.dishes)) return;
+      record.localPhoto = entry.photo || '';
+      record.syncStatus = window.PictaSync.isPending(record.id) ? 'pending' : 'synced';
+      mealRecords.push(record);
+      addMealCard(record.localPhoto, record.dishes.length, record.dishes, record);
+    });
+  })();
+
   let backendWarned = false;
 
   // Design decision: the original spec always popped a candidate-name dialog
@@ -807,6 +954,7 @@
       return candidates;
     } catch (err){
       console.error('[fetchCandidatesForDet] recognize call failed for det', det.id, err);
+      logApiError('recognize', err && err.message);
       return [];
     }
   }
@@ -941,6 +1089,9 @@
             loading: false,
             confirmState: 'pending'
           };
+          // what the AI said, kept even if the user renames / deletes the dish
+          det.aiOriginal = { name: String(d.name || ''), confidence, category: det.category, box: { ...det.apiBox } };
+          if (currentMealMeta) currentMealMeta.aiDetections.push({ no: i + 1, ...det.aiOriginal });
           currentDetections.push(det);
           renderOneDetection(det, i);
           if (confidence < CONFIDENCE_DIALOG_THRESHOLD * 100){
@@ -959,6 +1110,7 @@
       }
     } catch (err){
       console.error(err);
+      logApiError('detect', err && err.message);
       setRecognizeHint('自動辨識失敗,請重新拍一張照片試試', false);
       showToast('自動辨識失敗,請重新拍照');
     }
@@ -1423,6 +1575,7 @@
 
   function setupRecognizeScreen(photoDataUrl){
     exitReportMode(); // a new photo always starts back on Page 3
+    currentMealMeta = newMealMeta(); // "started" = the photo was confirmed
     recognizePhoto.src = photoDataUrl;
     resetRecognizeZoom(); // full photo while detecting / if nothing is found
     layoutRecognizePhoto(false); // again on 'load' once natural size is known
@@ -1955,18 +2108,56 @@
       };
     }));
 
+    // small thumbnails: they are also kept in this device's Diary copy
+    await Promise.all(dishes.map(async d => {
+      if (d.thumbUrl) d.thumbUrl = (await window.PictaSync.shrink(d.thumbUrl, 160, 0.75)) || d.thumbUrl;
+    }));
+    const meta = currentMealMeta || newMealMeta();
+    const doneAt = new Date().toISOString();
+    meta.editLog.addedDishes = allDets.filter(d => d.addedByUser || d.onPhoto === false)
+      .map(d => ({ name: splitNameConfidence(d.name || '').name, source: d.onPhoto === false ? 'chat' : 'user' }));
+    let photoUpload = null;
+    let photoInfo = { saved: false, reason: 'disabled' };
+    if (SAVE_PHOTOS){
+      try {
+        photoUpload = await window.PictaSync.compressPhoto(photoDataUrl, { maxEdge: 1024, quality: 0.7, maxBytes: 900 * 1024 });
+        photoInfo = { saved: true, width: photoUpload.width, height: photoUpload.height, bytes: photoUpload.bytes, quality: photoUpload.quality };
+      } catch (err){
+        photoInfo = { saved: false, reason: 'compress-failed' };
+      }
+    }
+
     const record = {
-      id: `meal${Date.now()}`,
+      // unique, and the Firestore document id (so a retry can't duplicate)
+      id: `m-${(crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12))}`,
+      pid: PARTICIPANT_ID,
       group: STUDY_GROUP,
-      createdAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
+      userAgent: navigator.userAgent,
+      createdAt: doneAt,
+      times: {
+        startedAt: meta.startedAt,
+        nextAt: meta.nextAt,
+        doneAt,
+        durationSec: Math.round((Date.parse(doneAt) - Date.parse(meta.startedAt)) / 100) / 10
+      },
+      aiDetections: meta.aiDetections,
+      editLog: meta.editLog,
+      apiErrors: meta.apiErrors,
+      photo: photoInfo,
       // whole-meal estimate (only dishes with a number add in)
       nutrition: dishes.some(x => x.nutrition) ? window.PictaCalorie.mealSnapshot(allDets.map(d => d.id)) : null,
       dishes,
       ...(opts.recordExtra || {})
     };
     mealRecords.push(record);
+    record.localPhoto = await window.PictaSync.shrink(photoDataUrl, 640, 0.6);
+    record.syncStatus = 'pending';
 
     addMealCard(photoDataUrl, dishes.length, dishes, record);
+    persistDiary();
+    window.PictaSync.enqueue(uploadableRecord(record), photoUpload ? photoUpload.dataUrl : null);
+    currentMealMeta = null;
     showToast('這餐記錄好了!');
     currentPhotoData = null;
     goToScreen('diary');
@@ -1977,6 +2168,7 @@
   // The group goes onto the record.
   recognizeNextBtn.addEventListener('click', async () => {
     if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
+    if (currentMealMeta && !currentMealMeta.nextAt) currentMealMeta.nextAt = new Date().toISOString();
     if (STUDY_GROUP === 'A'){
       enterReportMode();
       return;
@@ -2440,6 +2632,11 @@
     const det = selectedReportDet();
     if (!det || det.loading) return;
     const wasComplete = isDishComplete(det);
+    const prev = (det.detail || {})[kind];
+    if (currentMealMeta && prev !== value){
+      currentMealMeta.editLog.fieldSetCount += 1;
+      if (prev) currentMealMeta.editLog.fieldChangeCount += 1; // changed an answer already given
+    }
     det.detail = { ...(det.detail || {}), [kind]: value };
     syncReportChoices(det);
     refreshMarkerStates();
@@ -2550,6 +2747,7 @@
     reportRenaming = true;
     renderReportPanel();
     const wasComplete = isDishComplete(det);
+    const nameBefore = det.name;
     openCandidateDialog(det, [], () => {
       reportRenaming = false;
       renderReportPanel();
@@ -2557,6 +2755,7 @@
       allowCustom: true,
       loading: true,
       onConfirm(target, prevCategory){
+        if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
         // a category switch (food <-> beverage) swaps the cooking options;
         // drop a cooking method the new list doesn't have
         if (target.category !== prevCategory && target.detail && target.detail.cookingMethod){
@@ -2587,6 +2786,11 @@
     if (!det) return;
     currentDetections = currentDetections.filter(d => d !== det);
     if (det.boxEl) det.boxEl.remove();
+    if (currentMealMeta) currentMealMeta.editLog.deletedDishes.push({
+      name: splitNameConfidence(det.name || '').name,
+      source: det.addedByUser ? 'user' : 'ai',
+      aiName: det.aiOriginal ? det.aiOriginal.name : null
+    });
     Calorie.forget(det.id);
     reportSelectedId = null;
     renumberMarkers();
@@ -2967,6 +3171,7 @@
     if (!reportActive || !chatMode) return; // left the page meanwhile
 
     if (!data){
+      logApiError('chat', latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed');
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
       if (!chatInput.value) chatInput.value = text; // ready to resend
       chatInput.focus();
@@ -3013,6 +3218,7 @@
         }
       }
       chatRenames.push({ no: r.no, from, to: r.name });
+      if (currentMealMeta) currentMealMeta.editLog.renameCount += 1;
       if (det.labelEl) renderDetLabel(det.labelEl, det);
       det.chatDescribed = true;
       touch(det);
@@ -3020,6 +3226,12 @@
     (data.updates || []).forEach(u => {
       const det = byNo(u.no);
       if (!det) return;
+      if (currentMealMeta) Object.entries(u.fields).forEach(([k, v]) => {
+        const prev = (det.detail || {})[k];
+        if (prev === v) return;
+        currentMealMeta.editLog.fieldSetCount += 1;
+        if (prev) currentMealMeta.editLog.fieldChangeCount += 1;
+      });
       det.detail = { ...(det.detail || {}), ...u.fields };
       det.chatDescribed = true;
       touch(det);

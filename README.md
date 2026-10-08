@@ -83,6 +83,51 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 
 **`POST /api/chat` 的規則**:輸入菜色清單(編號、菜名、已記錄的欄位)、目前選取的菜或「整餐」、最近 12 則對話、這句話;回傳 `reply`、`updates`、`notes`、`newDishes`、`renameDishes`、`isClarification`。後端會檢查每個欄位值都在允許的選項內(飲料用飲料的烹調方式),不合法的直接丟掉;回覆中提到熱量或營養素的句子會被移除。使用 `OPENAI_MODEL`、`max_completion_tokens`,不設 temperature。
 
+## 研究資料(Firestore)
+
+每一餐按「完成」後,整筆紀錄會由後端寫進 Firebase Firestore。**只有後端(服務帳戶)能寫入**;前端沒有任何 Firebase 金鑰或設定,Firestore 安全規則維持拒絕所有前端讀寫。
+
+**受試者網址**:`https://lima-cgu.github.io/-/?group=A&pid=P001`(B 組換成 `group=B`)。`pid` 和 `group` 一樣會記在這台裝置上(網址參數優先),沒有帶就是 `TEST`。畫面上不會顯示 pid 和組別。
+
+**存了什麼**(`meals` collection,文件 ID = 紀錄 ID):
+- `id`、`pid`、`group`、`appVersion`(= sw.js 的 CACHE_NAME)、`userAgent`
+- `times`:`startedAt`(確認照片、進入辨識)、`nextAt`(Page 3 按「下一步」)、`doneAt`(按「完成」)、`durationSec`
+- `aiDetections`:AI 原始辨識(菜名、信心度、框座標);每道菜的 `aiOriginal`
+- `dishes`:最後的菜名、5 個欄位(`detail`)、熱量結果(`nutrition`);`nutrition`:整餐熱量
+- `editLog`:`renameCount`(改菜名次數)、`fieldSetCount`(選欄位次數)、`fieldChangeCount`(把已填的值改掉的次數)、`deletedDishes`、`addedDishes`;之後在日記上修改會再加上 `diaryEditCount`、`diaryDeletedDishes`,並以同一個 ID 重新上傳
+- B 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;訊息數、追問次數、新增與更名的菜),每道菜的 `notes`、`renamedFrom`
+- `apiErrors`:API 錯誤(哪個 API、時間、訊息);`upload`:上傳嘗試次數與失敗原因
+- 後端加上:`receivedAt`、`firstReceivedAt`、`uploadCount`、`photoStored`、`photoBytes`;在日記刪掉整餐時會標記 `deletedFromDiary`(資料保留)
+
+**照片**(`photos` collection,文件 ID 同紀錄 ID):前端壓縮成長邊最多 1024 px 的 JPEG(品質約 0.7,超過 900 KB 就再降),存成 Firestore 的 bytes 欄位(不使用 Firebase Storage)。要整個關掉照片上傳:把 `script.js` 的 `SAVE_PHOTOS` 改成 `false`,或在 Render 設定環境變數 `SAVE_PHOTOS=false`(後端會忽略收到的照片)。
+
+**上傳失敗不會遺失**:紀錄先存進瀏覽器的待上傳佇列(localStorage;照片放 IndexedDB),再嘗試上傳;失敗時在 App 開啟、網路恢復、畫面回到前景、以及每 60 秒自動重試。同一筆紀錄重試只會覆寫同一份文件,不會重複。日記卡片上用小字顯示「已同步」或「等待上傳」。這台裝置的日記(含熱量,照片與縮圖是縮小版)也存在 localStorage,重新整理後會恢復。
+
+**下載資料**(需要 Render 環境變數 `ADMIN_TOKEN`;沒帶或錯誤一律拒絕):
+
+```powershell
+$env:ADMIN_TOKEN = "（貼上 ADMIN_TOKEN）"
+$h = @{ Authorization = "Bearer $env:ADMIN_TOKEN" }
+$api = "https://xianghu-backend.onrender.com"
+Invoke-WebRequest "$api/api/admin/export?format=csv"  -Headers $h -OutFile meals.csv    # 一道菜一列,Excel 可直接開
+Invoke-WebRequest "$api/api/admin/export?format=json" -Headers $h -OutFile meals.json   # 完整紀錄(不含照片)
+Invoke-WebRequest "$api/api/admin/photo?id=紀錄ID"     -Headers $h -OutFile 紀錄ID.jpg
+```
+
+可加 `&pid=P001` 或 `&group=A` 只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、各時間與耗時、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B 組訊息數與追問次數、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
+
+**在 Firebase 後台看紀錄**:[Firebase Console](https://console.firebase.google.com/) → 專案 **pictameal** → 左側「Firestore Database」→「資料」分頁 → `meals`(每餐一份)、`photos`(照片)。點文件就能看到所有欄位。
+
+**刪除測試資料**(例如測試時用的 `pid=DEVTEST`):
+
+```bash
+cd backend
+node scripts/delete-records.js --pid=DEVTEST         # 先列出(不刪)
+node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
+```
+
+**ADMIN_TOKEN 怎麼產生**:在自己電腦執行 `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`,把輸出的 43 個字元貼到 Render → Environment → `ADMIN_TOKEN`。不要寫進 repo,也不要貼在聊天或文件裡;只給需要下載資料的研究助理。
+
 ## 本機預覽
 
 ```bash

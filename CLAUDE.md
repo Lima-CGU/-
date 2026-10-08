@@ -132,11 +132,21 @@ SEGMENTATION_API_KEY=...
 
 Never commit `backend/.env` or API keys. Render must be configured with the environment variables above and redeployed after changes.
 
+## Study data (Firestore) — both groups
+
+- **Only the backend writes** (firebase-admin via `backend/firebase-admin-init.js`). No Firebase config/key in the frontend, no client SDK; Firestore rules stay deny-all. Never read or print `backend/firebase-key.json`.
+- `?pid=` like `?group=`: URL wins and is saved (`localStorage` `pictameal:pid`), else the saved one, else `TEST` (`PARTICIPANT_ID`, `[A-Za-z0-9_-]{1,40}`). Never shown on screen. **Tests write with `pid=DEVTEST`**; clean up with `backend/scripts/delete-records.js --pid=DEVTEST [--yes]`.
+- `POST /api/records` `{ record, photo? }` (`backend/records.js`): validates (id `[A-Za-z0-9_-]{8,80}`, pid, group, ISO times, dishes ≤ 60, no arrays-in-arrays, no `__x__` keys, depth ≤ 12, strings ≤ 5000, JSON ≤ 900 KB; photo = base64 JPEG ≤ 900 KB) → 400 with a reason, never a crash. A transaction writes `meals/{id}` (whole record + `receivedAt`, `firstReceivedAt`, `uploadCount`, `photoStored`, `photoBytes`) and, with a photo, `photos/{id}` (bytes field). Doc id = record id → retries overwrite, never duplicate. Env `SAVE_PHOTOS=false` drops photos server-side.
+- `GET /api/admin/export?format=csv|json[&pid=][&group=]` and `GET /api/admin/photo?id=`: header `Authorization: Bearer <ADMIN_TOKEN>` (or `X-Admin-Token`), constant-time compare; ADMIN_TOKEN unset/short → 503, wrong/missing → 401. CSV = one row per dish (UTF-8 BOM); JSON = full records without photos. Exports contain foods1000 item names (`matchedName`) — never commit them.
+- **Frontend** — `sync.js` (`window.PictaSync`, loaded before `script.js`): `enqueue(record, photo)` puts the record into the localStorage queue `pictameal:uploadQueue` FIRST (photo → IndexedDB `pictameal-sync`), then uploads; retries at start, on `online`, on visibility, every 60 s; fires `pictameal:sync-update` {id, status}. Also `compressPhoto` (long edge 1024, q 0.7, lowered until ≤ 900 KB), `shrink`, and the device Diary copy `pictameal:diary` (`loadDiary`/`saveDiary`; on a full storage the oldest photos are dropped first).
+- `script.js`: `currentMealMeta` (reset in `setupRecognizeScreen` = startedAt; `nextAt` on 下一步) collects `aiDetections` (+ `det.aiOriginal` {name, confidence, category, box}), `editLog` (renameCount, fieldSetCount, fieldChangeCount, deletedDishes, addedDishes) and `apiErrors` (`logApiError`; calorie.js reports via `pictameal:api-error`). `saveCurrentMeal` builds the record (`m-<uuid>`, pid, group, appVersion = CACHE_NAME read from `./sw.js`, userAgent, times, photo info), shrinks thumbs to 160 px, keeps a 640 px `localPhoto`, `persistDiary()`, then `PictaSync.enqueue(uploadableRecord(record), photo)` (thumbUrl/localPhoto/syncStatus stripped). Diary edits/deletes re-upload the same id (`syncRecordSoon`); removing a meal card marks `deletedFromDiary` (kept in Firestore, dropped from the device copy). Cards show 已同步 / 等待上傳 (`.meal-sync`, 12px). On load: `PictaSync.init` (after `BACKEND_URL`) then `restoreDiary()`. `SAVE_PHOTOS` const turns photo upload off.
+- Render env: `FIREBASE_SERVICE_ACCOUNT` (already), `ADMIN_TOKEN` (random ≥ 32 bytes, never in the repo), optional `SAVE_PHOTOS=false`.
+
 ## PWA
 
 - `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
-- The cache name is currently `pictameal-shell-v17`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v18`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks
