@@ -182,8 +182,16 @@ function validate(parsed, dishes, group = 'B'){
     const c = cleanCount(u.count != null ? u.count : (u.fields && u.fields.count));
     if (c) counts.set(d.no, c);
   }
-  const updates = [...new Set([...merged.keys(), ...counts.keys()])]
-    .map(no => ({ no, fields: merged.get(no) || {}, ...(counts.has(no) ? { count: counts.get(no) } : {}) }));
+  // Rule 9 safety net: a count told now but no size anywhere (not in this
+  // answer, not already on the dish) -> size M (each one a normal size).
+  // A size the user gave (bigger / smaller → L / S …) is never replaced.
+  // autoSize marks it as filled in by the system, not said by the user.
+  const updates = [...new Set([...merged.keys(), ...counts.keys()])].map(no => {
+    const fields = { ...(merged.get(no) || {}) };
+    const autoSize = counts.has(no) && !fields.size && !byNo.get(no).fields.size;
+    if (autoSize) fields.size = 'M';
+    return { no, fields, ...(counts.has(no) ? { count: counts.get(no) } : {}), ...(autoSize ? { autoSize: true } : {}) };
+  });
 
   const notes = [];
   for (const n of list(p.notes)){
@@ -198,7 +206,10 @@ function validate(parsed, dishes, group = 'B'){
     if (!name || dishes.some(d => d.name === name)) continue;
     const cat = category(nd.category);
     const c = cleanCount(nd.count);
-    newDishes.push({ name, category: cat, fields: cleanFields(nd.fields, cat), note: str(nd.note, 60), ...(c ? { count: c } : {}) });
+    const fields = cleanFields(nd.fields, cat);
+    const autoSize = !!c && !fields.size; // same safety net as above
+    if (autoSize) fields.size = 'M';
+    newDishes.push({ name, category: cat, fields, note: str(nd.note, 60), ...(c ? { count: c } : {}), ...(autoSize ? { autoSize: true } : {}) });
   }
 
   return {
