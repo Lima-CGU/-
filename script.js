@@ -225,7 +225,15 @@
   const FIRST_EDIT_EVENTS = ['field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted'];
   // userActionCount (provisional rule, README): user events of these kinds
   // from ai_draft_displayed to final_confirmed; edit_opened only when the
-  // user opened it
+  // user opened it. Same rule for all groups: tapping a dish = 1, finishing a
+  // text input = 1, a send / confirm = 1 — so a typed or dictated message is
+  // 2 (input + send) and a suggestion tap 1; a typed rename 2 (input +
+  // confirm) and a picked one 1; everything else 1.
+  function userActionWeight(e){
+    if (e.event === 'message_submitted') return e.source === 'suggestion' ? 1 : 2;
+    if (e.event === 'dish_renamed') return e.detail && e.detail.inputType === 'typed' ? 2 : 1;
+    return 1;
+  }
   const USER_ACTION_EVENTS = ['item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
   // What goes onto the record: events, the new times and userActionCount.
   function taskSummary(){
@@ -239,7 +247,7 @@
     const finSeq = seqOf('final_confirmed');
     const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
     const userActionCount = draftSeq && finSeq ? task.events.filter(e => e.seq >= draftSeq && e.seq <= finSeq
-      && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).length : null;
+      && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).reduce((n, e) => n + userActionWeight(e), 0) : null;
     return {
       events: task.events.slice(),
       times: {
@@ -1743,7 +1751,7 @@
       setConfirmState(det, 'confirmed');
     }
     closeCandidateDialog();
-    if (det && onConfirm) onConfirm(det, prevCategory);
+    if (det && onConfirm) onConfirm(det, prevCategory, { inputType: custom ? 'typed' : 'picked' });
   });
 
   // Low-confidence auto-detected dishes queue up here and are reviewed one
@@ -3050,13 +3058,16 @@
     }, {
       allowCustom: true,
       loading: true,
-      onConfirm(target, prevCategory){
+      onConfirm(target, prevCategory, how){
         if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
         if (target.name !== nameBefore) logEvent('dish_renamed', {
           actor: 'user', target: dishNoOf(target), field: 'name',
           before: splitNameConfidence(nameBefore || '').name, after: splitNameConfidence(target.name || '').name,
           attemptId: nextAttemptId(),
-          detail: target.category !== prevCategory ? { categoryBefore: prevCategory, categoryAfter: target.category } : null
+          detail: {
+            inputType: (how && how.inputType) || 'picked', // typed a name / picked a candidate
+            ...(target.category !== prevCategory ? { categoryBefore: prevCategory, categoryAfter: target.category } : {})
+          }
         });
         if (target.name !== nameBefore && !target.count) target.countable = false; // re-learned from the next calculation
         // a category switch (food <-> beverage) swaps the cooking options;

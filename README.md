@@ -182,7 +182,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `item_selected` | user / system | 點選一道菜(A:點圓圈、按「下一道」;新增菜色後自動選取記 system。B/C:點圓圈或「+ 整餐/其他」,`detail.deselect` = 是不是取消選取) |
 | `edit_opened` | user / system | A 組:選菜後欄位面板自動打開記 system;按鉛筆改菜名記 user |
 | `field_set` / `field_changed` | user | A 組:第一次選某欄位(`before = null`)/ 把已選的值改掉 |
-| `dish_renamed` | user | A 組:改菜名(before/after = 舊/新菜名) |
+| `dish_renamed` | user | A 組:改菜名(before/after = 舊/新菜名;`detail.inputType` = `typed` 自己打字 / `picked` 從候選清單選) |
 | `count_changed` | user | A 組:數量 −/+ |
 | `dish_added` / `dish_deleted` | user | A 組:點照片新增一道菜 / 確認刪除 |
 | `message_submitted` | user | B/C 組:送出一則訊息(含點提示按鈕) |
@@ -209,7 +209,20 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 秒數由 `elapsedMs` 相減,取到小數一位。
 
-**`userActionCount`(暫定規則,之後分析可能調整)**:從 `ai_draft_displayed` 到 `final_confirmed`(含)之間,`actor = user` 的 `item_selected`、`edit_opened`(只算使用者自己點開的)、`field_set`、`field_changed`、`dish_renamed`、`count_changed`、`dish_added`、`dish_deleted`、`message_submitted`、`final_confirmed` 的數量。`page_view`、`back`、`cancel` 不算。B/C 組點圓圈選菜也記成 `item_selected`,所以也會算進去。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。
+**`userActionCount`(暫定規則,之後分析可能調整)**:三組用同一套計數原則——**點選食物 = 1、完成一次文字輸入 = 1、按送出/確認 = 1**。計算範圍是 `ai_draft_displayed` 到 `final_confirmed`(含)之間 `actor = user` 的事件:
+
+| 事件 | 計數 |
+|---|---|
+| `item_selected`(A 組點圓圈/「下一道」;B/C 組點圓圈或「+ 整餐/其他」,取消選取也算) | 1 |
+| `edit_opened`(只算使用者自己點開的,例如按鉛筆) | 1 |
+| `field_set`、`field_changed`、`count_changed`、`dish_added`、`dish_deleted` | 各 1 |
+| `dish_renamed`:`inputType = typed`(自己打字 + 確認) | 2 |
+| `dish_renamed`:`inputType = picked`(從清單選) | 1 |
+| `message_submitted`:`source = typed` 或 `voice`(文字輸入 + 送出) | 2 |
+| `message_submitted`:`source = suggestion`(點提示按鈕直接送出) | 1 |
+| `final_confirmed` | 1 |
+
+`page_view`、`back`、`cancel`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
 
 **下載事件**:`format=events` 是一列一個事件的 CSV(`recordId`、`pid`、`group`、`mealId` + 事件所有欄位;`before`/`after`/`detail` 是 JSON 字串),一樣需要 ADMIN_TOKEN,也可以用 `pid`、`group`、`meal` 篩選。
 
