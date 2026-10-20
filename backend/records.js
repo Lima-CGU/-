@@ -30,6 +30,12 @@ const EVENT_ACTORS = ['user', 'system', 'ai'];
 const EVENT_SOURCES = ['typed', 'voice', 'suggestion'];
 const EVENT_STATUSES = ['success', 'failed', 'cancelled'];
 const MEAL_ID_RE = /^[A-Za-z0-9_-]{0,20}$/;
+// set on the admin page only (POST /api/admin/records/:id/exclude)
+const EXCLUDE_FIELDS = ['excluded', 'excludeReason', 'excludedAt'];
+const MAX_EXCLUDE_REASON = 200;
+// test participants (no pid in the URL = TEST; automated tests = DEVTEST)
+const TEST_PIDS = ['TEST', 'DEVTEST'];
+const isHidden = r => !!r.excluded || TEST_PIDS.includes(r.pid);
 const SAVE_PHOTOS = !/^(0|false|no|off)$/i.test(process.env.SAVE_PHOTOS || '');
 
 class BadRequest extends Error {}
@@ -130,6 +136,8 @@ function decodePhoto(photo){
 async function saveRecord(db, body){
   need(isObj(body), 'body must be an object');
   const record = validateRecord(body.record);
+  // exclusion is set only by the admin page (setExcluded), never by an upload
+  for (const k of EXCLUDE_FIELDS) delete record[k];
   const photo = body.photo != null && SAVE_PHOTOS ? decodePhoto(body.photo) : null;
   const { FieldValue } = require('firebase-admin/firestore');
   const mealRef = db.collection(MEALS).doc(record.id);
@@ -146,7 +154,9 @@ async function saveRecord(db, body){
       uploadCount: ((prevData && prevData.uploadCount) || 0) + 1,
       // a later re-sync without the photo keeps the earlier photo's info
       photoStored: !!photo || !!(prevData && prevData.photoStored),
-      photoBytes: photo ? photo.length : ((prevData && prevData.photoBytes) || null)
+      photoBytes: photo ? photo.length : ((prevData && prevData.photoBytes) || null),
+      // a re-upload (e.g. a Diary edit) keeps an exclusion made on the admin page
+      ...Object.fromEntries(EXCLUDE_FIELDS.filter(k => prevData && prevData[k] !== undefined).map(k => [k, prevData[k]]))
     });
     if (photo){
       tx.set(db.collection(PHOTOS).doc(record.id), {
@@ -201,7 +211,8 @@ const CSV_COLUMNS = [
   'mealTotalKcal', 'messageCount', 'userMessageCount', 'clarificationCount',
   'suggestionShownCount', 'suggestionTapCount', 'offTopicCount',
   'renameCount', 'fieldChangeCount', 'fieldSetCount', 'deletedDishes', 'addedDishes',
-  'apiErrorCount', 'deletedFromDiary', 'photoStored', 'firstReceivedAt', 'receivedAt'
+  'apiErrorCount', 'deletedFromDiary', 'photoStored', 'firstReceivedAt', 'receivedAt',
+  'excluded', 'excludeReason'
 ];
 
 function csvCell(v){
@@ -234,7 +245,8 @@ function toCsv(records){
       deletedDishes: names(e.deletedDishes), addedDishes: names(e.addedDishes),
       apiErrorCount: Array.isArray(r.apiErrors) ? r.apiErrors.length : 0,
       deletedFromDiary: !!r.deletedFromDiary, photoStored: !!r.photoStored,
-      firstReceivedAt: r.firstReceivedAt, receivedAt: r.receivedAt
+      firstReceivedAt: r.firstReceivedAt, receivedAt: r.receivedAt,
+      excluded: !!r.excluded, excludeReason: r.excluded ? r.excludeReason || '' : ''
     };
     const dishes = Array.isArray(r.dishes) && r.dishes.length ? r.dishes : [null];
     dishes.forEach((d, i) => {
@@ -262,18 +274,62 @@ function toCsv(records){
 const EVENT_CSV_COLUMNS = [
   'recordId', 'pid', 'group', 'mealId',
   'seq', 'event', 'at', 'elapsedMs', 'page', 'actor', 'target', 'field', 'before', 'after',
-  'attemptId', 'source', 'status', 'detail'
+  'attemptId', 'source', 'status', 'detail', 'excluded', 'excludeReason'
 ];
 function toEventsCsv(records){
   const rows = [EVENT_CSV_COLUMNS.join(',')];
   for (const r of records){
     for (const e of Array.isArray(r.events) ? r.events : []){
       if (!isObj(e)) continue;
-      const row = { ...e, recordId: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '' };
+      const row = { ...e, recordId: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '',
+        excluded: !!r.excluded, excludeReason: r.excluded ? r.excludeReason || '' : '' };
       rows.push(EVENT_CSV_COLUMNS.map(k => csvCell(row[k])).join(','));
     }
   }
   return '﻿' + rows.join('\r\n') + '\r\n';
+}
+
+/* ---------- admin page ---------- */
+
+const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+// One row of the admin page's list / overview: no photo, no conversation.
+function summarize(r){
+  const t = r.times || {};
+  return {
+    id: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '',
+    doneAt: t.doneAt || r.createdAt || null,
+    dishCount: Array.isArray(r.dishes) ? r.dishes.length : 0,
+    correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
+    aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
+    totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
+    uploadCount: r.uploadCount || 0, receivedAt: r.receivedAt || null, photoStored: !!r.photoStored,
+    deletedFromDiary: !!r.deletedFromDiary,
+    excluded: !!r.excluded, excludeReason: r.excluded ? r.excludeReason || '' : '', excludedAt: r.excludedAt || null
+  };
+}
+
+async function getRecord(db, id){
+  need(typeof id === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(id), 'id is not a record id');
+  const snap = await db.collection(MEALS).doc(id).get();
+  if (!snap.exists) return null;
+  const { receivedAtTs, ...rest } = snap.data();
+  return rest;
+}
+
+/** Marks / unmarks a meal as excluded. Writes only the three exclude fields. */
+async function setExcluded(db, id, body){
+  need(typeof id === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(id), 'id is not a record id');
+  need(isObj(body) && typeof body.excluded === 'boolean', 'excluded must be true or false');
+  const reason = body.excluded ? String(body.reason == null ? '' : body.reason).trim().slice(0, MAX_EXCLUDE_REASON) : '';
+  const ref = db.collection(MEALS).doc(id);
+  const fields = { excluded: body.excluded, excludeReason: reason, excludedAt: body.excluded ? new Date().toISOString() : null };
+  try {
+    await ref.update(fields); // update() fails on a missing document instead of creating one
+  } catch (err){
+    if (err && (err.code === 5 || /NOT_FOUND/i.test(String(err.message)))) return null;
+    throw err;
+  }
+  return { id, ...fields };
 }
 
 async function getPhoto(db, id){
@@ -283,4 +339,4 @@ async function getPhoto(db, id){
   return snap.get('data');
 }
 
-module.exports = { GROUPS, MAX_EVENTS, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, toEventsCsv, getPhoto, BadRequest, MEALS, PHOTOS };
+module.exports = { TEST_PIDS, isHidden, GROUPS, MAX_EVENTS, EXCLUDE_FIELDS, summarize, getRecord, setExcluded, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, toEventsCsv, getPhoto, BadRequest, MEALS, PHOTOS };
