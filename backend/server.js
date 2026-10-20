@@ -16,6 +16,9 @@ const cors = require('cors');
 const sharp = require('sharp');
 
 const app = express();
+// Render sits in front as one proxy: req.ip = the visitor's address
+// (used by the admin wrong-password limit)
+app.set('trust proxy', 1);
 
 // 前端傳來的是完整照片的 base64,體積可能較大,把上限調高一點
 app.use(express.json({ limit: '15mb' }));
@@ -624,16 +627,85 @@ app.post('/api/records', async (req, res) => {
   }
 });
 
-app.get('/api/admin/export', async (req, res) => {
+// Every /api/admin/* request: ADMIN_TOKEN required; 10 wrong tokens from one
+// IP within 15 minutes -> 429 for that IP until the window passes.
+const adminLimiter = require('./admin-limit').createFailureLimiter();
+app.use('/api/admin', (req, res, next) => {
+  const ip = req.ip || 'unknown';
+  const wait = adminLimiter.blockedFor(ip);
+  if (wait){
+    res.set('Retry-After', String(wait));
+    return res.status(429).json({ error: `密碼錯誤次數太多,請 ${Math.ceil(wait / 60)} 分鐘後再試。` });
+  }
   const auth = records.checkAdmin(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  if (!auth.ok){
+    if (auth.status === 401) adminLimiter.fail(ip);
+    return res.status(auth.status).json({ error: auth.error });
+  }
+  adminLimiter.succeed(ip);
+  next();
+});
+
+// the admin page's 登入: just checks the token (the guard above)
+app.get('/api/admin/check', (req, res) => res.json({ ok: true }));
+
+function adminFilters(q){
+  return {
+    pid: typeof q.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(q.pid) ? q.pid : null,
+    group: records.GROUPS.includes(q.group) ? q.group : null,
+    mealId: typeof q.meal === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(q.meal) ? q.meal : null
+  };
+}
+// ?hideExcluded=1 (the admin page's checkbox): drop TEST / DEVTEST and excluded meals
+async function adminList(q){
+  const list = await records.loadRecords(studyDb(), adminFilters(q));
+  return q.hideExcluded === '1' ? list.filter(r => !records.isHidden(r)) : list;
+}
+
+// list / overview rows (no photos, no conversation)
+app.get('/api/admin/records', async (req, res) => {
+  try {
+    const list = await adminList(req.query);
+    res.set('Cache-Control', 'no-store');
+    res.json({ count: list.length, records: list.map(records.summarize) });
+  } catch (err) {
+    console.error('[admin] records failed:', err.message);
+    res.status(500).json({ error: '讀取紀錄失敗。' });
+  }
+});
+
+// one full record (no photo) for the expanded row
+app.get('/api/admin/records/:id', async (req, res) => {
+  try {
+    const record = await records.getRecord(studyDb(), req.params.id);
+    if (!record) return res.status(404).json({ error: '找不到這筆紀錄。' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ record });
+  } catch (err) {
+    if (err instanceof records.BadRequest) return res.status(400).json({ error: err.message });
+    console.error('[admin] record failed:', err.message);
+    res.status(500).json({ error: '讀取紀錄失敗。' });
+  }
+});
+
+// mark / unmark as excluded — writes only excluded, excludeReason, excludedAt
+app.post('/api/admin/records/:id/exclude', async (req, res) => {
+  try {
+    const out = await records.setExcluded(studyDb(), req.params.id, req.body);
+    if (!out) return res.status(404).json({ error: '找不到這筆紀錄。' });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    if (err instanceof records.BadRequest) return res.status(400).json({ error: err.message });
+    console.error('[admin] exclude failed:', err.message);
+    res.status(500).json({ error: '標記失敗,請再試一次。' });
+  }
+});
+
+app.get('/api/admin/export', async (req, res) => {
   const format = String(req.query.format || 'json').toLowerCase();
   if (!['csv', 'json', 'events'].includes(format)) return res.status(400).json({ error: 'format 必須是 csv、json 或 events。' });
   try {
-    const pid = typeof req.query.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(req.query.pid) ? req.query.pid : null;
-    const group = records.GROUPS.includes(req.query.group) ? req.query.group : null;
-    const mealId = typeof req.query.meal === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(req.query.meal) ? req.query.meal : null;
-    const list = await records.loadRecords(studyDb(), { pid, group, mealId });
+    const list = await adminList(req.query);
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     res.set('Cache-Control', 'no-store');
     if (format === 'csv'){
@@ -656,8 +728,6 @@ app.get('/api/admin/export', async (req, res) => {
 });
 
 app.get('/api/admin/photo', async (req, res) => {
-  const auth = records.checkAdmin(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   try {
     const buf = await records.getPhoto(studyDb(), String(req.query.id || ''));
     if (!buf) return res.status(404).json({ error: '找不到這筆紀錄的照片。' });

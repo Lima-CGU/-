@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>PICTAMEAL 研究管理後台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="admin.css">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+</head>
+<body>
+<!-- Research admin page (not linked from the app). The password is the
+     backend's ADMIN_TOKEN, kept only in sessionStorage. -->
+<header class="top">
+  <h1 class="brand">PICTAMEAL <span>研究管理後台</span></h1>
+  <button type="button" class="btn btn-outline" id="logoutBtn" hidden>登出</button>
+</header>
+
+<main>
+  <!-- login -->
+  <section class="card login" id="loginView">
+    <h2>登入</h2>
+    <p class="muted">請輸入後台密碼(ADMIN_TOKEN)。密碼只會保存在這個分頁,關掉分頁就要重新輸入。</p>
+    <form id="loginForm" autocomplete="off">
+      <label class="field">
+        <span>密碼</span>
+        <input type="password" id="loginToken" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn btn-primary" id="loginBtn">登入</button>
+      <p class="msg" id="loginMsg" role="alert" hidden></p>
+    </form>
+  </section>
+
+  <div id="appView" hidden>
+    <!-- backend status (Render's free plan sleeps after ~15 idle minutes) -->
+    <section class="card status-bar">
+      <div class="status">
+        <span class="status-dot" id="serverDot" aria-hidden="true"></span>
+        <span>伺服器狀態:<b id="serverState">檢查中…</b></span>
+        <span class="muted small" id="serverNote"></span>
+      </div>
+      <button type="button" class="btn btn-outline" id="wakeBtn">喚醒伺服器</button>
+    </section>
+    <!-- filters -->
+    <section class="card">
+      <h2>篩選</h2>
+      <form class="filters" id="filterForm">
+        <label class="field">
+          <span>組別</span>
+          <select id="fGroup">
+            <option value="">全部</option>
+            <option value="A">A 組(傳統)</option>
+            <option value="B">B 組(對話)</option>
+            <option value="C">C 組(對話+提示)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>便當編號</span>
+          <input type="text" id="fMeal" placeholder="例如 M01" maxlength="20">
+        </label>
+        <label class="field">
+          <span>受試者編號</span>
+          <input type="text" id="fPid" placeholder="例如 P001" maxlength="40">
+        </label>
+        <label class="check">
+          <input type="checkbox" id="fHide" checked>
+          <span>排除 TEST(測試資料)和已標記排除的紀錄</span>
+        </label>
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary">套用篩選</button>
+          <button type="button" class="btn btn-outline" id="filterReset">清除</button>
+        </div>
+      </form>
+      <p class="msg" id="loadMsg" role="status" hidden></p>
+    </section>
+
+    <!-- overview -->
+    <section class="card">
+      <h2>總覽(論文用)</h2>
+      <div class="table-scroll">
+        <table class="stats" id="statsTable">
+          <thead><tr><th scope="col">指標</th><th scope="col">A 組</th><th scope="col">B 組</th><th scope="col">C 組</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <ul class="explain">
+        <li><b>紀錄筆數</b>:符合篩選條件、按過「完成」的餐數。</li>
+        <li><b>受試者人數</b>:這些紀錄來自幾位不同的受試者。</li>
+        <li><b>修正時間</b>:從 AI 初稿(辨識結果)出現在畫面上,到受試者按「完成」的秒數。</li>
+        <li><b>總時間</b>:從受試者按「開始拍照」,到按「完成」的秒數。</li>
+        <li><b>操作次數</b>:AI 初稿出現後到按「完成」之間,受試者的操作次數(點選食物 1 次、打字輸入 1 次、按送出或確認 1 次;暫定規則)。</li>
+        <li><b>AI 處理時間</b>:從確認照片到 AI 初稿出現的秒數。</li>
+        <li>平均數和標準差只用「有這個數字」的紀錄計算(括號裡的 n 是筆數);只有 1 筆時沒有標準差,顯示「—」。</li>
+      </ul>
+    </section>
+
+    <!-- downloads -->
+    <section class="card">
+      <h2>下載(套用目前的篩選條件)</h2>
+      <div class="downloads">
+        <button type="button" class="btn btn-primary" data-download="csv">下載紀錄(Excel 可開的 CSV)</button>
+        <button type="button" class="btn btn-outline" data-download="events">下載事件紀錄 CSV</button>
+        <button type="button" class="btn btn-outline" data-download="json">下載完整 JSON</button>
+      </div>
+      <p class="muted small">下載的檔案含老師提供的私有食材品項名稱,請只存在研究用的電腦,不要放上網路或 GitHub。</p>
+      <p class="msg" id="downloadMsg" role="status" hidden></p>
+    </section>
+
+    <!-- records -->
+    <section class="card">
+      <h2>紀錄列表 <span class="count" id="listCount"></span></h2>
+      <p class="muted small">點一列可以展開照片、AI 初稿和受試者最後的結果。要取消排除某筆紀錄,請先取消勾選上方的「排除…」再套用篩選。</p>
+      <div class="table-scroll">
+        <table class="records" id="recordsTable">
+          <thead>
+            <tr>
+              <th scope="col">時間</th><th scope="col">受試者</th><th scope="col">組別</th><th scope="col">便當</th>
+              <th scope="col">菜數</th><th scope="col">修正時間(秒)</th><th scope="col">操作次數</th><th scope="col">整餐熱量</th>
+              <th scope="col">上傳狀態</th><th scope="col">排除</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted" id="listEmpty" hidden>沒有符合條件的紀錄。</p>
+    </section>
+  </div>
+</main>
+
+<script src="admin-stats.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

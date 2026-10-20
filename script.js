@@ -1041,6 +1041,10 @@
 
   /* ---------- real recognition via backend (Hugging Face food model) ---------- */
   const BACKEND_URL = 'https://xianghu-backend.onrender.com';
+  // Wake the backend (Render's free plan sleeps; a cold start takes ~80 s) as
+  // soon as the page loads, so it is up by the time a photo is sent. Once per
+  // page load, fire-and-forget: no waiting, no error shown, no event logged.
+  fetch(`${BACKEND_URL}/`, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
   // Start the upload queue (retries anything left from earlier), then restore
   // this device's Diary. Here, after BACKEND_URL exists.
   window.PictaSync.init({ backendUrl: BACKEND_URL });

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pictameal-shell-v23';
+const CACHE_NAME = 'pictameal-shell-v24';
 const APP_SHELL = [
   './',
   './index.html',
@@ -108,9 +108,17 @@ async function cacheFirst(request){
   return response;
 }
 
+// The research admin page is never cached nor intercepted (always the network).
+const ADMIN_FILES = ['admin.html', 'admin.js', 'admin.css', 'admin-stats.js'];
+function isAdminFile(url){
+  const scope = new URL(self.registration.scope).pathname;
+  return url.pathname.startsWith(scope) && ADMIN_FILES.includes(url.pathname.slice(scope.length));
+}
+
 self.addEventListener('fetch', event => {
   if (IS_LOCAL) return; // never intercept locally: the browser fetches from the network
   const requestUrl = new URL(event.request.url);
   if (event.request.method !== 'GET' || requestUrl.origin !== self.location.origin) return;
+  if (isAdminFile(requestUrl)) return;
   event.respondWith(isNetworkFirst(event.request, requestUrl) ? networkFirst(event.request) : cacheFirst(event.request));
 });
