@@ -587,9 +587,10 @@ app.post('/api/nutrition', async (req, res) => {
   }
 });
 
-// Group B: one chat turn. The AI turns the user's words into Group A's five
-// fields (values checked against the allowed options in chat.js) and writes a
-// short reply that never contains calorie / nutrient numbers.
+// Groups B and C: one chat turn. The AI turns the user's words into Group A's
+// five fields (values checked against the allowed options in chat.js) and writes
+// a short reply that never contains calorie / nutrient numbers; for Group C the
+// same call also returns suggestion buttons.
 app.post('/api/chat', async (req, res) => {
   if (!OPENAI_API_KEY) {
     return res.status(500).json({ error: '伺服器還沒設定 OPENAI_API_KEY 環境變數,請先在部署平台設定金鑰。' });
@@ -630,7 +631,7 @@ app.get('/api/admin/export', async (req, res) => {
   if (format !== 'csv' && format !== 'json') return res.status(400).json({ error: 'format 必須是 csv 或 json。' });
   try {
     const pid = typeof req.query.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(req.query.pid) ? req.query.pid : null;
-    const group = req.query.group === 'A' || req.query.group === 'B' ? req.query.group : null;
+    const group = records.GROUPS.includes(req.query.group) ? req.query.group : null;
     const list = await records.loadRecords(studyDb(), { pid, group });
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     res.set('Cache-Control', 'no-store');

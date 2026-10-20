@@ -81,7 +81,17 @@ photo-upload-site/
 - B 組:照片上的數量是盤子上的數量,不等於吃了幾個。受試者描述可數的菜卻沒說吃了幾個時,AI 會追問一次(例如「照片上大約有 8 隻雞腿,你吃了幾隻呢?」,算進追問次數);受試者回答前熱量顯示「待補數量」,按「完成」時也算「資訊不完整」。
 - 存檔:每道菜存 AI 數的數量(`aiOriginal.count`)、最後的數量(`count`)、單位(`countUnit`)和改了幾次(`countEdits`);CSV 匯出多了 `aiCount`、`finalCount`、`countUnit`、`countEdits` 四欄。
 
-## B 組(對話組)Page 4
+## 三個實驗組
+
+| 組別 | 網址參數 | Page 4 的回報方式 |
+|---|---|---|
+| A 傳統組 | `?group=A`(預設) | 清單按鈕填 5 個欄位 |
+| B 對話組 | `?group=B` | 和 AI 對話,沒有提示按鈕 |
+| C 對話+情境提示組 | `?group=C` | 和 B 組相同的對話,輸入框正上方多一排最多 4 個提示按鈕 |
+
+組別和 A、B 一樣記在這台裝置(localStorage `pictameal:studyGroup`),網址參數優先;畫面上不會顯示組別。Page 1~3 三組完全相同。
+
+## B 組(對話組)與 C 組(對話+情境提示組)Page 4
 
 B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同一套照片/圓圈/標籤,只把填寫面板換成對話)。
 
@@ -89,15 +99,17 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 - AI 只整理使用者說的話,轉成和 A 組完全一樣的 5 個欄位(容器、尺寸、烹調方式、糖、鹽);說不清楚時一次只追問一個具體問題(主要是份量),不會為了填滿欄位追問容器、糖、鹽。
 - 熱量沿用 `calorie.js`:有尺寸(公克/毫升品項還要有容器)就計算,否則顯示「待補份量」。熱量由程式顯示在照片標籤、AI 回覆下方的熱量標籤和底部整餐熱量,AI 的文字裡不會出現任何數字。
 - 選菜時輸入列上方顯示該道菜的裁切縮圖(整餐顯示整張照片),送出的「我點選了 X」訊息也附縮圖;存檔只記菜的編號。等待 AI 時顯示「正在整理…」動畫並暫停輸入。AI 不會說「已記錄完成」,使用者沒有要補充時會提醒按「完成」。
-- 「完成」隨時可按;有菜沒描述或缺尺寸時會先確認。存檔包含完整對話、訊息數、追問次數、每道菜的備註、新增和更名的菜。日記卡片顯示熱量與備註,沒有 ✏️ 編輯(要修改請回到對話)。
+- 「完成」隨時可按;有菜沒描述或缺尺寸時會先確認。存檔包含完整對話、訊息數、追問次數、每道菜的備註、新增和更名的菜。日記卡片顯示熱量與備註,沒有 ✏️ 編輯(要修改請回到對話)。B、C 組的日記卡片相同。
+- **拒答無關問題(B、C 組)**:AI 只處理這一餐的飲食紀錄。使用者問寫作業、寫程式、翻譯、閒聊、時事、要它扮演其他角色或忽略規則時,一律只回「我只能協助記錄這一餐吃了什麼喔～請告訴我你吃了哪些食物、吃了多少。」,不改任何菜的欄位,也沒有提示按鈕;回應帶 `offTopic: true`,存檔記次數。
+- **C 組提示按鈕**:每次 AI 回覆後換成新的一組(0~4 個,沒有就隱藏),依對話情境和選取的菜提示「下一句可能想說的」,例如剛描述完一道菜時是「這道很鹹」「我只吃一半」「分量比較多」「加了很多醬」,問數量時是「吃了 2 個」「全部吃完」;用使用者的口吻,不含熱量、營養數字或健康建議。點按鈕 = 把按鈕文字當成使用者訊息直接送出(和打字送出完全一樣,也套用目前選取的菜)。等待 AI 回覆時按鈕隱藏。按鈕一排橫向排列,放不下時可以橫向捲動。
 
-**`POST /api/chat` 的規則**:輸入菜色清單(編號、菜名、已記錄的欄位)、目前選取的菜或「整餐」、最近 12 則對話、這句話;回傳 `reply`、`updates`、`notes`、`newDishes`、`renameDishes`、`isClarification`。後端會檢查每個欄位值都在允許的選項內(飲料用飲料的烹調方式),不合法的直接丟掉;回覆中提到熱量或營養素的句子會被移除。使用 `OPENAI_MODEL`、`max_completion_tokens`,不設 temperature。
+**`POST /api/chat` 的規則**:輸入 `group`(`'B'` 或 `'C'`,其他值一律當 `'B'`)、菜色清單(編號、菜名、已記錄的欄位)、目前選取的菜或「整餐」、最近 12 則對話、這句話(後端截斷到 500 字,含「我點選了 X。」前綴);回傳 `reply`、`updates`、`notes`、`newDishes`、`renameDishes`、`isClarification`、`offTopic`,C 組另外有 `suggestions`(和回覆是同一次 AI 呼叫產生,不多呼叫)。後端會檢查每個欄位值都在允許的選項內(飲料用飲料的烹調方式),不合法的直接丟掉;回覆中提到熱量或營養素的句子會被移除。`suggestions` 只保留字串、去掉頭尾空白、最多 4 個、每個最多 10 字(超過的整個丟掉),含熱量/營養/健康字眼的也丟掉;B 組回應裡一律沒有 `suggestions`。`offTopic: true` 時後端強制改成固定的拒答句、清空所有更新。使用 `OPENAI_MODEL`、`max_completion_tokens`(900),不設 temperature。
 
 ## 研究資料(Firestore)
 
 每一餐按「完成」後,整筆紀錄會由後端寫進 Firebase Firestore。**只有後端(服務帳戶)能寫入**;前端沒有任何 Firebase 金鑰或設定,Firestore 安全規則維持拒絕所有前端讀寫。
 
-**受試者網址**:`https://lima-cgu.github.io/-/?group=A&pid=P001`(B 組換成 `group=B`)。`pid` 和 `group` 一樣會記在這台裝置上(網址參數優先),沒有帶就是 `TEST`。畫面上不會顯示 pid 和組別。
+**受試者網址**:`https://lima-cgu.github.io/-/?group=A&pid=P001`(B 組換成 `group=B`,C 組換成 `group=C`)。`pid` 和 `group` 一樣會記在這台裝置上(網址參數優先),沒有帶就是 `TEST`。畫面上不會顯示 pid 和組別。
 
 **存了什麼**(`meals` collection,文件 ID = 紀錄 ID):
 - `id`、`pid`、`group`、`appVersion`(= sw.js 的 CACHE_NAME)、`userAgent`
@@ -105,7 +117,9 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 - `aiDetections`:AI 原始辨識(菜名、信心度、框座標);每道菜的 `aiOriginal`
 - `dishes`:最後的菜名、5 個欄位(`detail`)、熱量結果(`nutrition`);`nutrition`:整餐熱量
 - `editLog`:`renameCount`(改菜名次數)、`fieldSetCount`(選欄位次數)、`fieldChangeCount`(把已填的值改掉的次數)、`deletedDishes`、`addedDishes`;之後在日記上修改會再加上 `diaryEditCount`、`diaryDeletedDishes`,並以同一個 ID 重新上傳
-- B 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;訊息數、追問次數、新增與更名的菜),每道菜的 `notes`、`renamedFrom`
+- `group`:`A`、`B` 或 `C`
+- B、C 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;`messageCount`、`userMessageCount`、`clarificationCount`、`offTopicCount`(被拒答次數)、新增與更名的菜),每道菜的 `notes`、`renamedFrom`。每則使用者訊息有 `source`:`typed`(自己打字,含語音輸入)或 `suggestion`(點提示按鈕);被拒答的 AI 訊息有 `offTopic: true`
+- C 組另外:`chat.suggestionShownCount`(總共顯示過幾個按鈕)、`chat.suggestionTapCount`(點了幾次)、`chat.suggestionTaps`(每次點的按鈕文字與時間);每則 AI 訊息存當時顯示的 `suggestions`
 - `apiErrors`:API 錯誤(哪個 API、時間、訊息);`upload`:上傳嘗試次數與失敗原因
 - 後端加上:`receivedAt`、`firstReceivedAt`、`uploadCount`、`photoStored`、`photoBytes`;在日記刪掉整餐時會標記 `deletedFromDiary`(資料保留)
 
@@ -124,7 +138,7 @@ Invoke-WebRequest "$api/api/admin/export?format=json" -Headers $h -OutFile meals
 Invoke-WebRequest "$api/api/admin/photo?id=紀錄ID"     -Headers $h -OutFile 紀錄ID.jpg
 ```
 
-可加 `&pid=P001` 或 `&group=A` 只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、各時間與耗時、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B 組訊息數與追問次數、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
+可加 `&pid=P001` 或 `&group=A`(`B`、`C` 也可以)只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、各時間與耗時、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B/C 組訊息數與追問次數、`suggestionShownCount`、`suggestionTapCount`(只有 C 組有值)、`offTopicCount`(B/C 組)、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
 
 **在 Firebase 後台看紀錄**:[Firebase Console](https://console.firebase.google.com/) → 專案 **pictameal** → 左側「Firestore Database」→「資料」分頁 → `meals`(每餐一份)、`photos`(照片)。點文件就能看到所有欄位。
 

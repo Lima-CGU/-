@@ -2368,6 +2368,36 @@ body.candidate-sheet-open .toast{
 .chat-total-note[hidden], .chat-sel-chip[hidden]{ display: none; }
 .chat-sel-chip{ color: #0b6b4f; display: flex; align-items: center; gap: 8px; margin-top: 0; }
 .chat-sel-chip[hidden]{ display: none; }
+/* Group C: suggestion buttons right above the input — one row, scrolls
+   sideways when the four don't fit */
+.chat-suggest-row{
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 0 -2px;
+  padding: 2px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-suggest-row::-webkit-scrollbar{ display: none; }
+.chat-suggest-row[hidden]{ display: none; }
+.chat-suggest-btn{
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1.5px solid var(--purple);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--purple-deep);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-suggest-btn:active{ background: var(--purple-soft); }
+.chat-suggest-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
 .chat-input-row{ display: flex; align-items: flex-end; gap: 8px; }
 .chat-input{
   flex: 1;
