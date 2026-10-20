@@ -247,7 +247,8 @@
         <button class="btn btn-primary report-next-dish-btn" id="reportNextDishBtn" type="button" hidden>下一道 ›</button>
         <button class="btn btn-primary btn-full" id="reportDoneBtn" type="button" hidden disabled>完成</button>
       </div>
-      <!-- Group B (chat) only: meal total + 完成, then the input row -->
+      <!-- Groups B and C (chat) only: meal total + 完成, then the input row
+           (Group C: suggestion buttons right above it) -->
       <div class="screen-foot chat-foot">
         <div class="chat-total-row">
           <div class="chat-total">
@@ -258,6 +259,7 @@
         </div>
         <div class="chat-total-note" id="chatTotalNote" hidden></div>
         <div class="chat-sel-chip" id="chatSelChip" hidden></div>
+        <div class="chat-suggest-row" id="chatSuggestRow" hidden></div>
         <form class="chat-input-row" id="chatForm" autocomplete="off">
           <button type="button" class="chat-mic-btn" id="chatMicBtn" aria-label="語音輸入">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>

@@ -55,16 +55,19 @@
   const STUDY_GROUP_STORAGE_KEY = 'pictameal:studyGroup';
   const STUDY_GROUP = (() => {
     const fromUrl = (new URLSearchParams(location.search).get('group') || '').trim().toUpperCase();
-    if (fromUrl === 'A' || fromUrl === 'B'){
+    if (fromUrl === 'A' || fromUrl === 'B' || fromUrl === 'C'){
       try { localStorage.setItem(STUDY_GROUP_STORAGE_KEY, fromUrl); } catch (err){ /* storage unavailable */ }
       return fromUrl;
     }
     try {
       const saved = localStorage.getItem(STUDY_GROUP_STORAGE_KEY);
-      if (saved === 'A' || saved === 'B') return saved;
+      if (saved === 'A' || saved === 'B' || saved === 'C') return saved;
     } catch (err){ /* storage unavailable */ }
     return 'A';
   })();
+  // B (chat) and C (chat + suggestion buttons) share the chat page
+  const CHAT_GROUPS = ['B', 'C'];
+  const IS_CHAT_GROUP = CHAT_GROUPS.includes(STUDY_GROUP);
 
   // Participant id for the study data — like the group: ?pid=P001 wins and
   // is remembered (localStorage); otherwise the saved one; otherwise "TEST".
@@ -576,9 +579,9 @@
     editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
 
     // Group A reports with buttons only — no voice entry point anywhere
-    // Group B records come from the chat — to change them, go back to the
+    // Group B / C records come from the chat — to change them, go back to the
     // chat; their cards keep only 刪除
-    const chatRecord = !!(meta && meta.record && meta.record.group === 'B');
+    const chatRecord = !!(meta && meta.record && CHAT_GROUPS.includes(meta.record.group));
     if (STUDY_GROUP === 'A') actionsTop.append(editBtn);
     else if (!chatRecord) actionsTop.append(micBtn, editBtn);
 
@@ -2187,7 +2190,8 @@
   }
 
   // Page 3 -> Page 4. Group A fills in each dish on its own Page 4 (report
-  // screen); Group B reports by chatting, on the same screen in chat mode.
+  // screen); Groups B and C report by chatting, on the same screen in chat
+  // mode (C also gets suggestion buttons above the input).
   // The group goes onto the record.
   recognizeNextBtn.addEventListener('click', async () => {
     if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
@@ -2196,7 +2200,7 @@
       enterReportMode();
       return;
     }
-    if (STUDY_GROUP === 'B'){
+    if (IS_CHAT_GROUP){
       enterChatMode();
       return;
     }
@@ -2992,7 +2996,8 @@
     goToScreen('start');
   });
 
-  /* ---------- Page 4, Group B: report by chatting with the AI ----------
+  /* ---------- Page 4, Groups B and C: report by chatting with the AI ----------
+     (Group C = the same chat plus suggestion buttons above the input.)
      Same screen and photo stage as Group A (markers, labels, zoom, label
      calorie lines) with .report-chat: the field panel is replaced by a
      conversation. Each turn goes to POST /api/chat, which returns Group A's
@@ -3009,6 +3014,7 @@
   const chatTotalNum   = document.getElementById('chatTotalNum');
   const chatTotalNote  = document.getElementById('chatTotalNote');
   const chatSelChip    = document.getElementById('chatSelChip');
+  const chatSuggestRow = document.getElementById('chatSuggestRow');
   const CHAT_HISTORY_SENT = 12;      // recent messages sent with each turn
   const CHAT_TIMEOUT_MS = 45000;
 
@@ -3018,6 +3024,10 @@
   let chatBusy = false;
   let chatRenames = [];    // [{ no, from, to }]
   let chatRecognition = null;
+  // Group C: the suggestion buttons from the latest AI reply
+  let chatSuggestions = [];
+  let chatSuggestionShownCount = 0;
+  let chatSuggestionTaps = []; // [{ text, at }]
 
   const CHAT_AI_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v4M9 13h.01M15 13h.01M10 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="4" r="1" fill="currentColor"/></svg>';
   const CHAT_USER_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
@@ -3053,7 +3063,35 @@
     chatBusy = false;
     chatLog.textContent = '';
     chatInput.value = '';
+    chatSuggestionShownCount = 0;
+    chatSuggestionTaps = [];
+    renderChatSuggestions([]);
     stopChatListening();
+  }
+
+  /* Group C: up to 4 buttons right above the input, replaced after every AI
+     reply and hidden when there are none. Tapping one sends its text exactly
+     as if it had been typed (with the current selection). */
+  function renderChatSuggestions(list){
+    chatSuggestions = STUDY_GROUP === 'C' && Array.isArray(list) ? list.slice(0, 4) : [];
+    chatSuggestRow.textContent = '';
+    chatSuggestRow.hidden = !chatSuggestions.length;
+    chatSuggestRow.scrollLeft = 0;
+    chatSuggestions.forEach(text => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chat-suggest-btn';
+      btn.textContent = text;
+      btn.disabled = chatBusy || isSavingMeal;
+      btn.addEventListener('click', () => {
+        if (chatBusy || isSavingMeal) return;
+        stopChatListening();
+        chatSuggestionTaps.push({ text, at: new Date().toISOString() });
+        sendChat(text, 'suggestion');
+      });
+      chatSuggestRow.appendChild(btn);
+    });
+    chatSuggestionShownCount += chatSuggestions.length;
   }
 
   // Leaving the chat page (save, camera, new photo): back to plain Page 4.
@@ -3224,7 +3262,8 @@
     }));
   }
 
-  async function sendChat(text){
+  // source: 'typed' (text box, incl. 🎤 dictation) or 'suggestion' (a Group C button)
+  async function sendChat(text, source = 'typed'){
     if (chatBusy) return;
     const sel = chatSelection();
     const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${text}`
@@ -3232,9 +3271,11 @@
     const history = chatMessages.slice(-CHAT_HISTORY_SENT).map(m => ({ role: m.role, content: m.content }));
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,
-      thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null
+      thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null,
+      meta: { source }
     });
-    chatInput.value = '';
+    if (source === 'typed') chatInput.value = '';
+    renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
     if (reportSelectedId) selectReportDish(null);
@@ -3258,7 +3299,7 @@
       const res = await fetch(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dishes: chatDishesPayload(), selected: sel ? { type: sel.type, no: sel.no } : null, history, message: content }),
+        body: JSON.stringify({ group: STUDY_GROUP === 'C' ? 'C' : 'B', dishes: chatDishesPayload(), selected: sel ? { type: sel.type, no: sel.no } : null, history, message: content }),
         signal: ctrl.signal
       });
       data = await res.json().catch(() => null);
@@ -3286,10 +3327,13 @@
       dishIds: touched.map(d => d.id),
       meta: {
         isClarification: !!data.isClarification,
+        offTopic: !!data.offTopic,
         latencyMs,
-        updates: data.updates, notes: data.notes, newDishes: data.newDishes, renameDishes: data.renameDishes
+        updates: data.updates, notes: data.notes, newDishes: data.newDishes, renameDishes: data.renameDishes,
+        ...(STUDY_GROUP === 'C' ? { suggestions: Array.isArray(data.suggestions) ? data.suggestions.slice(0, 4) : [] } : {})
       }
     });
+    renderChatSuggestions(data.suggestions);
   }
 
   function updateChatBusy(){
@@ -3297,6 +3341,7 @@
     chatInput.disabled = chatBusy;
     chatMicBtn.disabled = chatBusy;
     chatDoneBtn.disabled = chatBusy || isSavingMeal;
+    chatSuggestRow.querySelectorAll('button').forEach(b => { b.disabled = chatBusy || isSavingMeal; });
   }
 
   // Applies one /api/chat answer; returns the dishes it touched (in order).
@@ -3471,6 +3516,12 @@
           messageCount: chatMessages.length,
           userMessageCount: chatMessages.filter(m => m.role === 'user').length,
           clarificationCount: chatMessages.filter(m => m.isClarification).length,
+          offTopicCount: chatMessages.filter(m => m.offTopic).length,
+          ...(STUDY_GROUP === 'C' ? {
+            suggestionShownCount: chatSuggestionShownCount,
+            suggestionTapCount: chatSuggestionTaps.length,
+            suggestionTaps: chatSuggestionTaps.map(t => ({ ...t }))
+          } : {}),
           newDishes: chatExtraDets.map(d => d.name),
           renamedDishes: chatRenames.map(r => ({ ...r }))
         }

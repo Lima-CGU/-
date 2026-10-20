@@ -21,6 +21,9 @@ const MAX_RECORD_BYTES = 900 * 1024;
 const MAX_PHOTO_BYTES = 900 * 1024;
 const MAX_DEPTH = 12;
 const MAX_STRING = 5000;
+// A = buttons/options, B = chat, C = chat + suggestion buttons
+const GROUPS = ['A', 'B', 'C'];
+const CHAT_GROUPS = ['B', 'C'];
 const SAVE_PHOTOS = !/^(0|false|no|off)$/i.test(process.env.SAVE_PHOTOS || '');
 
 class BadRequest extends Error {}
@@ -55,7 +58,7 @@ function validateRecord(r){
   need(isObj(r), 'record must be an object');
   need(typeof r.id === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(r.id), 'record.id: 8–80 letters, digits, - or _');
   need(typeof r.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(r.pid), 'record.pid: 1–40 letters, digits, - or _');
-  need(r.group === 'A' || r.group === 'B', 'record.group must be "A" or "B"');
+  need(GROUPS.includes(r.group), 'record.group must be "A", "B" or "C"');
   need(typeof r.appVersion === 'string' && r.appVersion.length <= 80, 'record.appVersion must be a string');
   need(r.userAgent == null || (typeof r.userAgent === 'string' && r.userAgent.length <= 600), 'record.userAgent must be a string');
   need(isObj(r.times), 'record.times must be an object');
@@ -163,6 +166,7 @@ const CSV_COLUMNS = [
   'kcal', 'nutritionStatus', 'match', 'matchedName', 'nutritionSource',
   'proteinG', 'fatG', 'carbohydrateG', 'sodiumMg', 'notes',
   'mealTotalKcal', 'messageCount', 'userMessageCount', 'clarificationCount',
+  'suggestionShownCount', 'suggestionTapCount', 'offTopicCount',
   'renameCount', 'fieldChangeCount', 'fieldSetCount', 'deletedDishes', 'addedDishes',
   'apiErrorCount', 'deletedFromDiary', 'photoStored', 'firstReceivedAt', 'receivedAt'
 ];
@@ -179,13 +183,18 @@ function toCsv(records){
   const rows = [CSV_COLUMNS.join(',')];
   for (const r of records){
     const t = r.times || {}, e = r.editLog || {}, c = r.chat || {};
+    const chat = CHAT_GROUPS.includes(r.group);
     const meal = {
       recordId: r.id, pid: r.pid, group: r.group, appVersion: r.appVersion,
       startedAt: t.startedAt, nextAt: t.nextAt, doneAt: t.doneAt, durationSec: t.durationSec,
       mealTotalKcal: r.nutrition ? r.nutrition.totalKcal : null,
-      messageCount: r.group === 'B' ? c.messageCount : null,
-      userMessageCount: r.group === 'B' ? c.userMessageCount : null,
-      clarificationCount: r.group === 'B' ? c.clarificationCount : null,
+      messageCount: chat ? c.messageCount : null,
+      userMessageCount: chat ? c.userMessageCount : null,
+      clarificationCount: chat ? c.clarificationCount : null,
+      // suggestion buttons exist only in Group C
+      suggestionShownCount: r.group === 'C' ? c.suggestionShownCount ?? 0 : null,
+      suggestionTapCount: r.group === 'C' ? c.suggestionTapCount ?? 0 : null,
+      offTopicCount: chat ? c.offTopicCount ?? 0 : null,
       renameCount: e.renameCount, fieldChangeCount: e.fieldChangeCount, fieldSetCount: e.fieldSetCount,
       deletedDishes: names(e.deletedDishes), addedDishes: names(e.addedDishes),
       apiErrorCount: Array.isArray(r.apiErrors) ? r.apiErrors.length : 0,
@@ -221,4 +230,4 @@ async function getPhoto(db, id){
   return snap.get('data');
 }
 
-module.exports = { saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, getPhoto, BadRequest, MEALS, PHOTOS };
+module.exports = { GROUPS, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, getPhoto, BadRequest, MEALS, PHOTOS };
