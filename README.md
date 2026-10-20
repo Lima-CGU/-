@@ -109,11 +109,12 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 
 每一餐按「完成」後,整筆紀錄會由後端寫進 Firebase Firestore。**只有後端(服務帳戶)能寫入**;前端沒有任何 Firebase 金鑰或設定,Firestore 安全規則維持拒絕所有前端讀寫。
 
-**受試者網址**:`https://lima-cgu.github.io/-/?group=A&pid=P001`(B 組換成 `group=B`,C 組換成 `group=C`)。`pid` 和 `group` 一樣會記在這台裝置上(網址參數優先),沒有帶就是 `TEST`。畫面上不會顯示 pid 和組別。
+**受試者網址**:`https://lima-cgu.github.io/-/?group=A&pid=P001&meal=M01`(B 組換成 `group=B`,C 組換成 `group=C`)。`pid` 和 `group` 一樣會記在這台裝置上(網址參數優先),沒有帶就是 `TEST`。`meal` 是便當編號(英數字、`-`、`_`,最多 20 字),一樣記在這台裝置上(localStorage `pictameal:mealId`),沒有帶就是空字串;換便當時開新的 `meal=` 網址即可。畫面上不會顯示 pid、組別和便當編號。
 
 **存了什麼**(`meals` collection,文件 ID = 紀錄 ID):
-- `id`、`pid`、`group`、`appVersion`(= sw.js 的 CACHE_NAME)、`userAgent`
-- `times`:`startedAt`(確認照片、進入辨識)、`nextAt`(Page 3 按「下一步」)、`doneAt`(按「完成」)、`durationSec`
+- `id`、`pid`、`group`、`mealId`(便當編號)、`appVersion`(= sw.js 的 CACHE_NAME)、`userAgent`
+- `times`:`startedAt`(確認照片、進入辨識)、`nextAt`(Page 3 按「下一步」)、`doneAt`(按「完成」)、`durationSec`;以及事件算出的 `taskStartAt`、`photoConfirmedAt`、`aiDraftAt`、`firstEditAt`、`finalConfirmedAt`、`totalSec`、`correctionSec`、`aiProcessingSec`、`preEditDelaySec`(見下方「計時與操作事件紀錄」)
+- `events`(操作事件)、`userActionCount`(見下方)
 - `aiDetections`:AI 原始辨識(菜名、信心度、框座標);每道菜的 `aiOriginal`
 - `dishes`:最後的菜名、5 個欄位(`detail`)、熱量結果(`nutrition`);`nutrition`:整餐熱量
 - `editLog`:`renameCount`(改菜名次數)、`fieldSetCount`(選欄位次數)、`fieldChangeCount`(把已填的值改掉的次數)、`deletedDishes`、`addedDishes`;之後在日記上修改會再加上 `diaryEditCount`、`diaryDeletedDishes`,並以同一個 ID 重新上傳
@@ -135,10 +136,11 @@ $h = @{ Authorization = "Bearer $env:ADMIN_TOKEN" }
 $api = "https://xianghu-backend.onrender.com"
 Invoke-WebRequest "$api/api/admin/export?format=csv"  -Headers $h -OutFile meals.csv    # 一道菜一列,Excel 可直接開
 Invoke-WebRequest "$api/api/admin/export?format=json" -Headers $h -OutFile meals.json   # 完整紀錄(不含照片)
+Invoke-WebRequest "$api/api/admin/export?format=events" -Headers $h -OutFile events.csv  # 一個事件一列
 Invoke-WebRequest "$api/api/admin/photo?id=紀錄ID"     -Headers $h -OutFile 紀錄ID.jpg
 ```
 
-可加 `&pid=P001` 或 `&group=A`(`B`、`C` 也可以)只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、各時間與耗時、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B/C 組訊息數與追問次數、`suggestionShownCount`、`suggestionTapCount`(只有 C 組有值)、`offTopicCount`(B/C 組)、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
+可加 `&pid=P001`、`&group=A`(`B`、`C` 也可以)或 `&meal=M01` 只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、`mealId`、各時間與耗時(含 `totalSec`、`correctionSec`、`aiProcessingSec`、`preEditDelaySec`)、`userActionCount`、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B/C 組訊息數與追問次數、`suggestionShownCount`、`suggestionTapCount`(只有 C 組有值)、`offTopicCount`(B/C 組)、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
 
 **在 Firebase 後台看紀錄**:[Firebase Console](https://console.firebase.google.com/) → 專案 **pictameal** → 左側「Firestore Database」→「資料」分頁 → `meals`(每餐一份)、`photos`(照片)。點文件就能看到所有欄位。
 
@@ -152,7 +154,81 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 **ADMIN_TOKEN 怎麼產生**:在自己電腦執行 `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`,把輸出的 43 個字元貼到 Render → Environment → `ADMIN_TOKEN`。不要寫進 repo,也不要貼在聊天或文件裡;只給需要下載資料的研究助理。
 
+## 計時與操作事件紀錄(A、B、C 三組)
+
+每一餐的紀錄多了 `events` 陣列(依發生順序),每一筆:
+
+`{ seq, event, at, elapsedMs, page, actor, target, field, before, after, attemptId, source, status, detail }`
+
+- `at`:ISO 8601 時間;`elapsedMs`:從 `task_start` 起算的毫秒(用 `performance.now()`,不受裝置時鐘調整影響)
+- `page`:`start`、`camera`、`review`、`recognize`(Page 3)、`report`(A 組 Page 4)、`chat`(B/C 組 Page 4)、`diary`
+- `actor`:`user`(受試者)、`system`(程式)、`ai`(AI 的結果顯示出來)
+- `target`:菜的編號(和照片上的圓圈編號相同;B/C 組含對話新增的菜),整餐是 `'meal'`,沒有對象是 `null`
+- `source`:只有 `message_submitted` 有,`typed`(打字)、`voice`(用 🎤 語音輸入到輸入框再送出)、`suggestion`(點 C 組提示按鈕)
+- `status`:`success`、`failed`、`cancelled`
+- **隱私**:事件裡不放對話原文(原文在 `chat.messages`);`message_submitted` 只記字數。A 組的 `before`/`after` 記菜名和欄位值。
+- **上限**:每餐最多 3000 筆;到上限時最後一筆是 `error`(`detail.reason = 'event-limit'`),之後不再記錄,紀錄上標 `eventsCapped: true`。整筆紀錄若超過上傳上限(約 850 KB),會從後面截掉事件並標 `eventsTruncated: { kept, total }`。
+
+**事件清單**
+
+| 事件 | actor | 什麼時候 |
+|---|---|---|
+| `task_start` | user | 在開始畫面按「開始拍照」。還沒確認照片就回到開始畫面再按一次,算同一個任務;已確認過照片(那一餐沒完成就離開)再按,會開始新的任務。沒按「開始拍照」就確認照片時,在確認照片時補記(`detail.noStartTap: true`)。 |
+| `page_view` | system | 每次切換畫面(`detail.from` = 上一個畫面) |
+| `photo_confirmed` | user | 按「確認上傳・開始辨識」(`detail.source` = camera / library) |
+| `ai_request_started` | system | 送出 `/api/detect` |
+| `ai_draft_displayed` | ai | 辨識結果(圓圈+菜名)畫在 Page 3 上(`detail.dishCount`、`latencyMs`) |
+| `ai_request_failed` | system | 辨識失敗 |
+| `item_selected` | user / system | 點選一道菜(A:點圓圈、按「下一道」;新增菜色後自動選取記 system。B/C:點圓圈或「+ 整餐/其他」,`detail.deselect` = 是不是取消選取) |
+| `edit_opened` | user / system | A 組:選菜後欄位面板自動打開記 system;按鉛筆改菜名記 user |
+| `field_set` / `field_changed` | user | A 組:第一次選某欄位(`before = null`)/ 把已選的值改掉 |
+| `dish_renamed` | user | A 組:改菜名(before/after = 舊/新菜名;`detail.inputType` = `typed` 自己打字 / `picked` 從候選清單選) |
+| `count_changed` | user | A 組:數量 −/+ |
+| `dish_added` / `dish_deleted` | user | A 組:點照片新增一道菜 / 確認刪除 |
+| `message_submitted` | user | B/C 組:送出一則訊息(含點提示按鈕) |
+| `ai_response_displayed` | ai | B/C 組:AI 回覆顯示(`detail`:`isClarification`、`offTopic`、`updatedDishes`、`latencyMs`…) |
+| `record_updated` | system | B/C 組:AI 改了某道菜,每道菜一筆;`field` = 改了哪些欄位,`before`/`after` = 那些欄位的前後值;新增的菜 `before = null` |
+| `suggestion_shown` | system | C 組:顯示一組提示按鈕(`detail.texts`) |
+| `final_confirmed` | user | 按「完成」(連點只記一次;B/C 組在「資訊不完整」確認框按確定之後) |
+| `back` | user | 鏡頭畫面回首頁、重拍、Page 4 按相機離開 |
+| `cancel` | user | 取消刪除、取消改菜名、取消新增菜色、離開確認框按取消、「完成」確認框按取消 |
+| `error` | system | API 失敗或重試(`detail.api`) |
+
+**attemptId(一次修正嘗試)**:`C01`、`C02`…,每一餐從 01 開始。B/C 組每送出一則訊息是一次嘗試,之後的 `ai_response_displayed`、`record_updated`、`suggestion_shown`(和失敗的 `error`)沿用同一個 attemptId。A 組沒有「儲存」按鈕,點一下選項就立刻生效,所以**每一次生效的修改是一次嘗試**:`field_set`、`field_changed`、`dish_renamed`、`count_changed`、`dish_added`、`dish_deleted` 各自拿一個新的 attemptId;選菜、打開面板、取消不算嘗試。
+
+**`times` 新增的欄位**(原本的 `startedAt`、`nextAt`、`doneAt`、`durationSec` 保留):
+
+| 欄位 | 意思 |
+|---|---|
+| `taskStartAt`、`photoConfirmedAt`、`aiDraftAt`、`finalConfirmedAt` | 對應事件第一次發生的時間 |
+| `firstEditAt` | `ai_draft_displayed` 之後第一個使用者的修改或送出(`field_set`、`field_changed`、`dish_renamed`、`count_changed`、`dish_added`、`dish_deleted`、`message_submitted`;選菜不算);沒有就是 `null` |
+| `totalSec` | task_start → final_confirmed |
+| `correctionSec` | ai_draft_displayed → final_confirmed |
+| `aiProcessingSec` | photo_confirmed → ai_draft_displayed |
+| `preEditDelaySec` | ai_draft_displayed → firstEdit;沒有修改就是 `null` |
+
+秒數由 `elapsedMs` 相減,取到小數一位。
+
+**`userActionCount`(暫定規則,之後分析可能調整)**:三組用同一套計數原則——**點選食物 = 1、完成一次文字輸入 = 1、按送出/確認 = 1**。計算範圍是 `ai_draft_displayed` 到 `final_confirmed`(含)之間 `actor = user` 的事件:
+
+| 事件 | 計數 |
+|---|---|
+| `item_selected`(A 組點圓圈/「下一道」;B/C 組點圓圈或「+ 整餐/其他」,取消選取也算) | 1 |
+| `edit_opened`(只算使用者自己點開的,例如按鉛筆) | 1 |
+| `field_set`、`field_changed`、`count_changed`、`dish_added`、`dish_deleted` | 各 1 |
+| `dish_renamed`:`inputType = typed`(自己打字 + 確認) | 2 |
+| `dish_renamed`:`inputType = picked`(從清單選) | 1 |
+| `message_submitted`:`source = typed` 或 `voice`(文字輸入 + 送出) | 2 |
+| `message_submitted`:`source = suggestion`(點提示按鈕直接送出) | 1 |
+| `final_confirmed` | 1 |
+
+`page_view`、`back`、`cancel`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
+
+**下載事件**:`format=events` 是一列一個事件的 CSV(`recordId`、`pid`、`group`、`mealId` + 事件所有欄位;`before`/`after`/`detail` 是 JSON 字串),一樣需要 ADMIN_TOKEN,也可以用 `pid`、`group`、`meal` 篩選。
+
 ## 本機預覽
+
+**快取策略(`sw.js`)**:`index.html`、`script.js`、`style.css`、`calorie.js`、`sync.js`、`manifest.json`、`sw.js` 和頁面導覽請求是 **network-first**:先抓網路上的最新版(`cache: 'no-cache'`,連瀏覽器的 HTTP 快取也會向伺服器確認),抓到就更新快取;只有離線時才用快取。這樣不會出現「舊的 index.html 配新的 script.js」而讓按鈕沒反應。圖片和 icon 維持 cache-first。前端每次改版仍要把 `CACHE_NAME` 加 1。另外,script.js 用到、但舊版頁面可能沒有的元素(例如 C 組的提示按鈕列),程式會先檢查,不存在就跳過。
 
 ```bash
 cd photo-upload-site
