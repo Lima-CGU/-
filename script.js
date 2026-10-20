@@ -3606,8 +3606,14 @@
     touched.forEach(det => {
       const b = beforeSnaps.get(det) || null;
       const a = snap(det);
+      const autoSize = chatAutoSized.has(det) && !(b && b.size) && a.size === 'M';
       const keys = [...new Set([...Object.keys(b || {}), ...Object.keys(a)])]
-        .filter(k => k !== 'notes' && (b ? b[k] ?? null : null) !== (a[k] ?? null));
+        .filter(k => k !== 'notes' && !(autoSize && k === 'size') && (b ? b[k] ?? null : null) !== (a[k] ?? null));
+      // the size the system filled in from a count: its own event
+      if (autoSize) logEvent('record_updated', {
+        actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: null, after: 'M',
+        detail: { auto: 'size-from-count', newDish: !b }
+      });
       const notesAdded = a.notes - (b ? b.notes : 0);
       if (!keys.length && !notesAdded && b) return; // touched, but nothing changed
       logEvent('record_updated', {
@@ -3629,8 +3635,12 @@
     if (chatSuggestRow) chatSuggestRow.querySelectorAll('button').forEach(b => { b.disabled = chatBusy || isSavingMeal; });
   }
 
+  // Dishes whose size the last applyChatResult filled in from a count
+  // (record_updated with detail.auto 'size-from-count')
+  let chatAutoSized = new Set();
   // Applies one /api/chat answer; returns the dishes it touched (in order).
   function applyChatResult(data){
+    chatAutoSized = new Set();
     const all = chatAllDets();
     const byNo = no => all[no - 1] || null;
     const touched = [];
@@ -3661,12 +3671,14 @@
       const det = byNo(u.no);
       if (!det) return;
       if (currentMealMeta) Object.entries(u.fields).forEach(([k, v]) => {
+        if (k === 'size' && u.autoSize) return; // filled in by the system, not the user
         const prev = (det.detail || {})[k];
         if (prev === v) return;
         currentMealMeta.editLog.fieldSetCount += 1;
         if (prev) currentMealMeta.editLog.fieldChangeCount += 1;
       });
       det.detail = { ...(det.detail || {}), ...u.fields };
+      if (u.autoSize) chatAutoSized.add(det);
       // "雞腿吃了 4 隻": what the user ate wins over the photo's count
       if (Number.isInteger(u.count)){
         if (u.count !== det.count) det.countEdits = (det.countEdits || 0) + 1;
@@ -3699,7 +3711,19 @@
         chatDescribed: true
       };
       chatExtraDets.push(det);
+      if (nd.autoSize) chatAutoSized.add(det);
       touch(det);
+    });
+
+    // Safety net (backend does the same): a confirmed count with no size
+    // means each one is a normal size -> M, so the calorie can be estimated.
+    // A size the user gave is never replaced (only an empty one is filled).
+    chatAllDets().forEach(det => {
+      if (det.countConfirmed && !(det.detail && det.detail.size)){
+        det.detail = { ...(det.detail || {}), size: 'M' };
+        chatAutoSized.add(det);
+        touch(det);
+      }
     });
 
     // the AI asked how many of this dish were eaten (asked once per dish)
