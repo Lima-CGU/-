@@ -24,6 +24,12 @@ const MAX_STRING = 5000;
 // A = buttons/options, B = chat, C = chat + suggestion buttons
 const GROUPS = ['A', 'B', 'C'];
 const CHAT_GROUPS = ['B', 'C'];
+// timing / interaction events (one list per meal)
+const MAX_EVENTS = 3000;
+const EVENT_ACTORS = ['user', 'system', 'ai'];
+const EVENT_SOURCES = ['typed', 'voice', 'suggestion'];
+const EVENT_STATUSES = ['success', 'failed', 'cancelled'];
+const MEAL_ID_RE = /^[A-Za-z0-9_-]{0,20}$/;
 const SAVE_PHOTOS = !/^(0|false|no|off)$/i.test(process.env.SAVE_PHOTOS || '');
 
 class BadRequest extends Error {}
@@ -42,7 +48,8 @@ function checkValue(v, where, depth, inArray){
   if (typeof v === 'string'){ need(v.length <= MAX_STRING, `${where}: string too long`); return; }
   if (Array.isArray(v)){
     need(!inArray, `${where}: arrays inside arrays are not allowed`);
-    need(v.length <= 1000, `${where}: too many items`);
+    // events may hold up to MAX_EVENTS; every other list stays <= 1000
+    need(v.length <= (where === 'record.events' ? MAX_EVENTS : 1000), `${where}: too many items`);
     v.forEach((x, i) => checkValue(x, `${where}[${i}]`, depth + 1, true));
     return;
   }
@@ -51,6 +58,24 @@ function checkValue(v, where, depth, inArray){
     need(k.length > 0 && k.length <= 100 && !/^__.*__$/.test(k) && !k.includes('/'), `${where}: bad field name "${k.slice(0, 20)}"`);
     checkValue(x, `${where}.${k}`, depth + 1, false);
   }
+}
+
+const optStr = (v, max) => v == null || (typeof v === 'string' && v.length <= max);
+function validateEvent(e, where){
+  need(isObj(e), `${where} must be an object`);
+  need(Number.isInteger(e.seq) && e.seq >= 1, `${where}.seq must be an integer >= 1`);
+  need(typeof e.event === 'string' && /^[a-z_]{1,40}$/.test(e.event), `${where}.event must be a lowercase name`);
+  need(isIso(e.at), `${where}.at must be an ISO date`);
+  need(typeof e.elapsedMs === 'number' && Number.isFinite(e.elapsedMs) && e.elapsedMs >= 0, `${where}.elapsedMs must be a number >= 0`);
+  need(optStr(e.page, 40), `${where}.page must be a string`);
+  need(EVENT_ACTORS.includes(e.actor), `${where}.actor must be user, system or ai`);
+  need(e.target == null || (typeof e.target === 'number' && Number.isFinite(e.target)) || (typeof e.target === 'string' && e.target.length <= 80), `${where}.target must be a number or string`);
+  need(optStr(e.field, 120), `${where}.field must be a string`);
+  need(optStr(e.attemptId, 20), `${where}.attemptId must be a string`);
+  need(e.source == null || EVENT_SOURCES.includes(e.source), `${where}.source must be typed, voice or suggestion`);
+  need(EVENT_STATUSES.includes(e.status), `${where}.status must be success, failed or cancelled`);
+  need(e.detail == null || isObj(e.detail), `${where}.detail must be an object`);
+  // before / after: any JSON value (checked below with the whole record)
 }
 
 /** Throws BadRequest with a reason; returns the record ready to store. */
@@ -76,6 +101,12 @@ function validateRecord(r){
   need(r.apiErrors == null || (Array.isArray(r.apiErrors) && r.apiErrors.length <= 300), 'record.apiErrors must be an array');
   need(r.nutrition == null || isObj(r.nutrition), 'record.nutrition must be an object');
   need(r.chat == null || (isObj(r.chat) && Array.isArray(r.chat.messages)), 'record.chat must be an object with messages');
+  need(r.mealId == null || (typeof r.mealId === 'string' && MEAL_ID_RE.test(r.mealId)), 'record.mealId: up to 20 letters, digits, - or _');
+  for (const k of ['taskStartAt', 'photoConfirmedAt', 'aiDraftAt', 'firstEditAt', 'finalConfirmedAt']) need(r.times[k] == null || isIso(r.times[k]), `record.times.${k} must be an ISO date`);
+  for (const k of ['totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec']) need(r.times[k] == null || (typeof r.times[k] === 'number' && Number.isFinite(r.times[k]) && r.times[k] >= 0), `record.times.${k} must be a number >= 0`);
+  need(r.userActionCount == null || (Number.isInteger(r.userActionCount) && r.userActionCount >= 0), 'record.userActionCount must be an integer >= 0');
+  need(r.events == null || (Array.isArray(r.events) && r.events.length <= MAX_EVENTS), `record.events must be an array (max ${MAX_EVENTS})`);
+  (r.events || []).forEach((e, i) => validateEvent(e, `record.events[${i}]`));
   checkValue(r, 'record', 0, false);
   need(Buffer.byteLength(JSON.stringify(r)) <= MAX_RECORD_BYTES, `record is larger than ${MAX_RECORD_BYTES} bytes`);
   return r;
@@ -147,10 +178,11 @@ function checkAdmin(req){
   return { ok: true };
 }
 
-async function loadRecords(db, { pid, group } = {}){
+async function loadRecords(db, { pid, group, mealId } = {}){
   let q = db.collection(MEALS);
   if (pid) q = q.where('pid', '==', pid);
   if (group) q = q.where('group', '==', group);
+  if (mealId) q = q.where('mealId', '==', mealId);
   const snap = await q.get();
   return snap.docs.map(d => {
     const { receivedAtTs, ...rest } = d.data();
@@ -159,7 +191,8 @@ async function loadRecords(db, { pid, group } = {}){
 }
 
 const CSV_COLUMNS = [
-  'recordId', 'pid', 'group', 'appVersion', 'startedAt', 'nextAt', 'doneAt', 'durationSec',
+  'recordId', 'pid', 'group', 'mealId', 'appVersion', 'startedAt', 'nextAt', 'doneAt', 'durationSec',
+  'totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'userActionCount',
   'dishNo', 'dishSource', 'aiName', 'aiConfidence', 'finalName', 'renamedFrom',
   'containerType', 'size', 'cookingMethod', 'sugar', 'salt',
   'aiCount', 'finalCount', 'countUnit', 'countEdits',
@@ -185,8 +218,10 @@ function toCsv(records){
     const t = r.times || {}, e = r.editLog || {}, c = r.chat || {};
     const chat = CHAT_GROUPS.includes(r.group);
     const meal = {
-      recordId: r.id, pid: r.pid, group: r.group, appVersion: r.appVersion,
+      recordId: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '', appVersion: r.appVersion,
       startedAt: t.startedAt, nextAt: t.nextAt, doneAt: t.doneAt, durationSec: t.durationSec,
+      totalSec: t.totalSec, correctionSec: t.correctionSec, aiProcessingSec: t.aiProcessingSec,
+      preEditDelaySec: t.preEditDelaySec, userActionCount: r.userActionCount,
       mealTotalKcal: r.nutrition ? r.nutrition.totalKcal : null,
       messageCount: chat ? c.messageCount : null,
       userMessageCount: chat ? c.userMessageCount : null,
@@ -223,6 +258,24 @@ function toCsv(records){
   return '﻿' + rows.join('\r\n') + '\r\n';
 }
 
+// format=events: one row per event (every record's events, in order)
+const EVENT_CSV_COLUMNS = [
+  'recordId', 'pid', 'group', 'mealId',
+  'seq', 'event', 'at', 'elapsedMs', 'page', 'actor', 'target', 'field', 'before', 'after',
+  'attemptId', 'source', 'status', 'detail'
+];
+function toEventsCsv(records){
+  const rows = [EVENT_CSV_COLUMNS.join(',')];
+  for (const r of records){
+    for (const e of Array.isArray(r.events) ? r.events : []){
+      if (!isObj(e)) continue;
+      const row = { ...e, recordId: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '' };
+      rows.push(EVENT_CSV_COLUMNS.map(k => csvCell(row[k])).join(','));
+    }
+  }
+  return '﻿' + rows.join('\r\n') + '\r\n';
+}
+
 async function getPhoto(db, id){
   need(typeof id === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(id), 'id is not a record id');
   const snap = await db.collection(PHOTOS).doc(id).get();
@@ -230,4 +283,4 @@ async function getPhoto(db, id){
   return snap.get('data');
 }
 
-module.exports = { GROUPS, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, getPhoto, BadRequest, MEALS, PHOTOS };
+module.exports = { GROUPS, MAX_EVENTS, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, toEventsCsv, getPhoto, BadRequest, MEALS, PHOTOS };

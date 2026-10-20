@@ -628,17 +628,24 @@ app.get('/api/admin/export', async (req, res) => {
   const auth = records.checkAdmin(req);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const format = String(req.query.format || 'json').toLowerCase();
-  if (format !== 'csv' && format !== 'json') return res.status(400).json({ error: 'format 必須是 csv 或 json。' });
+  if (!['csv', 'json', 'events'].includes(format)) return res.status(400).json({ error: 'format 必須是 csv、json 或 events。' });
   try {
     const pid = typeof req.query.pid === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(req.query.pid) ? req.query.pid : null;
     const group = records.GROUPS.includes(req.query.group) ? req.query.group : null;
-    const list = await records.loadRecords(studyDb(), { pid, group });
+    const mealId = typeof req.query.meal === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(req.query.meal) ? req.query.meal : null;
+    const list = await records.loadRecords(studyDb(), { pid, group, mealId });
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     res.set('Cache-Control', 'no-store');
     if (format === 'csv'){
       res.set('Content-Type', 'text/csv; charset=utf-8');
       res.set('Content-Disposition', `attachment; filename="pictameal-meals-${stamp}.csv"`);
       return res.send(records.toCsv(list));
+    }
+    if (format === 'events'){
+      // one row per event (CSV), same filters
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename="pictameal-events-${stamp}.csv"`);
+      return res.send(records.toEventsCsv(list));
     }
     res.set('Content-Disposition', `attachment; filename="pictameal-meals-${stamp}.json"`);
     res.json({ exportedAt: new Date().toISOString(), count: list.length, records: list });

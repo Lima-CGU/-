@@ -87,6 +87,24 @@
     return 'TEST';
   })();
 
+  // Lunch-box / meal id for the study data — ?meal=M01 (letters, digits, - or
+  // _, up to 20): like pid, the URL wins and is remembered; otherwise the
+  // saved one; otherwise ''. Never shown on screen.
+  const MEAL_ID_STORAGE_KEY = 'pictameal:mealId';
+  const MEAL_ID = (() => {
+    const ok = v => /^[A-Za-z0-9_-]{1,20}$/.test(v);
+    const fromUrl = (new URLSearchParams(location.search).get('meal') || '').trim();
+    if (ok(fromUrl)){
+      try { localStorage.setItem(MEAL_ID_STORAGE_KEY, fromUrl); } catch (err){ /* storage unavailable */ }
+      return fromUrl;
+    }
+    try {
+      const saved = localStorage.getItem(MEAL_ID_STORAGE_KEY);
+      if (saved && ok(saved)) return saved;
+    } catch (err){ /* storage unavailable */ }
+    return '';
+  })();
+
   // Upload a compressed copy of each meal photo with the record
   // (Firestore "photos" collection). false = never upload photos.
   const SAVE_PHOTOS = true;
@@ -135,9 +153,115 @@
       apiErrors: []
     };
   }
-  function logApiError(api, message){
+  // opts.event === false: the caller logs its own event (e.g. ai_request_failed)
+  function logApiError(api, message, opts = {}){
+    if (opts.event !== false) logEvent('error', { actor: 'system', status: 'failed', detail: { api, message: String(message || '').slice(0, 200) } });
     if (!currentMealMeta) return;
     currentMealMeta.apiErrors.push({ api, at: new Date().toISOString(), message: String(message || '').slice(0, 200) });
+  }
+
+  /* ---------- timing + interaction events (all groups) ----------
+     One "task" per meal: task_start (the user taps 開始拍照) … final_confirmed
+     (完成). Every event: { seq, event, at, elapsedMs (performance.now() since
+     task_start), page, actor, target, field, before, after, attemptId, source,
+     status, detail }. Never the chat's own words (those are in chat.messages).
+     Saved with the record (events, times.*, userActionCount); the task ends
+     when the record is saved. */
+  const MAX_EVENTS = 3000;
+  let currentTask = null;
+  function startTask(detail){
+    currentTask = {
+      t0: performance.now(), events: [], capped: false, attempts: 0,
+      marks: {}, // event name -> { at, ms } of its first occurrence
+      finalConfirmed: false
+    };
+    logEvent('task_start', { actor: 'user', detail: detail || null });
+  }
+  function currentPageName(){
+    const s = phone.dataset.screen;
+    try { if (s === 'report' && chatMode) return 'chat'; } catch (err){ /* not set up yet */ }
+    return s || null;
+  }
+  // A new correction attempt id: C01, C02 … (B/C: one per message sent;
+  // A: one per committed change — see README)
+  function nextAttemptId(){
+    if (!currentTask) return null;
+    currentTask.attempts += 1;
+    return `C${String(currentTask.attempts).padStart(2, '0')}`;
+  }
+  function logEvent(event, o = {}){
+    const task = currentTask;
+    if (!task || task.capped) return null;
+    const ms = Math.round(performance.now() - task.t0);
+    const at = new Date().toISOString();
+    if (task.events.length >= MAX_EVENTS - 1){
+      // the last slot says why nothing more was recorded
+      task.capped = true;
+      task.events.push({ seq: task.events.length + 1, event: 'error', at, elapsedMs: ms, page: currentPageName(), actor: 'system',
+        target: null, field: null, before: null, after: null, attemptId: null, source: null, status: 'failed',
+        detail: { reason: 'event-limit', max: MAX_EVENTS, note: `已達每餐 ${MAX_EVENTS} 筆事件上限,之後的事件不再記錄` } });
+      return null;
+    }
+    const e = {
+      seq: task.events.length + 1, event, at, elapsedMs: ms,
+      page: o.page !== undefined ? o.page : currentPageName(),
+      actor: o.actor || 'system',
+      target: o.target ?? null, field: o.field ?? null,
+      before: o.before === undefined ? null : o.before, after: o.after === undefined ? null : o.after,
+      attemptId: o.attemptId ?? null, source: o.source ?? null,
+      status: o.status || 'success', detail: o.detail ?? null
+    };
+    task.events.push(e);
+    if (!task.marks[event]) task.marks[event] = { at, ms };
+    return e;
+  }
+  // final_confirmed once per task (a double tap is not a second one)
+  function logFinalConfirmed(detail){
+    if (!currentTask || currentTask.finalConfirmed) return;
+    currentTask.finalConfirmed = true;
+    logEvent('final_confirmed', { actor: 'user', detail: detail || null });
+  }
+  // The first user change / message after the AI draft (firstEditAt)
+  const FIRST_EDIT_EVENTS = ['field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted'];
+  // userActionCount (provisional rule, README): user events of these kinds
+  // from ai_draft_displayed to final_confirmed; edit_opened only when the
+  // user opened it
+  const USER_ACTION_EVENTS = ['item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
+  // What goes onto the record: events, the new times and userActionCount.
+  function taskSummary(){
+    const task = currentTask;
+    if (!task) return null;
+    const m = task.marks;
+    const draft = m.ai_draft_displayed, fin = m.final_confirmed;
+    const sec = (a, b) => (a && b ? Math.round((b.ms - a.ms) / 100) / 10 : null);
+    const seqOf = name => (task.events.find(e => e.event === name) || {}).seq || null;
+    const draftSeq = seqOf('ai_draft_displayed');
+    const finSeq = seqOf('final_confirmed');
+    const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
+    const userActionCount = draftSeq && finSeq ? task.events.filter(e => e.seq >= draftSeq && e.seq <= finSeq
+      && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).length : null;
+    return {
+      events: task.events.slice(),
+      times: {
+        taskStartAt: m.task_start ? m.task_start.at : null,
+        photoConfirmedAt: m.photo_confirmed ? m.photo_confirmed.at : null,
+        aiDraftAt: draft ? draft.at : null,
+        firstEditAt: firstEdit ? firstEdit.at : null,
+        finalConfirmedAt: fin ? fin.at : null,
+        totalSec: sec(m.task_start, fin),
+        correctionSec: sec(draft, fin),
+        aiProcessingSec: sec(m.photo_confirmed, draft),
+        preEditDelaySec: firstEdit ? sec(draft, { ms: firstEdit.elapsedMs }) : null
+      },
+      userActionCount,
+      ...(task.capped ? { eventsCapped: true } : {})
+    };
+  }
+  // A dish's number on screen (markers / chat list) — events refer to it
+  function dishNoOf(det){
+    try { if (chatMode) return chatAllDets().indexOf(det) + 1 || null; } catch (err){ /* not set up yet */ }
+    const i = currentDetections.indexOf(det);
+    return i >= 0 ? i + 1 : null;
   }
   document.addEventListener('pictameal:api-error', e => {
     if (reportActive) logApiError(e.detail.api, e.detail.message);
@@ -238,6 +362,8 @@
       li.classList.toggle('done', order.indexOf(li.dataset.step) < order.indexOf(name));
     });
     phone.dataset.screen = name;
+    // (the Diary's "+ 新增菜色" photo belongs to a saved meal, not this task)
+    if (name !== fromName && !addDishTargetMeal) logEvent('page_view', { actor: 'system', detail: { from: fromName || null } });
     if (name === 'camera') openCamera();
     else closeCamera();
 
@@ -271,10 +397,22 @@
   });
   usageModalClose.addEventListener('click', closeUsageModal);
   usageConfirmBtn.addEventListener('click', closeUsageModal);
-  toCameraBtn.addEventListener('click', () => goToScreen('camera'));
+  // task_start = 開始拍照. Coming back to it before a photo was confirmed
+  // keeps the same task; after a confirmed photo (that meal was left
+  // unfinished) it starts a new one.
+  toCameraBtn.addEventListener('click', () => {
+    if (!currentTask || currentTask.marks.photo_confirmed) startTask({ entry: 'start-button' });
+    goToScreen('camera');
+  });
   startHomeBtn?.addEventListener('click', () => goToScreen('start'));
-  cameraHomeBtn?.addEventListener('click', () => goToScreen('start'));
-  retakeBtn.addEventListener('click', () => goToScreen('camera'));
+  cameraHomeBtn?.addEventListener('click', () => {
+    if (!addDishTargetMeal) logEvent('back', { actor: 'user', detail: { to: 'start' } });
+    goToScreen('start');
+  });
+  retakeBtn.addEventListener('click', () => {
+    if (!addDishTargetMeal) logEvent('back', { actor: 'user', detail: { to: 'camera', what: 'retake' } });
+    goToScreen('camera');
+  });
 
   /* ---------- camera ---------- */
   async function openCamera(){
@@ -314,8 +452,10 @@
     if (cameraThumbPlaceholder) cameraThumbPlaceholder.hidden = true;
   }
 
-  function useDataUrl(dataUrl){
+  let currentPhotoSource = null; // 'camera' | 'library' (for photo_confirmed)
+  function useDataUrl(dataUrl, source){
     currentPhotoData = dataUrl;
+    currentPhotoSource = source || null;
     reviewImg.src = dataUrl;
     updateLastShotThumb(dataUrl);
     goToScreen('review');
@@ -328,14 +468,14 @@
     canvas.width = w;
     canvas.height = h;
     canvas.getContext('2d').drawImage(video, 0, 0, w, h);
-    useDataUrl(canvas.toDataURL('image/jpeg', 0.92));
+    useDataUrl(canvas.toDataURL('image/jpeg', 0.92), 'camera');
   });
 
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onload = ev => useDataUrl(ev.target.result);
+    reader.onload = ev => useDataUrl(ev.target.result, 'library');
     reader.readAsDataURL(file);
   });
 
@@ -736,6 +876,18 @@
     el.textContent = synced ? '已同步' : '等待上傳';
     el.classList.toggle('is-synced', synced);
   }
+  // A record must stay under the backend's 900 KB limit: if the events would
+  // push it over, the oldest-first list is cut (and the cut is noted).
+  const MAX_RECORD_UPLOAD_BYTES = 850 * 1024;
+  function fitRecordSize(record){
+    const size = () => new Blob([JSON.stringify(record)]).size;
+    if (!Array.isArray(record.events) || size() <= MAX_RECORD_UPLOAD_BYTES) return;
+    const total = record.events.length;
+    while (record.events.length && size() > MAX_RECORD_UPLOAD_BYTES){
+      record.events = record.events.slice(0, Math.floor(record.events.length * 0.9));
+    }
+    record.eventsTruncated = { kept: record.events.length, total };
+  }
   // What goes to /api/records: the record without images or UI-only fields.
   const LOCAL_ONLY_KEYS = new Set(['thumbUrl', 'localPhoto', 'syncStatus']);
   function uploadableRecord(record){
@@ -776,6 +928,9 @@
       handleAddDishPhoto(currentPhotoData, addDishTargetMeal);
       return;
     }
+    // no 開始拍照 tap before this photo (or that one already had a photo): new task
+    if (!currentTask || currentTask.marks.photo_confirmed) startTask({ entry: 'photo-confirmed', noStartTap: true });
+    logEvent('photo_confirmed', { actor: 'user', detail: { source: currentPhotoSource } });
     goToScreen('recognize');
     setupRecognizeScreen(currentPhotoData);
   });
@@ -934,6 +1089,7 @@
 
     if (!res.ok){
       if (res.status === 503 && data.estimated_time && attempt < 3){
+        logEvent('error', { actor: 'system', status: 'failed', detail: { api: 'recognize', status: 503, retry: attempt } });
         await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
         return callRecognizeAPI(croppedDataUrl, attempt + 1);
       }
@@ -984,6 +1140,7 @@
 
     if (!res.ok){
       if (res.status === 503 && data.estimated_time && attempt < 3){
+        logEvent('error', { actor: 'system', status: 'failed', detail: { api: 'detect', status: 503, retry: attempt } });
         await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
         return callDetectAPI(photoDataUrl, attempt + 1);
       }
@@ -1078,12 +1235,20 @@
     setRecognizeHint('AI 正在自動框出並辨識菜色…', true);
     finishRecognizeBtn.disabled = true;
 
+    const detectStarted = performance.now();
+    logEvent('ai_request_started', { actor: 'system', detail: { api: 'detect' } });
     try {
       const data = await callDetectAPI(photoDataUrl);
       const dishes = data.dishes || [];
+      // the draft is on screen once the markers / labels are laid out
+      const logDraft = () => requestAnimationFrame(() => requestAnimationFrame(() => logEvent('ai_draft_displayed', {
+        actor: 'ai', page: 'recognize',
+        detail: { dishCount: dishes.length, latencyMs: Math.round(performance.now() - detectStarted) }
+      })));
 
       if (!dishes.length){
         setRecognizeHint('沒有辨識到菜色,可以拖曳左下角的框自己補一個', false);
+        logDraft();
       } else {
         const lowConfidenceDishes = [];
         dishes.forEach((d, i) => {
@@ -1122,6 +1287,7 @@
         // Clearing the hint resizes the stage; let that re-layout (via the
         // ResizeObserver) land first so it doesn't cut the zoom animation.
         requestAnimationFrame(() => requestAnimationFrame(zoomToFood));
+        logDraft();
         // Page 3 is read-only — no low-confidence name picker here (kept for Page 4)
         if (lowConfidenceDishes.length && !RECOGNIZE_PREVIEW_ONLY){
           lowConfidenceQueue.push(...lowConfidenceDishes);
@@ -1130,7 +1296,8 @@
       }
     } catch (err){
       console.error(err);
-      logApiError('detect', err && err.message);
+      logApiError('detect', err && err.message, { event: false });
+      logEvent('ai_request_failed', { actor: 'system', status: 'failed', detail: { api: 'detect', message: String((err && err.message) || '').slice(0, 200) } });
       setRecognizeHint('自動辨識失敗,請重新拍一張照片試試', false);
       showToast('自動辨識失敗,請重新拍照');
     }
@@ -1543,6 +1710,9 @@
   }
 
   candidateCancelBtn.addEventListener('click', () => {
+    if (candidateTargetDet && reportActive){
+      logEvent('cancel', { actor: 'user', target: dishNoOf(candidateTargetDet), field: 'name', detail: { what: 'rename' } });
+    }
     if (candidateTargetDet){
       setConfirmState(candidateTargetDet, candidateTargetDet.preEditState || 'pending');
     }
@@ -2153,11 +2323,13 @@
       }
     }
 
+    const task = taskSummary();
     const record = {
       // unique, and the Firestore document id (so a retry can't duplicate)
       id: `m-${(crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12))}`,
       pid: PARTICIPANT_ID,
       group: STUDY_GROUP,
+      mealId: MEAL_ID,
       appVersion: APP_VERSION,
       userAgent: navigator.userAgent,
       createdAt: doneAt,
@@ -2165,8 +2337,13 @@
         startedAt: meta.startedAt,
         nextAt: meta.nextAt,
         doneAt,
-        durationSec: Math.round((Date.parse(doneAt) - Date.parse(meta.startedAt)) / 100) / 10
+        durationSec: Math.round((Date.parse(doneAt) - Date.parse(meta.startedAt)) / 100) / 10,
+        // task_start … final_confirmed (events below)
+        ...(task ? task.times : {})
       },
+      events: task ? task.events : [],
+      userActionCount: task ? task.userActionCount : null,
+      ...(task && task.eventsCapped ? { eventsCapped: true } : {}),
       aiDetections: meta.aiDetections,
       editLog: meta.editLog,
       apiErrors: meta.apiErrors,
@@ -2176,6 +2353,8 @@
       dishes,
       ...(opts.recordExtra || {})
     };
+    currentTask = null; // this meal's task ends with its record
+    fitRecordSize(record);
     mealRecords.push(record);
     record.localPhoto = await window.PictaSync.shrink(photoDataUrl, 640, 0.6);
     record.syncStatus = 'pending';
@@ -2204,6 +2383,7 @@
       enterChatMode();
       return;
     }
+    logFinalConfirmed();
     isSavingMeal = true;
     updateProgress();
     try {
@@ -2291,8 +2471,8 @@
     detailCountDraft = stepCount(detailCountDraft, delta);
     renderCountStepper('detailCount', detailCountDraft, detailAdjustTarget && detailAdjustTarget.countUnit);
   };
-  document.getElementById('detailCountMinus').addEventListener('click', () => stepDetailCount(-1));
-  document.getElementById('detailCountPlus').addEventListener('click', () => stepDetailCount(1));
+  document.getElementById('detailCountMinus')?.addEventListener('click', () => stepDetailCount(-1));
+  document.getElementById('detailCountPlus')?.addEventListener('click', () => stepDetailCount(1));
 
   // Rebuilds the cooking-method picker for the given dish category, reusing
   // the same list/scroll-hint UI for both — only which array feeds it differs.
@@ -2419,7 +2599,7 @@
     // 數量: Diary dishes that have a count
     detailCountShown = isDiaryDish && !!(det.count || det.countable);
     detailCountDraft = detailCountShown ? (det.count || null) : null;
-    detailCountRow.hidden = !detailCountShown;
+    if (detailCountRow) detailCountRow.hidden = !detailCountShown;
     if (detailCountShown) renderCountStepper('detailCount', detailCountDraft, det.countUnit);
     if (isDiaryDish){
       detailNameInput.value = stripConfidenceText(det.name || '');
@@ -2588,16 +2768,19 @@
   // Shared by Page 4 (Group A) and the Diary edit sheet: "−  N 隻  +",
   // 1..COUNT_MAX, buttons only.
   function renderCountStepper(prefix, count, unit){
-    document.getElementById(`${prefix}Value`).textContent = `${count || '?'} ${unit || '個'}`;
-    document.getElementById(`${prefix}Minus`).disabled = !count || count <= 1;
-    document.getElementById(`${prefix}Plus`).disabled = !!count && count >= COUNT_MAX;
+    const value = document.getElementById(`${prefix}Value`);
+    const minus = document.getElementById(`${prefix}Minus`);
+    const plus = document.getElementById(`${prefix}Plus`);
+    if (value) value.textContent = `${count || '?'} ${unit || '個'}`;
+    if (minus) minus.disabled = !count || count <= 1;
+    if (plus) plus.disabled = !!count && count >= COUNT_MAX;
   }
   // 1 + 1 = 2, ? + 1 = 1 (a missing count starts at 1), ? − 1 = ?
   const stepCount = (count, delta) => (count ? Math.max(1, Math.min(COUNT_MAX, count + delta)) : (delta > 0 ? 1 : null));
   const reportCountRow = document.getElementById('reportCountRow');
   function renderReportCount(det){
     const has = !!(det && (det.count || det.countable) && !det.loading);
-    reportCountRow.hidden = !has;
+    if (reportCountRow) reportCountRow.hidden = !has;
     if (has) renderCountStepper('reportCount', det.count, det.countUnit);
   }
   function changeReportCount(delta){
@@ -2606,6 +2789,7 @@
     const next = stepCount(det.count, delta);
     if (next === (det.count || null)) return;
     const wasComplete = isDishComplete(det);
+    logEvent('count_changed', { actor: 'user', target: dishNoOf(det), field: 'count', before: det.count || null, after: next, attemptId: nextAttemptId() });
     det.count = next;
     det.countEdits = (det.countEdits || 0) + 1;
     renderReportCount(det);
@@ -2616,8 +2800,8 @@
     // only a filled dish is (re)calculated
     if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
   }
-  document.getElementById('reportCountMinus').addEventListener('click', () => changeReportCount(-1));
-  document.getElementById('reportCountPlus').addEventListener('click', () => changeReportCount(1));
+  document.getElementById('reportCountMinus')?.addEventListener('click', () => changeReportCount(-1));
+  document.getElementById('reportCountPlus')?.addEventListener('click', () => changeReportCount(1));
 
   /* ---------- calories (shared component: calorie.js) ---------- */
   const Calorie = window.PictaCalorie;
@@ -2736,6 +2920,10 @@
       currentMealMeta.editLog.fieldSetCount += 1;
       if (prev) currentMealMeta.editLog.fieldChangeCount += 1; // changed an answer already given
     }
+    // one tap on an option = one committed change = one attempt
+    if (prev !== value) logEvent(prev ? 'field_changed' : 'field_set', {
+      actor: 'user', target: dishNoOf(det), field: kind, before: prev || null, after: value, attemptId: nextAttemptId()
+    });
     det.detail = { ...(det.detail || {}), [kind]: value };
     syncReportChoices(det);
     refreshMarkerStates();
@@ -2787,7 +2975,14 @@
   function onReportMarkerTap(det){
     if (reportAddingDish) return;
     if (chatMode){ toggleChatDish(det); return; }
+    if (reportSelectedId !== det.id) logReportSelect(det, 'user', 'marker');
     selectReportDish(det.id);
+  }
+  // Group A: selecting a dish opens its field panel by itself
+  function logReportSelect(det, actor, via){
+    const no = dishNoOf(det);
+    logEvent('item_selected', { actor, target: no, detail: { via } });
+    logEvent('edit_opened', { actor: 'system', target: no, detail: { what: 'fields' } });
   }
 
   function enterReportMode(){
@@ -2797,7 +2992,7 @@
     reportDeleteConfirm.hidden = true;
     currentDetections.forEach(d => { d.detail = d.detail || {}; });
     reportPhotoSlot.appendChild(recognizeStage);
-    reportCountTag.textContent = countTag.textContent;
+    if (reportCountTag) reportCountTag.textContent = countTag.textContent;
     renumberMarkers();
     renderReportPanel();
     goToScreen('report');
@@ -2848,6 +3043,7 @@
     renderReportPanel();
     const wasComplete = isDishComplete(det);
     const nameBefore = det.name;
+    logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), field: 'name', detail: { what: 'rename' } });
     openCandidateDialog(det, [], () => {
       reportRenaming = false;
       renderReportPanel();
@@ -2856,6 +3052,12 @@
       loading: true,
       onConfirm(target, prevCategory){
         if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
+        if (target.name !== nameBefore) logEvent('dish_renamed', {
+          actor: 'user', target: dishNoOf(target), field: 'name',
+          before: splitNameConfidence(nameBefore || '').name, after: splitNameConfidence(target.name || '').name,
+          attemptId: nextAttemptId(),
+          detail: target.category !== prevCategory ? { categoryBefore: prevCategory, categoryAfter: target.category } : null
+        });
         if (target.name !== nameBefore && !target.count) target.countable = false; // re-learned from the next calculation
         // a category switch (food <-> beverage) swaps the cooking options;
         // drop a cooking method the new list doesn't have
@@ -2880,11 +3082,15 @@
   reportDeleteBtn.addEventListener('click', () => {
     if (selectedReportDet()) reportDeleteConfirm.hidden = false;
   });
-  reportDeleteCancel.addEventListener('click', () => { reportDeleteConfirm.hidden = true; });
+  reportDeleteCancel.addEventListener('click', () => {
+    reportDeleteConfirm.hidden = true;
+    logEvent('cancel', { actor: 'user', target: dishNoOf(selectedReportDet()), detail: { what: 'delete' } });
+  });
   reportDeleteYes.addEventListener('click', () => {
     const det = selectedReportDet();
     reportDeleteConfirm.hidden = true;
     if (!det) return;
+    logEvent('dish_deleted', { actor: 'user', target: dishNoOf(det), before: splitNameConfidence(det.name || '').name, after: null, attemptId: nextAttemptId() });
     currentDetections = currentDetections.filter(d => d !== det);
     if (det.boxEl) det.boxEl.remove();
     if (currentMealMeta) currentMealMeta.editLog.deletedDishes.push({
@@ -2910,6 +3116,7 @@
   reportAddDishBtn.addEventListener('click', e => {
     e.stopPropagation();
     if (reportActive && chatMode){ toggleChatMeal(); return; }
+    if (reportActive && reportAddingDish) logEvent('cancel', { actor: 'user', detail: { what: 'add-dish' } });
     if (reportActive) setReportAdding(!reportAddingDish);
   });
   recognizeWrap.addEventListener('click', e => {
@@ -2944,6 +3151,8 @@
     currentDetections.push(det);
     renderOneDetection(det, currentDetections.length - 1);
     renumberMarkers();
+    logEvent('dish_added', { actor: 'user', target: dishNoOf(det), after: { tapPoint: { x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10 } }, attemptId: nextAttemptId() });
+    logReportSelect(det, 'system', 'added');
     selectReportDish(det.id);
     resolveLabelOverlaps();
 
@@ -2969,6 +3178,7 @@
   /* done: every dish filled -> save (with group) -> Diary */
   reportDoneBtn.addEventListener('click', async () => {
     if (reportDoneBtn.disabled || isSavingMeal) return;
+    logFinalConfirmed();
     isSavingMeal = true;
     updateReportDone();
     try {
@@ -2983,6 +3193,7 @@
   reportNextDishBtn.addEventListener('click', () => {
     const next = nextUnfilledReportDet();
     if (next){
+      logReportSelect(next, 'user', 'next');
       selectReportDish(next.id);
       reportPanel.scrollTop = 0; // start the next dish at its first field
     }
@@ -2991,7 +3202,11 @@
   reportCameraBtn.addEventListener('click', () => {
     const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean))
       || (chatMode && chatMessages.some(m => m.role === 'user'));
-    if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')) return;
+    if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')){
+      logEvent('cancel', { actor: 'user', detail: { what: 'leave' } });
+      return;
+    }
+    logEvent('back', { actor: 'user', detail: { to: 'start', discarded: !!started } });
     exitReportMode();
     goToScreen('start');
   });
@@ -3028,6 +3243,8 @@
   let chatSuggestions = [];
   let chatSuggestionShownCount = 0;
   let chatSuggestionTaps = []; // [{ text, at }]
+  let chatAttemptId = null;  // events: the attempt of the message in flight / last sent
+  let chatVoiceUsed = false; // 🎤 filled the text box since the last send
 
   const CHAT_AI_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v4M9 13h.01M15 13h.01M10 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="4" r="1" fill="currentColor"/></svg>';
   const CHAT_USER_AVATAR = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
@@ -3061,10 +3278,12 @@
     chatRenames = [];
     chatMealSelected = false;
     chatBusy = false;
-    chatLog.textContent = '';
-    chatInput.value = '';
+    if (chatLog) chatLog.textContent = '';
+    if (chatInput) chatInput.value = '';
     chatSuggestionShownCount = 0;
     chatSuggestionTaps = [];
+    chatAttemptId = null;
+    chatVoiceUsed = false;
     renderChatSuggestions([]);
     stopChatListening();
   }
@@ -3074,6 +3293,8 @@
      as if it had been typed (with the current selection). */
   function renderChatSuggestions(list){
     chatSuggestions = STUDY_GROUP === 'C' && Array.isArray(list) ? list.slice(0, 4) : [];
+    // an index.html without the row (older cached page): no buttons, no error
+    if (!chatSuggestRow){ chatSuggestions = []; return; }
     chatSuggestRow.textContent = '';
     chatSuggestRow.hidden = !chatSuggestions.length;
     chatSuggestRow.scrollLeft = 0;
@@ -3092,6 +3313,9 @@
       chatSuggestRow.appendChild(btn);
     });
     chatSuggestionShownCount += chatSuggestions.length;
+    if (chatSuggestions.length) logEvent('suggestion_shown', {
+      actor: 'system', attemptId: chatAttemptId, detail: { texts: chatSuggestions.slice(), count: chatSuggestions.length }
+    });
   }
 
   // Leaving the chat page (save, camera, new photo): back to plain Page 4.
@@ -3104,11 +3328,13 @@
 
   /* selection: a marker, or "+ 整餐/其他"; tapping again deselects */
   function toggleChatDish(det){
+    logEvent('item_selected', { actor: 'user', target: chatDishNo(det), detail: { via: 'marker', deselect: reportSelectedId === det.id } });
     chatMealSelected = false;
     selectReportDish(reportSelectedId === det.id ? null : det.id);
     updateChatSelection();
   }
   function toggleChatMeal(){
+    logEvent('item_selected', { actor: 'user', target: 'meal', detail: { via: 'meal-button', deselect: chatMealSelected } });
     chatMealSelected = !chatMealSelected;
     if (chatMealSelected && reportSelectedId) selectReportDish(null);
     updateChatSelection();
@@ -3117,6 +3343,7 @@
     reportAddDishBtn.classList.toggle('is-active', chatMealSelected);
     reportAddDishBtn.setAttribute('aria-pressed', String(chatMealSelected));
     const det = selectedReportDet();
+    if (!chatSelChip) return;
     chatSelChip.hidden = !det && !chatMealSelected;
     chatSelChip.textContent = '';
     if (!det && !chatMealSelected) return;
@@ -3186,7 +3413,7 @@
     time.textContent = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
     wrap.appendChild(time);
     row.append(avatar, wrap);
-    chatLog.appendChild(row);
+    if (chatLog) chatLog.appendChild(row);
     return row;
   }
 
@@ -3222,24 +3449,26 @@
   }
 
   function renderChatKcalRows(id){
-    chatLog.querySelectorAll('.chat-kcal-rows').forEach(rows => {
+    if (chatLog) chatLog.querySelectorAll('.chat-kcal-rows').forEach(rows => {
       if (rows.dataset.dishIds.split(' ').includes(id)) renderChatKcalItem(rows, id);
     });
   }
 
   function scrollChatToEnd(){
-    requestAnimationFrame(() => { chatLog.scrollTop = chatLog.scrollHeight; });
+    requestAnimationFrame(() => { if (chatLog) chatLog.scrollTop = chatLog.scrollHeight; });
   }
 
   function renderChatTotal(){
     const sum = Calorie.summary(chatAllDets().map(d => d.id));
-    chatTotalNum.textContent = sum.estimated ? String(sum.kcal) : (sum.pending ? '…' : '0');
+    if (chatTotalNum) chatTotalNum.textContent = sum.estimated ? String(sum.kcal) : (sum.pending ? '…' : '0');
     const notes = [];
     if (sum.needsPortion) notes.push(`${sum.needsPortion} 道待補份量`);
     if (sum.needsCount) notes.push(`${sum.needsCount} 道待補數量`);
     if (sum.unavailable) notes.push(`另有 ${sum.unavailable} 道無法估算`);
-    chatTotalNote.hidden = !notes.length;
-    chatTotalNote.textContent = notes.join('・');
+    if (chatTotalNote){
+      chatTotalNote.hidden = !notes.length;
+      chatTotalNote.textContent = notes.join('・');
+    }
   }
 
   /* one turn */
@@ -3269,12 +3498,20 @@
     const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${text}`
       : sel && sel.type === 'meal' ? `關於整餐:${text}` : text;
     const history = chatMessages.slice(-CHAT_HISTORY_SENT).map(m => ({ role: m.role, content: m.content }));
+    // events: one message = one correction attempt; never the words themselves
+    const attemptId = chatAttemptId = nextAttemptId();
+    logEvent('message_submitted', {
+      actor: 'user', target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, attemptId,
+      source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed'),
+      detail: { length: text.length, selected: sel ? sel.type : null }
+    });
+    if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,
       thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null,
       meta: { source }
     });
-    if (source === 'typed') chatInput.value = '';
+    if (source === 'typed' && chatInput) chatInput.value = '';
     renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
@@ -3316,12 +3553,21 @@
     if (!reportActive || !chatMode) return; // left the page meanwhile
 
     if (!data){
-      logApiError('chat', latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed');
+      logApiError('chat', latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', { event: false });
+      logEvent('error', { actor: 'system', status: 'failed', attemptId, detail: { api: 'chat', reason: latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', latencyMs } });
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
-      if (!chatInput.value) chatInput.value = text; // ready to resend
-      chatInput.focus();
+      if (chatInput){
+        if (!chatInput.value) chatInput.value = text; // ready to resend
+        chatInput.focus();
+      }
       return;
     }
+    const snap = d => ({
+      name: chatDishName(d), category: d.category === 'beverage' ? 'beverage' : 'food',
+      ...Object.fromEntries(Object.entries(d.detail || {}).filter(([, v]) => v)),
+      count: d.count || null, notes: (d.notes || []).length
+    });
+    const beforeSnaps = new Map(chatAllDets().map(d => [d, snap(d)]));
     const touched = applyChatResult(data);
     addChatMessage('assistant', data.reply, {
       dishIds: touched.map(d => d.id),
@@ -3333,15 +3579,39 @@
         ...(STUDY_GROUP === 'C' ? { suggestions: Array.isArray(data.suggestions) ? data.suggestions.slice(0, 4) : [] } : {})
       }
     });
+    logEvent('ai_response_displayed', {
+      actor: 'ai', attemptId,
+      detail: {
+        isClarification: !!data.isClarification, offTopic: !!data.offTopic, latencyMs,
+        updatedDishes: touched.map(chatDishNo),
+        newDishes: (data.newDishes || []).length, renamedDishes: (data.renameDishes || []).length
+      }
+    });
+    // one record_updated per dish the AI changed: only the fields that changed
+    touched.forEach(det => {
+      const b = beforeSnaps.get(det) || null;
+      const a = snap(det);
+      const keys = [...new Set([...Object.keys(b || {}), ...Object.keys(a)])]
+        .filter(k => k !== 'notes' && (b ? b[k] ?? null : null) !== (a[k] ?? null));
+      const notesAdded = a.notes - (b ? b.notes : 0);
+      if (!keys.length && !notesAdded && b) return; // touched, but nothing changed
+      logEvent('record_updated', {
+        actor: 'system', target: chatDishNo(det), attemptId,
+        field: keys.join(',') || null,
+        before: b ? Object.fromEntries(keys.map(k => [k, b[k] ?? null])) : null,
+        after: Object.fromEntries(keys.map(k => [k, a[k] ?? null])),
+        detail: { newDish: !b, notesAdded }
+      });
+    });
     renderChatSuggestions(data.suggestions);
   }
 
   function updateChatBusy(){
-    chatSendBtn.disabled = chatBusy;
-    chatInput.disabled = chatBusy;
-    chatMicBtn.disabled = chatBusy;
-    chatDoneBtn.disabled = chatBusy || isSavingMeal;
-    chatSuggestRow.querySelectorAll('button').forEach(b => { b.disabled = chatBusy || isSavingMeal; });
+    if (chatSendBtn) chatSendBtn.disabled = chatBusy;
+    if (chatInput) chatInput.disabled = chatBusy;
+    if (chatMicBtn) chatMicBtn.disabled = chatBusy;
+    if (chatDoneBtn) chatDoneBtn.disabled = chatBusy || isSavingMeal;
+    if (chatSuggestRow) chatSuggestRow.querySelectorAll('button').forEach(b => { b.disabled = chatBusy || isSavingMeal; });
   }
 
   // Applies one /api/chat answer; returns the dishes it touched (in order).
@@ -3445,19 +3715,19 @@
   // What the calorie depends on (notes alone never trigger a recalculation)
   const calorieKey = d => JSON.stringify([chatDishName(d), d.category, d.detail || {}, d.count || null, !!d.countConfirmed]);
 
-  chatForm.addEventListener('submit', e => {
+  chatForm?.addEventListener('submit', e => {
     e.preventDefault();
     stopChatListening();
-    const text = chatInput.value.trim();
+    const text = chatInput ? chatInput.value.trim() : '';
     if (text) sendChat(text);
   });
-  chatInput.addEventListener('keydown', e => {
+  chatInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing){
       e.preventDefault();
-      chatForm.requestSubmit();
+      chatForm?.requestSubmit();
     }
   });
-  chatInput.addEventListener('input', () => {
+  chatInput?.addEventListener('input', () => {
     chatInput.style.height = 'auto';
     chatInput.style.height = `${Math.min(chatInput.scrollHeight, 110)}px`;
   });
@@ -3468,9 +3738,9 @@
       try { chatRecognition.stop(); } catch (err){ /* already stopped */ }
       chatRecognition = null;
     }
-    chatMicBtn.classList.remove('is-listening');
+    chatMicBtn?.classList.remove('is-listening');
   }
-  chatMicBtn.addEventListener('click', () => {
+  chatMicBtn?.addEventListener('click', () => {
     if (chatRecognition){ stopChatListening(); return; }
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor){ showToast('這個瀏覽器不支援語音輸入,請直接打字'); return; }
@@ -3478,11 +3748,13 @@
     rec.lang = 'zh-TW';
     rec.interimResults = true;
     rec.continuous = false;
+    if (!chatInput) return;
     const base = chatInput.value ? `${chatInput.value.trim()} ` : '';
     rec.onresult = ev => {
       let text = '';
       for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
       chatInput.value = base + text;
+      chatVoiceUsed = true;
       chatInput.dispatchEvent(new Event('input'));
     };
     rec.onerror = ev => {
@@ -3500,12 +3772,16 @@
   });
 
   /* 完成: any time; asks first when something is incomplete */
-  chatDoneBtn.addEventListener('click', async () => {
+  chatDoneBtn?.addEventListener('click', async () => {
     if (chatBusy || isSavingMeal) return;
     const all = chatAllDets();
     const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !d.detail.size
       || ((d.count || d.countable) && !d.countConfirmed)).length; // count not confirmed yet
-    if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)) return;
+    if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)){
+      logEvent('cancel', { actor: 'user', detail: { what: 'finish', incomplete } });
+      return;
+    }
+    logFinalConfirmed({ incomplete });
     isSavingMeal = true;
     updateChatBusy();
     try {
