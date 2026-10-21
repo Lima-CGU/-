@@ -79,7 +79,7 @@ function buildPrompt(input, candidates){
   const lines = `A. 以「份、碗、顆、根、片、個、杯…」計的品項:\n${listA}\n\nB. 以每 100 g(或公克、毫升)計的品項:\n${listB}`;
   return `你是食物營養資料庫的「比對助手」。使用者記錄了一道菜,請從下面的候選清單中,挑出最能代表這道菜的一筆。
 菜名:${input.name}(${isBev ? '飲料' : '食物'})
-容器:${cfg.CONTAINER_LABELS[input.containerType] || '未記錄'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}${input.count ? `\n數量:${input.count} ${input.countUnit || '個'}(這道菜是可數的)` : ''}
+類型:${cfg.FOOD_TYPE_LABELS[input.foodType] || '其他'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}${input.count ? `\n數量:${input.count} ${input.countUnit || '個'}(這道菜是可數的)` : ''}
 
 候選清單:
 ${lines}
@@ -99,7 +99,7 @@ ${lines}
 /* ---------- cache ---------- */
 
 // The pick depends only on what could change WHICH food is the right one:
-// the name, food/beverage, the container, and (beverages) whether it's
+// the name, food/beverage, the food type, and (beverages) whether it's
 // sugar-free. Size, salt, cooking method and sugar level never change the pick,
 // so a dish re-edited only in those fields reuses it — and the numbers stay
 // consistent. Concurrent identical requests share one AI call.
@@ -109,7 +109,7 @@ const inFlight = new Map();
 function pickKey(input){
   const sugarFree = input.category === 'beverage' ? (input.sugar === '無糖' ? 'sf' : 'sw') : '-';
   // a count changes which item fits best (per piece vs per serving)
-  return [nutrition.normalize(input.name), input.category, input.containerType, sugarFree, input.count ? 'n' : '-'].join('|');
+  return [nutrition.normalize(input.name), input.category, input.foodType, sugarFree, input.count ? 'n' : '-'].join('|');
 }
 
 async function pickCandidate(input, askAI){
@@ -147,11 +147,10 @@ function validate(body){
   const name = String(b.name || '').replace(/\(\d+%\)$/, '').trim();
   if (!name || name.length > 40) return { error: '缺少或不合理的 name。' };
   const category = b.category === 'beverage' ? 'beverage' : 'food';
-  // containerType and salt may be left out (Group B only records what the
-  // user said); Group A always sends all five fields.
-  const hasContainer = b.containerType != null && b.containerType !== '';
+  // salt may be left out (Group B only records what the user said). A
+  // containerType (old records: plate / bowl / cup / lunchbox / none) is
+  // accepted and ignored — portions come from the food type (10/22).
   const hasSalt = b.salt != null && b.salt !== '';
-  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup / lunchbox。' };
   if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   const hasCount = b.count != null && b.count !== '';
@@ -160,14 +159,14 @@ function validate(body){
   return {
     input: {
       name, category,
-      containerType: hasContainer ? b.containerType : null, size: b.size,
+      size: b.size,
       cookingMethod: String(b.cookingMethod || '').slice(0, 20),   // recorded only
       sugar: String(b.sugar || '').slice(0, 20),
       salt: hasSalt ? String(b.salt) : null,  // null = not recorded: sodium is the item's own only
       count: hasCount ? b.count : null,        // only used with a countable-unit item
-      // a food type without a container field (fruit): gram items use grams per piece × count
-      // (no foodType sent — an older page / saved dish: guess it from the name, 甜柿 → fruit)
-      noContainer: !fieldDefaults.applicableFields(fieldDefaults.normalizeFoodType(b.foodType || fieldDefaults.guessFoodType(name, category), category), category).includes('containerType'),
+      // grams / ml of a gram item come from food type × size (fruit: per piece × count);
+      // no foodType sent (an older record / saved dish): guess it from the name, 甜柿 → fruit
+      foodType: fieldDefaults.normalizeFoodType(b.foodType || fieldDefaults.guessFoodType(name, category), category),
       countUnit
     }
   };
@@ -196,9 +195,6 @@ async function estimate(body, askAI){
   }
   if (r.status === 'needs-count'){
     return { httpStatus: 200, status: 'needs-count', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], countable: true, countUnit: r.countUnit, ...base, explanation: `這個品項以「${r.countUnit}」計,需要知道吃了幾${r.countUnit}才能估算熱量。` };
-  }
-  if (r.status === 'needs-portion'){
-    return { httpStatus: 200, status: 'needs-portion', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '這個品項以公克/毫升計,需要知道容器(碗、盤、杯)才能估算份量。' };
   }
   if (r.status !== 'ok'){
     console.warn(`[nutrition] cannot compute "${input.name}" with "${item.name}" (${item.source}): ${r.reason}`);

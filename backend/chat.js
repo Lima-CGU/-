@@ -3,7 +3,7 @@
  *
  *   POST /api/chat  { group, dishes, selected, history, message }
  *     group    'B' (chat) or 'C' (chat + suggestion buttons); anything else = 'B'
- *     dishes   [{ no, name, category, foodType, onPhoto, fields: {containerType,size,cookingMethod,sugar,salt},
+ *     dishes   [{ no, name, category, foodType, onPhoto, fields: {size,cookingMethod,sugar,salt} (containerType no longer used),
  *                fieldSource: {field: 'default'|'user'|'ai'}, notes: [] }]
  *     selected { type: 'dish', no } | { type: 'meal' } | null
  *     history  [{ role: 'user'|'assistant', content }]   (recent turns, oldest first)
@@ -40,8 +40,7 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 說話方式:繁體中文、口語、簡短親切。每次回覆最多兩行、總共不超過 40 個中文字,不要條列、不要長篇說明。
 你只整理使用者說的內容:不評論飲食好壞、不給營養或健康建議、絕對不要寫出任何熱量、卡路里或營養素數字(系統會另外顯示)。
 
-每道菜最多有 5 個欄位,值只能從下列選項挑,使用者沒說、也判斷不出來就不要填(不要猜)。清單裡每道菜標示了類型和「適用欄位」(例如水果只有份量和數量,飲料沒有烹調方式和鹽),只填適用的欄位:
-- containerType 容器:plate(盤子)、bowl(碗)、cup(杯子)。使用者說「一碗」→ bowl,「一盤」→ plate,「一杯」→ cup;飲料通常是 cup。
+每道菜最多有 4 個欄位(沒有容器欄位,不要記錄或詢問用碗、盤、杯或便當盒裝),值只能從下列選項挑,使用者沒說、也判斷不出來就不要填(不要猜)。清單裡每道菜標示了類型和「適用欄位」(例如水果只有份量和數量,飲料沒有烹調方式和鹽),只填適用的欄位:
 - size 份量(相對於一般一人份):XS = 半份/一半/幾口;S = 少一點/小份;M = 一份/一碗/一盤/一杯/一個/一片/一塊/一顆/一根/一條/正常份量(使用者說了這類數量就要填 size);L = 一份半/大碗/多一點;XL = 兩份/兩碗/很多。
 - cookingMethod 烹調方式:食物用 ${OPTIONS.cookingMethodFood.join('、')};飲料用 ${OPTIONS.cookingMethodBeverage.join('、')}。
 - sugar 糖:${OPTIONS.sugar.join('、')}(多用於飲料)。
@@ -56,8 +55,8 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 4. 描述不清楚時要追問,一次只問一個具體問題,isClarification 設 true,不要自己猜:
    - 使用者描述了一道菜卻完全沒提份量,而且這道菜的 size 還沒有或只是(預設)、不可數 → 追問份量(例如「白飯大概吃了多少?一碗、半碗還是更多?」)。
    - 看不出是哪一道菜、描述互相矛盾、或說的東西被遮住看不清楚時 → 追問釐清。
-   - 清單中標示「還無法估算熱量」的菜,代表系統還需要份量資訊(例如這道菜是用碗、盤還是杯裝),可以在使用者談到它、或沒有其他要問的時候,追問一次。
-   - 不要為了填滿欄位追問容器、糖、鹽、烹調方式這些使用者沒提的細節。
+   - 清單中標示「還無法估算熱量」的菜,代表系統還需要份量資訊(吃了多少),可以在使用者談到它、或沒有其他要問的時候,追問一次。
+   - 不要為了填滿欄位追問糖、鹽、烹調方式這些使用者沒提的細節。
 5. 不追問時,用一句話確認這次記到的內容,例如「好的,柿子 2 顆,一般大小。」;需要時再加一句短問句(例如「還有其他要補充嗎?」)。全部最多兩行、40 字以內,不要條列。
 6. 菜的編號 no 一律用下面清單裡的編號;新菜不用編號。
 7. 紀錄要等使用者按畫面下方的「完成」才會儲存,所以絕對不要說「已記錄完成」「這餐記錄好了」「已經存檔/儲存」這類表示已存檔的話(「好的,柿子 2 顆,一般大小。」這種確認這次內容的話可以)。
@@ -68,13 +67,13 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 12. 使用者的話可能是語音辨識轉成的文字,會有同音字錯誤,請依食物的情境理解:例如「真的雞」是「蒸的雞」、「吵青菜」是「炒青菜」、「少言」是「少鹽」、「半唐」是「半糖」。真的判斷不出是什麼意思時,追問一次(isClarification 設 true)。
 
 請「只」回傳如下 JSON,不要加任何說明文字(沒有的項目給空陣列):
-{"reply":"…","updates":[{"no":1,"fields":{"containerType":"bowl","size":"M"}},{"no":2,"fields":{},"count":4}],"notes":[{"no":1,"note":"含一顆蛋"}],"newDishes":[{"name":"味噌湯","category":"beverage","fields":{"containerType":"bowl","size":"M"},"note":""}],"renameDishes":[{"no":2,"name":"豬排","category":"food"}],"isClarification":false,"askCountFor":null,"offTopic":false}`;
+{"reply":"…","updates":[{"no":1,"fields":{"size":"M"}},{"no":2,"fields":{},"count":4}],"notes":[{"no":1,"note":"含一顆蛋"}],"newDishes":[{"name":"味噌湯","category":"beverage","fields":{"size":"M"},"note":""}],"renameDishes":[{"no":2,"name":"豬排","category":"food"}],"isClarification":false,"askCountFor":null,"offTopic":false}`;
 
 // Group C only: one more system message, so the suggestions come from the
 // same AI call. Group B never sees it (and its answer is stripped anyway).
 const SUGGESTIONS_PROMPT = `另外,在同一個 JSON 裡多回傳 "suggestions":0~${MAX_SUGGESTIONS} 個使用者「下一句可能想說」的短句,會顯示成輸入框上方的按鈕,點了就直接當成使用者的話送出。
 - 用使用者的口吻(第一人稱),每個最多 ${MAX_SUGGESTION_CHARS} 個字,彼此不重複。
-- 依「目前選取的菜」的類型和適用欄位產生(清單裡每道菜都標了類型和適用欄位):只能是份量、數量,或這道菜適用的烹調方式、糖、鹽、容器的說法。不適用的欄位一律不要出現(例如水果沒有鹽、糖、烹調方式、容器,就不能有「鹽多一點」「有點甜」「一碗」)。
+- 依「目前選取的菜」的類型和適用欄位產生(清單裡每道菜都標了類型和適用欄位):只能是份量、數量,或這道菜適用的烹調方式、糖、鹽的說法。不適用的欄位一律不要出現(例如水果沒有鹽、糖、烹調方式,就不能有「鹽多一點」「有點甜」「是用煎的」)。不要出現容器(盤子、碗裝、便當盒)。
 - 不要猜食材或調味料:不要「加了醬汁」「有放蔥」「有加蒜」這類照片和使用者都沒提到的東西。
 - 例:水果 →「一顆」「兩顆」「半顆」「比較大顆」;炒青菜 →「鹽多一點」「比較少」「是用燙的」;飲料 →「半糖」「無糖」「大杯」;你在問數量 →「吃了 2 個」「全部吃完」;沒選菜或都描述完了 →「沒有了」「還有喝飲料」。
 - 不能包含熱量、卡路里或任何營養素、營養數字,也不能是健康建議或評論。
@@ -105,7 +104,7 @@ function describeDish(d){
   if (d.aiCount) parts.push(`照片上數量:${d.aiCount} ${unit}`);
   if (d.countConfirmed && d.count) parts.push(`使用者吃的數量:${d.count} ${unit}`);
   else if (d.countable) parts.push(`可數,吃了幾${unit}還沒確認${d.countAsked ? '(已問過數量,不要再問)' : ''}`);
-  const kcal = d.needsPortion ? '(還無法估算熱量:需要知道份量,例如用碗、盤、杯裝或吃了多少)' : '';
+  const kcal = d.needsPortion ? '(還無法估算熱量:需要知道吃了多少)' : '';
   const type = `類型:${FOOD_TYPE_LABELS[d.foodType] || '其他'};適用欄位:${applicable.map(k => FIELD_LABEL[k]).join('、')}${d.counted ? '、數量' : ''}`;
   return `${d.no}. ${d.name}(${d.category === 'beverage' ? '飲料' : '食物'}${d.onPhoto ? '' : ',照片上沒有'};${type})${parts.length ? ' — 目前 ' + parts.join('、') : ' — 尚未記錄'}${kcal}`;
 }
@@ -164,10 +163,12 @@ const FIELD_WORDS = {
   salt: /鹽|鹹|淡/,
   sugar: /糖|甜/,
   cookingMethod: /炒|煎|炸|烤|蒸|煮|燙|滷|燉|生|涼拌|烘|做法|沖泡|現榨|冰鎮|熱飲/,
-  containerType: /碗|盤|杯|便當|容器/
+  // the container field no longer exists (10/22): words about the container itself
+  containerType: /便當|容器|盤子|碗裝|杯裝|用碗|用盤|用杯/
 };
 function cleanSuggestions(list, dish){
-  const offFields = dish ? FIELDS.filter(k => FIELD_WORDS[k] && !(dish.applicable || FIELDS).includes(k)) : [];
+  // the container never applies; the other fields depend on the dish
+  const offFields = ['containerType', ...(dish ? FIELDS.filter(k => k !== 'containerType' && FIELD_WORDS[k] && !(dish.applicable || FIELDS).includes(k)) : [])];
   const out = [];
   for (const s of Array.isArray(list) ? list : []){
     if (typeof s !== 'string') continue;

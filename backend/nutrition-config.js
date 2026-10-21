@@ -28,27 +28,32 @@ const SIZE_MULTIPLIERS = {
 };
 
 /* 2. Portion table — only used when the matched item is measured in grams
- *    or millilitres: container × size -> roughly how many g / ml was served.
- *    Plates and bowls are grams, cups are millilitres (an item in the other
- *    kind of unit is treated 1 ml ≈ 1 g).                        */
-const PORTION_TABLE = {
-  plate: { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 },   // 盤子 【待老師確認】
-  bowl:  { unit: 'g',  XS: 100, S: 150, M: 200, L: 300, XL: 400 },   // 碗   【待老師確認】
-  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },   // 杯子 【待老師確認】
-  // 便當盒: same grams as a plate 【待老師確認】
-  lunchbox: { unit: 'g', XS: 100, S: 150, M: 250, L: 350, XL: 450 }  // 便當盒 【待老師確認】
+ *    or millilitres: food type × size -> roughly how many g / ml was eaten.
+ *    (Teacher 10/22: the container field was removed — every dish of a
+ *    lunch box sits in the same box, so the box says nothing about the
+ *    portion. Old records' containerType is kept but never used here.)
+ *    Soups and beverages are millilitres (an item in the other kind of
+ *    unit is treated 1 ml ≈ 1 g). Fruit: FRUIT_PIECE_GRAMS × count.   */
+const FOOD_TYPE_PORTIONS = {
+  staple:    { unit: 'g',  XS: 100, S: 150, M: 200, L: 300, XL: 400 },  // 主食 【待老師確認】
+  protein:   { unit: 'g',  XS: 45,  S: 70,  M: 90,  L: 135, XL: 180 },  // 蛋白質 【待老師確認】
+  vegetable: { unit: 'g',  XS: 50,  S: 75,  M: 100, L: 150, XL: 200 },  // 蔬菜 【待老師確認】
+  soup:      { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },  // 湯品 【待老師確認】
+  snack:     { unit: 'g',  XS: 30,  S: 50,  M: 80,  L: 120, XL: 160 },  // 點心 【待老師確認】
+  beverage:  { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },  // 飲料 【待老師確認】
+  other:     { unit: 'g',  XS: 75,  S: 110, M: 150, L: 225, XL: 300 }   // 其他 【待老師確認】
 };
-const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒' };
+const FOOD_TYPE_LABELS = { staple: '主食', protein: '蛋白質', vegetable: '蔬菜', soup: '湯品', snack: '點心', beverage: '飲料', other: '其他', fruit: '水果' };
 
-/* 2b. Fruit portion table (fruit has no container field): grams of ONE
+/* 2b. Fruit portion table: grams of ONE
  *     piece by size, × the count, when the matched item is per 100 g.
  *     「一般水果一顆約 150 公克」 = M. 【待老師確認】
  *     (A per-piece item, e.g. 1 個, is counted by pieces as usual.)      */
 const FRUIT_PIECE_GRAMS = { XS: 50, S: 100, M: 150, L: 200, XL: 250 }; // 【待老師確認】
-const NO_CONTAINER_PIECE_GRAMS = FRUIT_PIECE_GRAMS; // (older name, same table)
 
 /* 2c. Cooking oil (teacher 10/21) 【待老師確認】: teaspoons of oil per dish by
- *     cooking method, × the size multiplier, × the count for a counted dish.
+ *     cooking method, × the size multiplier, × the count only when the
+ *     calculation itself used the count (countUsed; a per-份 item ignores it).
  *     Not added when the matched item's own name already has a cooking word
  *     (炸雞腿, 炒青菜, 煎蛋 … — its calories already include the oil).     */
 const OIL_TEASPOONS = {                 // 【待老師確認】
@@ -93,8 +98,8 @@ const MAX_KCAL_PER_GRAM = 9.5;
 const CONTINUOUS_UNIT = /^(公克|克|g\b|毫升|ml\b|c\.?c\.?)/i;
 
 module.exports = {
-  NO_CONTAINER_PIECE_GRAMS, FRUIT_PIECE_GRAMS, OIL_TEASPOONS, OIL_PER_TEASPOON, COOKED_NAME_WORDS,
-  SIZE_MULTIPLIERS, PORTION_TABLE, CONTAINER_LABELS, SALT_TEASPOONS,
+  FOOD_TYPE_PORTIONS, FOOD_TYPE_LABELS, FRUIT_PIECE_GRAMS, OIL_TEASPOONS, OIL_PER_TEASPOON, COOKED_NAME_WORDS,
+  SIZE_MULTIPLIERS, SALT_TEASPOONS,
   SODIUM_MG_PER_TEASPOON, MAX_KCAL_PER_GRAM, CONTINUOUS_UNIT,
   COUNTABLE_UNITS, MAX_COUNT, COUNT_UNIT_GROUPS
 };

@@ -209,6 +209,8 @@ const CSV_COLUMNS = [
   // (a field that doesn't apply to the food type: value NA, source na)
   'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource', 'countSource',
   'aiCount', 'finalCount', 'countUnit', 'countEdits',
+  // Group A: the user walked through this dish's pages and tapped 完成這道菜
+  'userReviewed',
   'kcal', 'oilTeaspoons', 'oilKcal', 'nutritionStatus', 'match', 'matchedName', 'nutritionSource',
   'proteinG', 'fatG', 'carbohydrateG', 'sodiumMg', 'notes',
   'mealTotalKcal', 'messageCount', 'userMessageCount', 'clarificationCount',
@@ -259,12 +261,14 @@ function toCsv(records){
         dishNo: i + 1, dishSource: d.source, aiName: ai.name || null, aiConfidence: ai.confidence ?? null,
         finalName: stripPct(d.name), renamedFrom: d.renamedFrom,
         ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt']
-          .map(k => [k, d.fieldSource && d.fieldSource[k] === 'na' && !x[k] ? 'NA' : x[k]])),
+          // (the container field was removed 10/22: an empty cell, an old record's value as saved)
+          .map(k => [k, d.fieldSource && d.fieldSource[k] === 'na' && !x[k] ? (k === 'containerType' ? null : 'NA') : x[k]])),
         foodType: d.foodType || null,
         ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt', 'count']
           .map(k => [`${k}Source`, (d.fieldSource && d.fieldSource[k]) || ((k === 'count' ? d.count : x[k]) ? 'unknown' : null)])),
         aiCount: ai.count ?? null, finalCount: d.count ?? null, countUnit: d.countUnit || ai.countUnit || null,
         countEdits: d.countEdits ?? (d.count != null || ai.count != null ? 0 : null),
+        userReviewed: r.group === 'A' && typeof d.userReviewed === 'boolean' ? d.userReviewed : null,
         kcal: n.status === 'ok' ? n.kcal : null, nutritionStatus: n.status, match: n.match,
         oilTeaspoons: n.status === 'ok' ? n.oilTeaspoons ?? 0 : null, oilKcal: n.status === 'ok' ? n.oilKcal ?? 0 : null,
         matchedName: n.matchedName, nutritionSource: n.source,
