@@ -34,12 +34,14 @@ const SIZE_MULTIPLIERS = {
 const PORTION_TABLE = {
   plate: { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 },   // 盤子 【待老師確認】
   bowl:  { unit: 'g',  XS: 100, S: 150, M: 200, L: 300, XL: 400 },   // 碗   【待老師確認】
-  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },   // 杯子 【待老師確認】
-  // 直接拿 (no container): same grams as a plate 【待老師確認】. A countable
-  // item (per 個/顆 …) never uses this table — it is counted by pieces.
-  none:  { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 }    // 直接拿 【待老師確認】
+  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 }    // 杯子 【待老師確認】
 };
-const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', none: '直接拿' };
+const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子' };
+
+/* 2b. Food types without a container field (fruit, 10/22) matched to a
+ *     gram item: grams of ONE piece by size × the count. 【待老師確認】
+ *     (A per-piece item, e.g. 1 個, is counted by pieces as usual.)      */
+const NO_CONTAINER_PIECE_GRAMS = { XS: 50, S: 100, M: 150, L: 200, XL: 250 }; // 【待老師確認】
 
 /* 3. Salt: teaspoons of added salt per answer. Salt only changes sodium. */
 const SALT_TEASPOONS = {        // 【待老師確認】
@@ -73,6 +75,7 @@ const MAX_KCAL_PER_GRAM = 9.5;
 const CONTINUOUS_UNIT = /^(公克|克|g\b|毫升|ml\b|c\.?c\.?)/i;
 
 module.exports = {
+  NO_CONTAINER_PIECE_GRAMS,
   SIZE_MULTIPLIERS, PORTION_TABLE, CONTAINER_LABELS, SALT_TEASPOONS,
   SODIUM_MG_PER_TEASPOON, MAX_KCAL_PER_GRAM, CONTINUOUS_UNIT,
   COUNTABLE_UNITS, MAX_COUNT, COUNT_UNIT_GROUPS

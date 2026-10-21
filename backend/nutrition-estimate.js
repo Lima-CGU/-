@@ -8,6 +8,8 @@
  */
 'use strict';
 
+const fieldDefaults = require('./field-defaults');
+
 const nutrition = require('./nutrition-db');
 const calc = require('./nutrition-calc');
 const cfg = require('./nutrition-config');
@@ -146,7 +148,7 @@ function validate(body){
   // user said); Group A always sends all five fields.
   const hasContainer = b.containerType != null && b.containerType !== '';
   const hasSalt = b.salt != null && b.salt !== '';
-  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup / none。' };
+  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup。' };
   if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   const hasCount = b.count != null && b.count !== '';
@@ -160,6 +162,8 @@ function validate(body){
       sugar: String(b.sugar || '').slice(0, 20),
       salt: hasSalt ? String(b.salt) : null,  // null = not recorded: sodium is the item's own only
       count: hasCount ? b.count : null,        // only used with a countable-unit item
+      // a food type without a container field (fruit): gram items use grams per piece × count
+      noContainer: !fieldDefaults.applicableFields(fieldDefaults.normalizeFoodType(b.foodType, category), category).includes('containerType'),
       countUnit
     }
   };

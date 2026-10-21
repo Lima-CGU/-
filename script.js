@@ -239,7 +239,8 @@
     if (e.event === 'dish_renamed') return e.detail && e.detail.inputType === 'typed' ? 2 : 1;
     return 1;
   }
-  const USER_ACTION_EVENTS = ['item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
+  // (step_next / step_back / photo_expanded / photo_collapsed are logged but not counted — 待老師確認)
+  const USER_ACTION_EVENTS = ['options_next', 'item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
   // What goes onto the record: events, the new times and userActionCount.
   function taskSummary(){
     const task = currentTask;
@@ -2268,6 +2269,21 @@
   // and Page 4 marking) — then shows it as a Diary card.
   // opts (Group B chat only): extraDets = dishes added in the chat that are
   // not on the photo (no box); recordExtra = extra record fields (the chat).
+  // all five fields, null when empty / not applicable (fieldSource 'na')
+  function savedDetail(d){
+    const x = d.detail || {};
+    return Object.fromEntries(REPORT_FIELDS.map(k => [k, x[k] || null]));
+  }
+  function savedFieldSource(d){
+    const src = { ...(d.fieldSource || {}) };
+    // a count that applies but was never given stays empty (not 'na')
+    if (!src.count){
+      if (Number.isInteger(d.count)) src.count = 'default';
+      else if (!hasCountStep(d)) src.count = 'na';
+    }
+    return src;
+  }
+
   async function saveCurrentMeal(opts = {}){
     const photoDataUrl = currentPhotoData;
     const allDets = currentDetections.concat(opts.extraDets || []);
@@ -2285,10 +2301,10 @@
         // Group B: a dish the user mentioned in the chat — no box on the photo
         return {
           name: d.name, confidence: null,
-          detail: d.detail ? { ...d.detail } : null,
+          detail: savedDetail(d),
           category: d.category === 'beverage' ? 'beverage' : 'food',
           box: null, displayBox: null, source: 'chat', tapPoint: null,
-          foodType: d.foodType || 'other', fieldSource: { ...(d.fieldSource || {}) },
+          foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
           notes: [...(d.notes || [])],
           ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, countConfirmed: !!d.countConfirmed } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
@@ -2298,7 +2314,7 @@
       return {
         name: d.name,
         confidence: d.confidence,
-        detail: d.detail ? { ...d.detail } : null,
+        detail: savedDetail(d),
         category: d.category === 'beverage' ? 'beverage' : 'food',
         // box = exactly what /api/detect returned (manual boxes: as drawn);
         // displayBox = the normalized one drawn on screen / used for the thumbnail
@@ -2309,7 +2325,7 @@
         source: d.addedByUser ? 'user' : 'ai',
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
         foodType: d.foodType || 'other',
-        fieldSource: { ...(d.fieldSource || {}) },
+        fieldSource: savedFieldSource(d),
         // countable dishes: final count (AI's is in aiOriginal.count) + edits
         ...(d.count || d.countable ? {
           count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true,
@@ -2442,8 +2458,6 @@
     { value: 'bowl', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '碗' },
     { value: 'cup', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4h10l-1.2 15a1.5 1.5 0 0 1-1.5 1.3h-4.6a1.5 1.5 0 0 1-1.5-1.3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '杯子' }
   ];
-  // 直接拿 (no container) — a fruit held in the hand, a bun …
-  containerOptions.push({ value: 'none', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12M11 11V5a1.5 1.5 0 0 1 3 0v6M14 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.5-2.5 6-6 6h-.5a5.5 5.5 0 0 1-4.4-2.2L4.3 15a1.5 1.5 0 0 1 2.3-1.9L8 14.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>', label: '直接拿' });
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
   // Same reasoning as DIARY_ICON_* above: these were emoji and rendered as a
   // garbled glyph on some devices/fonts. Every cooking-method icon — both the
@@ -2703,15 +2717,38 @@
   const reportPanel         = document.getElementById('reportPanel');
   const reportNextDishBtn   = document.getElementById('reportNextDishBtn');
   const reportScreenEl      = document.querySelector('.screen[data-screen="report"]');
-  const reportLists = {
-    containerType: document.getElementById('reportContainerList'),
-    size: document.getElementById('reportSizeList'),
-    cookingMethod: document.getElementById('reportCookingList'),
-    sugar: document.getElementById('reportSugarList'),
-    salt: document.getElementById('reportSaltList')
-  };
-  // A dish is "filled" only when all five have a value.
+  // one field per page (10/22)
+  const reportStepTitle   = document.getElementById('reportStepTitle');
+  const reportStepCards   = document.getElementById('reportStepCards');
+  const reportStepCurrent = document.getElementById('reportStepCurrent');
+  const reportOtherBtn    = document.getElementById('reportOtherBtn');
+  const reportRevealBtn   = document.getElementById('reportRevealBtn');
+  const reportStepBack    = document.getElementById('reportStepBack');
+  const reportStepNext    = document.getElementById('reportStepNext');
+  const photoPeekHint     = document.getElementById('photoPeekHint');
+  // the five fields (a dish is "filled" when every one that APPLIES has a value)
   const REPORT_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+  // page order; fields that don't apply are skipped
+  const STEP_ORDER = ['size', 'count', 'containerType', 'cookingMethod', 'sugar', 'salt'];
+  const STEP_LABEL = { size: '份量', count: '數量', containerType: '容器', cookingMethod: '烹調方式', sugar: '糖', salt: '鹽' };
+
+  /* Which fields a dish has: its food type's (field-defaults.js APPLICABLE),
+     plus any the user called back with 「還要補充其他欄位」 (det.extraFields). */
+  function dishFields(det){
+    const own = FIELD_DEFAULTS.applicableFields(det.foodType, det.category);
+    return REPORT_FIELDS.filter(f => own.includes(f) || (det.extraFields || []).includes(f));
+  }
+  function hasCountStep(det){
+    return FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) || !!det.count || !!det.countable;
+  }
+  function hiddenFields(det){
+    const shown = dishFields(det);
+    return REPORT_FIELDS.filter(f => !shown.includes(f));
+  }
+  function reportSteps(det){
+    const fields = dishFields(det);
+    return STEP_ORDER.filter(f => (f === 'count' ? hasCountStep(det) : fields.includes(f)));
+  }
 
   let reportActive = false;      // Page 4 is showing (and owns the photo stage)
   let chatMode = false;          // ...as Group B's chat page (see "Group B chat" below)
@@ -2723,7 +2760,8 @@
     const d = det.detail || {};
     // a countable dish (AI counted it, or its matched item is per 隻/顆/個 …)
     // also needs its 數量 — never silently 1
-    return REPORT_FIELDS.every(k => !!d[k]) && (!det.countable || Number.isInteger(det.count));
+    // only the fields that apply; a dish with a 數量 step needs its count
+    return dishFields(det).every(k => !!d[k]) && (!hasCountStep(det) || Number.isInteger(det.count));
   }
 
   /* Preset values by food type (backend/field-defaults.js, 【待老師確認】).
@@ -2734,7 +2772,16 @@
     det.detail = { ...values, ...(det.detail || {}) };
     det.fieldSource = det.fieldSource || {};
     Object.keys(values).forEach(k => { if (!det.fieldSource[k]) det.fieldSource[k] = 'default'; });
-    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, reason } });
+    // a field that doesn't apply to this food type: no value, source 'na'
+    const applicable = FIELD_DEFAULTS.applicableFields(det.foodType, det.category);
+    REPORT_FIELDS.forEach(k => { if (!applicable.includes(k) && !det.detail[k]) det.fieldSource[k] = 'na'; });
+    // fruit always has a 數量 (Group A starts it at DEFAULT_COUNT on Page 4)
+    if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category)){
+      det.countable = true;
+      det.countUnit = det.countUnit || '個';
+    }
+    if (Number.isInteger(det.count) && !det.fieldSource.count) det.fieldSource.count = 'default'; // the photo's count
+    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
   }
   function setFieldSource(det, field, source){
     det.fieldSource = det.fieldSource || {};
@@ -2758,6 +2805,7 @@
         // user confirmed is calculated (otherwise 待補數量)
         count: Number.isInteger(det.count) && (!chatMode || det.countConfirmed) ? det.count : null,
         countUnit: det.countUnit || null,
+        foodType: det.foodType || null,
         group: STUDY_GROUP,
         reason
       }
@@ -2809,7 +2857,8 @@
     const sel = selectedReportDet();
     reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
     reportProgress.hidden = allDone;
-    reportNextDishBtn.hidden = allDone || !sel || !!sel.loading || !isDishComplete(sel);
+    // while picking a dish (none open): 「下一道 ›」 opens the next unfilled one
+    reportNextDishBtn.hidden = allDone || !!sel || !nextUnfilledReportDet();
     reportDoneBtn.hidden = !allDone;
     reportDoneBtn.disabled = isSavingMeal || !allDone;
     renderReportTotal();
@@ -2829,21 +2878,28 @@
   // 1 + 1 = 2, ? + 1 = 1 (a missing count starts at 1), ? − 1 = ?
   const stepCount = (count, delta) => (count ? Math.max(1, Math.min(COUNT_MAX, count + delta)) : (delta > 0 ? 1 : null));
   const reportCountRow = document.getElementById('reportCountRow');
+  // (the 數量 page is shown by renderReportStep; this only refreshes the numbers)
   function renderReportCount(det){
-    const has = !!(det && (det.count || det.countable) && !det.loading);
-    if (reportCountRow) reportCountRow.hidden = !has;
-    if (has) renderCountStepper('reportCount', det.count, det.countUnit);
+    if (det && !det.loading) renderCountStepper('reportCount', det.count, det.countUnit);
   }
   function changeReportCount(delta){
     const det = selectedReportDet();
-    if (!det || !(det.count || det.countable) || det.loading) return;
-    const next = stepCount(det.count, delta);
-    if (next === (det.count || null)) return;
+    if (!det || !hasCountStep(det) || det.loading) return;
+    setReportCount(stepCount(det.count, delta));
+  }
+  // source 'voice' when said on the 數量 page
+  function setReportCount(next, source){
+    const det = selectedReportDet();
+    if (!det || !hasCountStep(det) || det.loading) return;
+    next = Number.isInteger(next) ? Math.max(1, Math.min(COUNT_MAX, next)) : null;
+    if (!next || next === (det.count || null)) return;
     const wasComplete = isDishComplete(det);
-    logEvent('count_changed', { actor: 'user', target: dishNoOf(det), field: 'count', before: det.count || null, after: next, attemptId: nextAttemptId() });
+    logEvent('count_changed', { actor: 'user', target: dishNoOf(det), field: 'count', before: det.count || null, after: next, attemptId: nextAttemptId(), source: source || null });
     det.count = next;
     det.countEdits = (det.countEdits || 0) + 1;
+    setFieldSource(det, 'count', 'user');
     renderReportCount(det);
+    if (reportActive && !chatMode && selectedReportDet() === det) renderReportStep(det);
     if (det.labelEl) renderDetLabel(det.labelEl, det);
     resolveLabelOverlaps();
     refreshMarkerStates();
@@ -2954,51 +3010,112 @@
     if (kind === 'cookingMethod') return (category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS).map(o => o.value);
     return (kind === 'sugar' ? sugarOptions : saltOptions).map(o => o.value);
   }
-  // Each field first shows only the options that fit this dish's food type
-  // (field-defaults.js RELEVANT) plus its current value, then 「其他…」 opens
-  // the full list (and 「收合」 closes it again).
-  function renderReportFieldOptions(det){
-    const category = det.category === 'beverage' ? 'beverage' : 'food';
-    det.expanded = det.expanded || {};
-    REPORT_FIELDS.forEach(kind => {
-      const all = allValues(kind, category);
-      const short = FIELD_DEFAULTS.relevantOptions(kind, det.foodType, category);
-      const current = (det.detail || {})[kind];
-      // the short list in field-defaults.js order, plus the current value
-      const visible = det.expanded[kind] ? all
-        : short.concat(current && all.includes(current) && !short.includes(current) ? [current] : []);
-      const more = visible.length < all.length || det.expanded[kind];
-      reportLists[kind].innerHTML = visible.map(v => optionButton(kind, v, category)).join('')
-        + (more ? `<button type="button" class="detail-choice detail-more-btn" data-more="${kind}" aria-expanded="${!!det.expanded[kind]}">${det.expanded[kind] ? '收合' : '其他…'}</button>` : '');
-    });
+  /* One field per page. Cards come in groups of 3–4 (field-defaults.js
+     cardGroups: the group holding the preset first); 「其他 ↻」 shows the next
+     group and wraps around. det.step = page index, det.cardGroup[field]. */
+  function currentStepField(det){
+    const steps = reportSteps(det);
+    det.step = Math.max(0, Math.min(steps.length - 1, det.step || 0));
+    return steps[det.step];
   }
-  function renderReportChoiceLists(){ /* built per dish by renderReportFieldOptions() */ }
+  function stepGroups(det, field){
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    det.groupOrder = det.groupOrder || {};
+    // fixed per dish+field once shown, so 「其他 ↻」 walks a stable list
+    if (!det.groupOrder[field]) det.groupOrder[field] = FIELD_DEFAULTS.cardGroups(field, det.foodType, category, (det.detail || {})[field]);
+    return det.groupOrder[field];
+  }
+  const fieldValueLabel = (field, v) => (field === 'containerType' ? FIELD_DEFAULTS.CONTAINER_LABELS[v] || v : v);
+  function renderReportStep(det){
+    const steps = reportSteps(det);
+    const field = currentStepField(det);
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    reportStepTitle.textContent = `第 ${det.step + 1} / ${steps.length} 題:${STEP_LABEL[field]}`;
+    const isCount = field === 'count';
+    if (reportCountRow) reportCountRow.hidden = !isCount;
+    if (isCount) renderCountStepper('reportCount', det.count, det.countUnit);
+    reportStepCards.hidden = isCount;
+    let groups = [];
+    if (!isCount){
+      groups = stepGroups(det, field);
+      det.cardGroup = det.cardGroup || {};
+      const g = (det.cardGroup[field] || 0) % groups.length;
+      reportStepCards.innerHTML = groups[g].map(v => optionButton(field, v, category)).join('');
+      const current = (det.detail || {})[field];
+      // the current value isn't among these cards: say what it is
+      reportStepCurrent.hidden = !current || groups[g].includes(current);
+      reportStepCurrent.textContent = current ? `目前:${fieldValueLabel(field, current)}` : '';
+    } else {
+      reportStepCurrent.hidden = true;
+    }
+    reportOtherBtn.hidden = isCount || groups.length < 2;
+    const last = det.step === steps.length - 1;
+    reportRevealBtn.hidden = !last || !hiddenFields(det).length;
+    reportStepBack.disabled = det.step === 0;
+    reportStepNext.textContent = last ? '完成這道菜' : '下一步';
+    syncReportChoices(det);
+  }
+  function renderReportChoiceLists(){ /* built per page by renderReportStep() */ }
   function syncReportChoices(det){
     const d = det.detail || {};
-    Object.entries(reportLists).forEach(([kind, list]) => {
-      list.querySelectorAll('.detail-choice').forEach(btn => {
-        btn.classList.toggle('selected', btn.dataset.value === d[kind]);
-      });
+    reportStepCards.querySelectorAll('.detail-choice').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.value === d[btn.dataset.kind]);
     });
   }
-  Object.values(reportLists).forEach(list => {
-    list.addEventListener('click', e => {
-      const more = e.target.closest('.detail-more-btn');
-      if (more){
-        const det = selectedReportDet();
-        if (!det) return;
-        const kind = more.dataset.more;
-        det.expanded = det.expanded || {};
-        det.expanded[kind] = !det.expanded[kind];
-        // opening the full list is a user action (1); closing it is not counted
-        if (det.expanded[kind]) logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), field: kind, detail: { what: 'expand-other' } });
-        renderReportFieldOptions(det);
-        syncReportChoices(det);
-        return;
-      }
-      const btn = e.target.closest('.detail-choice');
-      if (btn) setReportField(btn.dataset.kind, btn.dataset.value);
-    });
+  reportStepCards.addEventListener('click', e => {
+    const btn = e.target.closest('.detail-choice');
+    if (btn) setReportField(btn.dataset.kind, btn.dataset.value);
+  });
+  // 「其他 ↻」: the next group of cards (counted as one user action)
+  function nextCardGroup(source){
+    const det = selectedReportDet();
+    if (!det || det.loading) return;
+    const field = currentStepField(det);
+    if (field === 'count') return;
+    const groups = stepGroups(det, field);
+    if (groups.length < 2) return;
+    det.cardGroup = det.cardGroup || {};
+    det.cardGroup[field] = ((det.cardGroup[field] || 0) + 1) % groups.length;
+    logEvent('options_next', { actor: 'user', target: dishNoOf(det), field, source: source || null,
+      detail: { group: det.cardGroup[field] + 1, groups: groups.length } });
+    renderReportStep(det);
+  }
+  reportOtherBtn.addEventListener('click', () => nextCardGroup());
+  // 上一步 / 下一步 (not counted in userActionCount — 待老師確認); the last 下一步
+  // is 「完成這道菜」 and goes back to picking a dish
+  function goReportStep(delta, source){
+    const det = selectedReportDet();
+    if (!det || det.loading) return;
+    const steps = reportSteps(det);
+    const field = currentStepField(det);
+    const to = det.step + delta;
+    if (to < 0) return;
+    stopReportListening();
+    if (to >= steps.length){
+      logEvent('step_next', { actor: 'user', target: dishNoOf(det), field, source: source || null, detail: { field, to: 'done' } });
+      selectReportDish(null);
+      return;
+    }
+    logEvent(delta > 0 ? 'step_next' : 'step_back', { actor: 'user', target: dishNoOf(det), field, source: source || null, detail: { field, to: steps[to] } });
+    det.step = to;
+    setReportVoiceMsg('');
+    renderReportStep(det);
+    reportPanel.scrollTop = 0;
+  }
+  reportStepNext.addEventListener('click', () => goReportStep(1));
+  reportStepBack.addEventListener('click', () => goReportStep(-1));
+  // the AI put the dish in the wrong type: call back the hidden fields
+  reportRevealBtn.addEventListener('click', () => {
+    const det = selectedReportDet();
+    if (!det) return;
+    const fields = hiddenFields(det);
+    if (!fields.length) return;
+    det.extraFields = (det.extraFields || []).concat(fields);
+    logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), detail: { what: 'hidden-fields', fields } });
+    det.step = reportSteps(det).indexOf(fields.find(f => reportSteps(det).includes(f)));
+    renderReportStep(det);
+    refreshMarkerStates();
+    updateReportDone();
   });
 
   // opts.source: 'voice' when picked by the 🎤 button (events only)
@@ -3027,7 +3144,7 @@
     });
     setFieldSource(det, kind, 'user');
     det.detail = { ...(det.detail || {}), [kind]: value };
-    syncReportChoices(det);
+    renderReportStep(det); // selected card + the 「目前:…」 line
     refreshMarkerStates();
     updateReportDone();
     if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
@@ -3055,11 +3172,8 @@
     reportDishConf.textContent = confidence;
     reportRenameBtn.disabled = !!det.loading || reportRenaming;
     reportDeleteBtn.disabled = !!det.loading;
-    renderReportFieldOptions(det);
-    syncReportChoices(det);
-    setReportVoiceMsg('');
+    renderReportStep(det);
     renderReportKcal();
-    renderReportCount(det);
 
     reportDishThumb.removeAttribute('src');
     ensureReportThumb(det).then(url => {
@@ -3068,12 +3182,20 @@
   }
 
   function selectReportDish(id){
-    if (id !== reportSelectedId) stopReportListening();
+    if (id !== reportSelectedId){
+      stopReportListening();
+      setReportVoiceMsg('');
+      const det = currentDetections.find(d => d.id === id);
+      if (det) det.step = 0;
+      photoPeek = false;
+    }
     reportSelectedId = id;
+    reportScreenEl.classList.toggle('report-stepping', !!id && !chatMode);
     reportKcalOpen = false;
     reportDeleteConfirm.hidden = true;
     refreshMarkerStates();
     renderReportPanel();
+    sizeReportPhotoSlot();
   }
 
   function onReportMarkerTap(det){
@@ -3099,8 +3221,16 @@
     if (reportCountTag) reportCountTag.textContent = countTag.textContent;
     renumberMarkers();
     renderReportPanel();
-    // presets can fill a dish completely: its calories start right away
-    if (!chatMode) currentDetections.forEach(d => { if (isDishComplete(d)) notifyDishDetailComplete(d, 'completed'); });
+    if (!chatMode) currentDetections.forEach(d => {
+      // fruit without a photo count starts at DEFAULT_COUNT (shown selected; 待老師確認)
+      if (FIELD_DEFAULTS.alwaysCounted(d.foodType, d.category) && !Number.isInteger(d.count)){
+        d.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+        setFieldSource(d, 'count', 'default');
+        if (d.labelEl) renderDetLabel(d.labelEl, d);
+      }
+      // presets can fill a dish completely: its calories start right away
+      if (isDishComplete(d)) notifyDishDetailComplete(d, 'completed');
+    });
     goToScreen('report');
     requestAnimationFrame(() => {
       sizeReportPhotoSlot();
@@ -3114,7 +3244,13 @@
   // coordinates are % of the full photo). The stage's ResizeObserver then
   // re-lays out the photo, markers and labels.
   const REPORT_PHOTO_MAX_SCREEN_SHARE = 0.5;
-  const CHAT_PHOTO_MAX_SCREEN_SHARE = 0.4;
+  // While editing (A: a dish is open; B/C: always on the chat page) the photo
+  // shrinks to a strip of PHOTO_COMPACT_SHARE of its normal height — the same
+  // for all three groups. Tapping it shows it full size until tapped again.
+  const PHOTO_COMPACT_SHARE = 1 / 3;
+  const PHOTO_COMPACT_MIN_PX = 96;
+  let photoPeek = false;
+  const photoCompactMode = () => reportActive && (chatMode || !!reportSelectedId);
   function sizeReportPhotoSlot(){
     if (!reportActive) return;
     const nw = recognizePhoto.naturalWidth;
@@ -3122,10 +3258,27 @@
     const width = reportPhotoSlot.clientWidth;
     const screenH = reportScreenEl.clientHeight;
     if (!nw || !nh || !width || !screenH) return;
-    // Group B keeps more room under the photo for the conversation
-    const h = Math.min(width * nh / nw, screenH * (chatMode ? CHAT_PHOTO_MAX_SCREEN_SHARE : REPORT_PHOTO_MAX_SCREEN_SHARE));
+    const normal = Math.min(width * nh / nw, screenH * REPORT_PHOTO_MAX_SCREEN_SHARE);
+    const compact = photoCompactMode() && !photoPeek;
+    const h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
     reportPhotoSlot.style.height = `${Math.round(h)}px`;
+    reportPhotoSlot.classList.toggle('is-compact', compact);
+    // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
+    const btnHome = compact ? reportPhotoSlot : recognizeWrap;
+    if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    if (photoPeekHint){
+      photoPeekHint.hidden = !photoCompactMode();
+      photoPeekHint.textContent = photoPeek ? '點照片縮小' : '點照片放大';
+    }
   }
+  // a tap on the photo itself (not a marker / label / button) toggles the size
+  recognizeWrap.addEventListener('click', e => {
+    if (!photoCompactMode() || reportAddingDish) return;
+    if (e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
+    photoPeek = !photoPeek;
+    logEvent(photoPeek ? 'photo_expanded' : 'photo_collapsed', { actor: 'user' });
+    sizeReportPhotoSlot();
+  });
   window.addEventListener('resize', sizeReportPhotoSlot);
   recognizePhoto.addEventListener('load', sizeReportPhotoSlot);
 
@@ -3139,6 +3292,11 @@
     setReportAdding(false);
     if (recognizeStage.parentElement !== recognizeBody) recognizeBody.appendChild(recognizeStage);
     reportPhotoSlot.style.height = '';
+    reportPhotoSlot.classList.remove('is-compact');
+    if (reportAddDishBtn.parentElement !== recognizeWrap) recognizeWrap.appendChild(reportAddDishBtn);
+    reportScreenEl.classList.remove('report-stepping');
+    photoPeek = false;
+    if (photoPeekHint) photoPeekHint.hidden = true;
     refreshMarkerStates();
   }
 
@@ -3160,20 +3318,39 @@
     }
     reportVoiceBtn?.classList.remove('is-listening');
   }
+  // Only this page's field (「真的」 on the 烹調方式 page = 蒸), then a command:
+  // 「換一組 / 其他」 = 其他 ↻, 「下一步 / 好了」 = 下一步, 「上一步」 = 上一步.
   function applySpokenOptions(text){
     const det = selectedReportDet();
     if (!det || det.loading) return;
     const category = det.category === 'beverage' ? 'beverage' : 'food';
-    const { matches } = VOICE_MATCH.match(text, { category });
-    // a value must exist for this dish (e.g. a food cooking method for food)
-    const usable = matches.filter(m => allValues(m.field, category).includes(m.value));
-    if (!usable.length){
-      setReportVoiceMsg(`沒有聽懂「${text}」,請再說一次或直接點選`, true);
+    const field = currentStepField(det);
+    let picked = null;
+    if (field === 'count'){
+      const n = VOICE_MATCH.count(text);
+      if (n){
+        setReportCount(n, 'voice');
+        picked = `數量 ${n} ${det.countUnit || '個'}`;
+      }
+    } else {
+      const m = VOICE_MATCH.match(text, { category, fields: [field] }).matches
+        .find(x => x.field === field && allValues(field, category).includes(x.value));
+      if (m){
+        setReportField(field, m.value, { source: 'voice' });
+        picked = `${FIELD_NAME[field]} ${fieldValueLabel(field, m.value)}`;
+      }
+    }
+    const cmd = VOICE_MATCH.command(text);
+    if (!picked && !cmd){
+      const heard = String(text || '').replace(/\s+/g, '');
+      setReportVoiceMsg(`沒有聽懂,請再說一次,或直接點選卡牌${heard ? `(聽到:${heard.length > 10 ? heard.slice(0, 10) + '…' : heard})` : ''}`, true);
       return;
     }
-    usable.forEach(m => setReportField(m.field, m.value, { source: 'voice' }));
-    const label = m => (m.field === 'containerType' ? FIELD_DEFAULTS.CONTAINER_LABELS[m.value] : m.value);
-    setReportVoiceMsg(`已選:${usable.map(m => `${FIELD_NAME[m.field]} ${label(m)}`).join('、')}`);
+    if (picked) setReportVoiceMsg(`已選:${picked}`);
+    if (cmd === 'more') nextCardGroup('voice');
+    else if (cmd === 'next') goReportStep(1, 'voice');
+    else if (cmd === 'back') goReportStep(-1, 'voice');
+    if (cmd && !picked) setReportVoiceMsg('');
   }
   reportVoiceBtn?.addEventListener('click', () => {
     if (reportRecognition){ stopReportListening(); return; }
@@ -3199,7 +3376,7 @@
       rec.start();
       reportRecognition = rec;
       reportVoiceBtn.classList.add('is-listening');
-      setReportVoiceMsg('請說出選項,例如「碗」「蒸的」「鹽二分之一」「半糖」');
+      setReportVoiceMsg('請說出這一題的選項,或「換一組」「下一步」「上一步」');
     } catch (err){
       setReportVoiceMsg('語音無法啟動,請直接點選', true);
     }
@@ -3857,6 +4034,7 @@
       if (u.autoSize) chatAutoSized.add(det);
       // "雞腿吃了 4 隻": what the user ate wins over the photo's count
       if (Number.isInteger(u.count)){
+        setFieldSource(det, 'count', 'ai');
         if (u.count !== det.count) det.countEdits = (det.countEdits || 0) + 1;
         det.count = u.count;
         det.countConfirmed = true;

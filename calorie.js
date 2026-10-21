@@ -44,7 +44,9 @@
       salt: x.salt,
       // countable dishes: how many (only used with a per-piece item)
       count: Number.isInteger(d.count) ? d.count : undefined,
-      countUnit: d.countUnit || undefined
+      countUnit: d.countUnit || undefined,
+      // fruit has no container: the server then uses grams per piece × count
+      foodType: d.foodType || undefined
     };
   }
 

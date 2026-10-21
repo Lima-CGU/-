@@ -48,7 +48,14 @@ function compute(item, input){
   const itemUnit = unitLabel(item.unit);
 
   if (isContinuous(item)){
-    const portion = cfg.PORTION_TABLE[input.containerType];
+    let portion = cfg.PORTION_TABLE[input.containerType];
+    // no container field for this food type (fruit): grams of one piece × count
+    let pieces = null;
+    if (!portion && input.noContainer){
+      pieces = Number.isInteger(input.count) ? input.count : 1;
+      const g = cfg.NO_CONTAINER_PIECE_GRAMS;
+      portion = { unit: 'g', XS: g.XS * pieces, S: g.S * pieces, M: g.M * pieces, L: g.L * pieces, XL: g.XL * pieces };
+    }
     if (!portion) return { status: 'needs-portion' };   // grams/ml item, container unknown
     const served = portion[input.size];
     const base = item.weightG;
@@ -62,8 +69,11 @@ function compute(item, input){
     const baseU = /毫升|ml|c\.?c/i.test(itemUnit) ? 'ml' : 'g';
     formula = `每 ${base}${baseU} ${item.kcal} kcal × ${served}${amountUnit}`;
     how = `以「${item.name}」每 ${base} ${baseUnit}為基準,` +
-      `${cfg.CONTAINER_LABELS[input.containerType]} ${input.size} 約 ${served} ${amountUnit === 'ml' ? '毫升' : '公克'}` +
+      (pieces != null
+        ? `${input.size} 每個約 ${cfg.NO_CONTAINER_PIECE_GRAMS[input.size]} 公克 × ${pieces} 個 = ${served} 公克`
+        : `${cfg.CONTAINER_LABELS[input.containerType]} ${input.size} 約 ${served} ${amountUnit === 'ml' ? '毫升' : '公克'}`) +
       `(÷ ${base} × ${served})`;
+    if (pieces != null) countUsed = pieces;
   } else {
     const m = sizeMultiplier(item.category, input.size);
     if (!isNum(m)) return { status: 'unsupported', reason: 'size' };

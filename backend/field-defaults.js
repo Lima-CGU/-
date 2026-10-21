@@ -15,8 +15,8 @@
 
   /* ---------- the five fields' allowed values ---------- */
   const OPTIONS = {
-    // 'none' = 直接拿 (no container: a fruit held in the hand, a bun …)
-    containerType: ['plate', 'bowl', 'cup', 'none'],
+    // (「直接拿」 'none' was removed on 10/22: a fruit simply has no container field)
+    containerType: ['plate', 'bowl', 'cup'],
     size: ['XS', 'S', 'M', 'L', 'XL'],
     cookingMethodFood: ['生食', '沙拉', '水煮', '蒸', '炒', '煎', '炸', '烤', '燒烤', '滷', '燉', '烘焙'],
     cookingMethodBeverage: ['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製', '不適用'],
@@ -24,6 +24,7 @@
     salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']
   };
   const FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+  // 'none' stays only so records saved between 10/21 and 10/22 still read well
   const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', none: '直接拿' };
 
   /* ---------- food types (from /api/detect) ---------- */
@@ -41,6 +42,31 @@
     return t === 'beverage' && category && category !== 'beverage' ? 'other' : t;
   }
 
+  /* ---------- fields that apply to each food type 【待老師確認】 ----------
+     A field that doesn't apply is not shown, gets no preset, is saved as
+     null with fieldSource 'na', and is not needed for a dish to be filled.
+     'count' = the 數量 step (other types get it only when the dish is countable). */
+  const ALL_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+  const APPLICABLE = {
+    fruit:    ['size', 'count'],                     // 【待老師確認】
+    beverage: ['containerType', 'size', 'sugar']     // 【待老師確認】
+    // every other type: all five fields (+ count when countable) 【待老師確認】
+  };
+  /** The five-field keys that apply (no 'count'). */
+  function applicableFields(foodType, category){
+    const t = normalizeFoodType(foodType, category);
+    return (APPLICABLE[t] || ALL_FIELDS).filter(f => f !== 'count');
+  }
+  /** Does this type always have a 數量 step (not only when countable)? */
+  function alwaysCounted(foodType, category){
+    const t = normalizeFoodType(foodType, category);
+    return !!(APPLICABLE[t] && APPLICABLE[t].includes('count'));
+  }
+
+  // a type that always has a 數量 step (fruit) starts at this many when the
+  // photo gave no count (Group A; shown selected, the user can change it)
+  const DEFAULT_COUNT = 1; // 【待老師確認】
+
   /* ---------- defaults per food type 【待老師確認】 ----------
      cookingMethod here is only the fallback when the dish name has no
      cooking word (see cookingFromName); '' = left empty for the user. */
@@ -49,25 +75,39 @@
     protein:   { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
     vegetable: { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
     soup:      { containerType: 'bowl',  size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
-    fruit:     { containerType: 'none',  size: 'M', cookingMethod: '生食', sugar: '無糖', salt: '無鹽' },     // 【待老師確認】
-    beverage:  { containerType: 'cup',   size: 'M', cookingMethod: '不適用', sugar: '無糖', salt: '無鹽' },   // 【待老師確認】
+    fruit:     { size: 'M' },                                    // 【待老師確認】 (only size + count apply)
+    beverage:  { containerType: 'cup',   size: 'M', sugar: '無糖' },       // 【待老師確認】 (no cooking / salt)
     snack:     { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '半糖', salt: '無鹽' },     // 【待老師確認】
     other:     { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }  // 【待老師確認】
   };
 
-  /* ---------- options shown first per food type (then 「其他…」) 【待老師確認】
-     Fields not listed show their full list. The current value is always
-     shown too, even when it isn't in the short list. */
-  const RELEVANT = {
-    staple:    { containerType: ['bowl', 'plate', 'none'], cookingMethod: ['蒸', '炒', '水煮', '煎', '烘焙'], sugar: ['無糖'], salt: ['無鹽', '1/4 茶匙', '1/2 茶匙'] },
-    protein:   { containerType: ['plate', 'bowl'], cookingMethod: ['煎', '炒', '炸', '烤', '滷', '燉', '蒸', '水煮'], sugar: ['無糖', '微糖(四分之一)', '半糖'], salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙'] },
-    vegetable: { containerType: ['plate', 'bowl'], cookingMethod: ['炒', '水煮', '蒸', '生食', '沙拉'], sugar: ['無糖'], salt: ['無鹽', '1/4 茶匙', '1/2 茶匙'] },
-    soup:      { containerType: ['bowl', 'cup'], cookingMethod: ['水煮', '燉'], sugar: ['無糖'], salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙'] },
-    fruit:     { containerType: ['none', 'plate', 'bowl'], cookingMethod: ['生食', '烤'], sugar: ['無糖'], salt: ['無鹽'] },
-    beverage:  { containerType: ['cup'], cookingMethod: ['不適用', '沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製'], salt: ['無鹽'] },
-    snack:     { containerType: ['plate', 'none', 'bowl'], cookingMethod: ['烘焙', '炸', '蒸', '烤'], salt: ['無鹽', '1/4 茶匙'] },
-    other:     {}
+  /* ---------- option cards (Group A, one field per page) 【待老師確認】 ----------
+     A page shows one group of 3–4 cards; 「其他 ↻」 shows the next group and
+     wraps back to the first. The group holding the dish's preset is shown
+     first. CARD_GROUPS_BY_TYPE overrides a field for one food type. */
+  const CARD_GROUPS = {
+    containerType: [['plate', 'bowl', 'cup']],
+    size: [['S', 'M', 'L'], ['XS', 'XL']],
+    cookingMethod: [['炒', '煎', '炸'], ['蒸', '水煮', '烤'], ['滷', '燉', '燒烤'], ['生食', '沙拉', '烘焙']],
+    cookingMethodBeverage: [['沖泡', '現煮', '現榨'], ['冰鎮', '熱飲', '調製', '不適用']],
+    sugar: [['無糖', '微糖(四分之一)', '半糖'], ['少糖(四分之三)', '全糖']],
+    salt: [['無鹽', '1/4 茶匙', '1/2 茶匙'], ['3/4 茶匙', '1 茶匙']]
   };
+  const CARD_GROUPS_BY_TYPE = {                                        // 【待老師確認】
+    staple:   { containerType: [['bowl', 'plate', 'cup']], cookingMethod: [['蒸', '水煮', '炒'], ['煎', '炸', '烤'], ['滷', '燉', '燒烤'], ['生食', '沙拉', '烘焙']] },
+    soup:     { containerType: [['bowl', 'cup', 'plate']], cookingMethod: [['水煮', '燉', '滷'], ['炒', '煎', '炸'], ['蒸', '烤', '燒烤'], ['生食', '沙拉', '烘焙']] },
+    beverage: { containerType: [['cup', 'bowl', 'plate']], sugar: [['無糖', '半糖', '全糖'], ['微糖(四分之一)', '少糖(四分之三)']] },
+    snack:    { sugar: [['半糖', '全糖', '少糖(四分之三)'], ['無糖', '微糖(四分之一)']], cookingMethod: [['烘焙', '炸', '蒸'], ['烤', '煎', '水煮'], ['炒', '滷', '燉'], ['燒烤', '生食', '沙拉']] }
+  };
+  /** The card groups for one field of one dish; the group with `current` first. */
+  function cardGroups(field, foodType, category, current){
+    const t = normalizeFoodType(foodType, category);
+    const key = field === 'cookingMethod' && category === 'beverage' ? 'cookingMethodBeverage' : field;
+    const own = (CARD_GROUPS_BY_TYPE[t] || {})[field];
+    const groups = ((category === 'beverage' && field === 'cookingMethod') ? CARD_GROUPS[key] : (own || CARD_GROUPS[key])).map(g => g.slice());
+    const i = groups.findIndex(g => g.includes(current));
+    return i > 0 ? groups.slice(i).concat(groups.slice(0, i)) : groups;
+  }
 
   /* ---------- cooking word in the dish name -> cooking method ----------
      Longest / most specific first (燒烤 before 烤, 水煮 before 煮). 生 means
@@ -95,19 +135,11 @@
   function defaultsFor(name, foodType, category){
     const t = normalizeFoodType(foodType, category);
     const d = { ...DEFAULTS[t] };
-    d.cookingMethod = cookingFromName(name, category) || d.cookingMethod;
-    Object.keys(d).forEach(k => { if (!d[k]) delete d[k]; });
+    const fields = applicableFields(t, category);
+    if (fields.includes('cookingMethod')) d.cookingMethod = cookingFromName(name, category) || d.cookingMethod;
+    // only the fields that apply get a preset
+    Object.keys(d).forEach(k => { if (!d[k] || !fields.includes(k)) delete d[k]; });
     return d;
-  }
-
-  /** Values shown before 「其他…」 for one field (all of them when nothing is listed). */
-  function relevantOptions(field, foodType, category){
-    const t = normalizeFoodType(foodType, category);
-    const all = field === 'cookingMethod'
-      ? (category === 'beverage' ? OPTIONS.cookingMethodBeverage : OPTIONS.cookingMethodFood)
-      : OPTIONS[field];
-    const short = (RELEVANT[t] || {})[field];
-    return short && short.length ? short.filter(v => all.includes(v)) : all.slice();
   }
 
   /* ---------- food type of a dish that has none (added in the chat) ----------
@@ -128,7 +160,7 @@
   }
 
   return {
-    OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, RELEVANT, COOKING_KEYWORDS,
-    normalizeFoodType, cookingFromName, defaultsFor, relevantOptions, guessFoodType
+    DEFAULT_COUNT, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS,
+    normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType
   };
 });
