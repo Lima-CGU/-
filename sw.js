@@ -1,8 +1,10 @@
-const CACHE_NAME = 'pictameal-shell-v25';
+const CACHE_NAME = 'pictameal-shell-v26';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
+  './backend/field-defaults.js',
+  './voice-match.js',
   './calorie.js',
   './sync.js',
   './script.js',
@@ -65,7 +67,7 @@ self.addEventListener('activate', event => {
 // never run with a newer script.js (or the other way round) — that breaks
 // the page. They come from the cache only when the network fails (offline).
 // Images and icons stay cache-first.
-const NETWORK_FIRST = ['index.html', 'script.js', 'style.css', 'calorie.js', 'sync.js', 'manifest.json', 'sw.js'];
+const NETWORK_FIRST = ['index.html', 'script.js', 'style.css', 'calorie.js', 'sync.js', 'manifest.json', 'sw.js', 'backend/field-defaults.js', 'voice-match.js'];
 function isNetworkFirst(request, url){
   if (request.mode === 'navigate') return true;
   const scope = new URL(self.registration.scope).pathname;

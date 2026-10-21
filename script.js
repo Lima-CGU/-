@@ -52,6 +52,11 @@
   //   2. otherwise the last group saved — e.g. when launched from the
   //      home-screen PWA icon, whose start_url has no query string;
   //   3. otherwise A.
+  // Field options / food types / per-type defaults (backend/field-defaults.js,
+  // the same file the backend uses) and the spoken-word table (voice-match.js)
+  const FIELD_DEFAULTS = window.PictaFieldDefaults;
+  const VOICE_MATCH = window.PictaVoiceMatch;
+
   const STUDY_GROUP_STORAGE_KEY = 'pictameal:studyGroup';
   const STUDY_GROUP = (() => {
     const fromUrl = (new URLSearchParams(location.search).get('group') || '').trim().toUpperCase();
@@ -496,7 +501,7 @@
 
   function formatDishDetail(detail){
     if (!detail) return '';
-    const containerMap = { plate: '盤子', bowl: '碗', cup: '杯子' };
+    const containerMap = FIELD_DEFAULTS.CONTAINER_LABELS;
     const parts = [];
 
     if (detail.containerType) {
@@ -578,7 +583,7 @@
   const DIARY_ATTR_FIELDS = [
     { icon: DIARY_ICON_COOKING, get: d => d.cookingMethod || '' },
     { icon: DIARY_ICON_PORTION, get: d => {
-      const containerMap = { plate: '盤子', bowl: '碗', cup: '杯子' };
+      const containerMap = FIELD_DEFAULTS.CONTAINER_LABELS;
       const parts = [];
       if (d.containerType) parts.push(containerMap[d.containerType] || d.containerType);
       if (d.size) parts.push(d.size);
@@ -1279,6 +1284,7 @@
             loading: false,
             confirmState: 'pending'
           };
+          det.foodType = FIELD_DEFAULTS.normalizeFoodType(d.foodType, det.category);
           // what the AI said, kept even if the user renames / deletes the dish
           // countable foods: how many the AI saw (the user can change it on Page 4)
           if (Number.isInteger(d.count) && d.count >= 1 && d.count <= COUNT_MAX && COUNT_UNITS.includes(d.countUnit)){
@@ -1295,6 +1301,8 @@
             lowConfidenceDishes.push(det);
           }
         });
+        // every dish (all groups) starts from its food type's preset values
+        currentDetections.forEach((det, i) => applyFieldDefaults(det, i + 1, 'ai-draft'));
         setRecognizeHint('', false);
         // Clearing the hint resizes the stage; let that re-layout (via the
         // ResizeObserver) land first so it doesn't cut the zoom animation.
@@ -2280,6 +2288,7 @@
           detail: d.detail ? { ...d.detail } : null,
           category: d.category === 'beverage' ? 'beverage' : 'food',
           box: null, displayBox: null, source: 'chat', tapPoint: null,
+          foodType: d.foodType || 'other', fieldSource: { ...(d.fieldSource || {}) },
           notes: [...(d.notes || [])],
           ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, countConfirmed: !!d.countConfirmed } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
@@ -2299,6 +2308,8 @@
         // photo (tapPoint = where, % of the full photo)
         source: d.addedByUser ? 'user' : 'ai',
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
+        foodType: d.foodType || 'other',
+        fieldSource: { ...(d.fieldSource || {}) },
         // countable dishes: final count (AI's is in aiOriginal.count) + edits
         ...(d.count || d.countable ? {
           count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true,
@@ -2431,6 +2442,8 @@
     { value: 'bowl', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '碗' },
     { value: 'cup', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4h10l-1.2 15a1.5 1.5 0 0 1-1.5 1.3h-4.6a1.5 1.5 0 0 1-1.5-1.3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '杯子' }
   ];
+  // 直接拿 (no container) — a fruit held in the hand, a bun …
+  containerOptions.push({ value: 'none', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12M11 11V5a1.5 1.5 0 0 1 3 0v6M14 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.5-2.5 6-6 6h-.5a5.5 5.5 0 0 1-4.4-2.2L4.3 15a1.5 1.5 0 0 1 2.3-1.9L8 14.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>', label: '直接拿' });
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
   // Same reasoning as DIARY_ICON_* above: these were emoji and rendered as a
   // garbled glyph on some devices/fonts. Every cooking-method icon — both the
@@ -2446,6 +2459,13 @@
     { value: '燒烤', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="4" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 20c-1.5-2 1-3 0-5M12 20c-1.5-2 1-3 0-5M17 20c-1.5-2 1-3 0-5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
     { value: '烘焙', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4c1.5 2-1 3 0 5s2.5 2.5 2.5 4.5A2.5 2.5 0 0 1 12 16a2.5 2.5 0 0 1-2.5-2.5c0-2 2.5-3.5 2.5-4.5s-1.5-3 0-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 20c0-3 2.7-5 6-5s6 2 6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' }
   ];
+  FOOD_COOKING_METHODS.push(
+    { value: '生食', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 6c-4 0-7 3.5-7 7.5S8 20 12 20s7-2.5 7-6.5S16 6 12 6Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 6c0-1.5 1-2.5 2.5-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' },
+    { value: '滷', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 11h16v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 14h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 8c0-1 1-1 1-2M14 8c0-1 1-1 1-2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
+    { value: '燉', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 10h14v5a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 10h18M10 7h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' }
+  );
+  // same order as field-defaults.js OPTIONS.cookingMethodFood
+  FOOD_COOKING_METHODS.sort((a, b) => FIELD_DEFAULTS.OPTIONS.cookingMethodFood.indexOf(a.value) - FIELD_DEFAULTS.OPTIONS.cookingMethodFood.indexOf(b.value));
   const BEVERAGE_COOKING_METHODS = [
     { value: '沖泡', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9h12l-1.5 10a2 2 0 0 1-2 1.7h-5a2 2 0 0 1-2-1.7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 4c1 1-1 2 0 3M13 4c1 1-1 2 0 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>' },
     { value: '現煮', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h10v3a5 5 0 0 1-10 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 13h2a2.5 2.5 0 0 1 0 5h-2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="9" x2="7" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' },
@@ -2622,6 +2642,10 @@
 
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
+    const prevDetail = detailAdjustTarget.detail || {};
+    Object.keys(detailDraft).forEach(k => {
+      if (detailDraft[k] && detailDraft[k] !== prevDetail[k]) setFieldSource(detailAdjustTarget, k, 'user');
+    });
     detailAdjustTarget.detail = { ...detailDraft };
     if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
       detailAdjustTarget.count = detailCountDraft;
@@ -2700,6 +2724,21 @@
     // a countable dish (AI counted it, or its matched item is per 隻/顆/個 …)
     // also needs its 數量 — never silently 1
     return REPORT_FIELDS.every(k => !!d[k]) && (!det.countable || Number.isInteger(det.count));
+  }
+
+  /* Preset values by food type (backend/field-defaults.js, 【待老師確認】).
+     det.fieldSource[field]: 'default' (preset, untouched) / 'user' (Group A
+     tap or voice, Diary edit) / 'ai' (Groups B/C, from what the user said). */
+  function applyFieldDefaults(det, no, reason){
+    const values = FIELD_DEFAULTS.defaultsFor(splitNameConfidence(det.name || '').name, det.foodType, det.category);
+    det.detail = { ...values, ...(det.detail || {}) };
+    det.fieldSource = det.fieldSource || {};
+    Object.keys(values).forEach(k => { if (!det.fieldSource[k]) det.fieldSource[k] = 'default'; });
+    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, reason } });
+  }
+  function setFieldSource(det, field, source){
+    det.fieldSource = det.fieldSource || {};
+    det.fieldSource[field] = source;
   }
 
   // THE hook for the upcoming calorie feature. Fired on document whenever a
@@ -2891,23 +2930,49 @@
   function choiceHtml(kind, value, inner, aria){
     return `<button type="button" class="detail-choice detail-${kind === 'containerType' ? 'container' : kind === 'cookingMethod' ? 'cooking' : kind}-choice" data-kind="${kind}" data-value="${value}" aria-label="${aria}">${inner}</button>`;
   }
-  function renderReportCookingOptions(category){
-    if (reportLists.cookingMethod.dataset.category === category) return;
-    reportLists.cookingMethod.dataset.category = category;
-    const methods = category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
-    reportLists.cookingMethod.innerHTML = methods.map(o => choiceHtml('cookingMethod', o.value,
-      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, o.value)).join('');
+  // One option button per value, for each field
+  function optionButton(kind, value, category){
+    if (kind === 'containerType'){
+      const o = containerOptions.find(x => x.value === value);
+      return o ? choiceHtml(kind, o.value, `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.label}</span>`, o.label) : '';
+    }
+    if (kind === 'size') return choiceHtml(kind, value, value, `尺寸 ${value}`);
+    if (kind === 'cookingMethod'){
+      const o = (category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS).find(x => x.value === value);
+      return o ? choiceHtml(kind, o.value, `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, o.value) : '';
+    }
+    if (kind === 'sugar'){
+      const o = sugarOptions.find(x => x.value === value);
+      return o ? choiceHtml(kind, o.value, `<span class="detail-sugar-cup" aria-hidden="true"><span class="detail-sugar-fill" style="height:${o.level}%"></span></span><span class="detail-choice-label">${o.value}</span>`, `糖 ${o.value}`) : '';
+    }
+    const o = saltOptions.find(x => x.value === value);
+    return o ? choiceHtml(kind, o.value, `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, `鹽 ${o.value}`) : '';
   }
-  function renderReportChoiceLists(){
-    reportLists.containerType.innerHTML = containerOptions.map(o => choiceHtml('containerType', o.value,
-      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.label}</span>`, o.label)).join('');
-    reportLists.size.innerHTML = sizeOptions.map(s => choiceHtml('size', s, s, `尺寸 ${s}`)).join('');
-    reportLists.sugar.innerHTML = sugarOptions.map(o => choiceHtml('sugar', o.value,
-      `<span class="detail-sugar-cup" aria-hidden="true"><span class="detail-sugar-fill" style="height:${o.level}%"></span></span><span class="detail-choice-label">${o.value}</span>`, `糖 ${o.value}`)).join('');
-    reportLists.salt.innerHTML = saltOptions.map(o => choiceHtml('salt', o.value,
-      `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, `鹽 ${o.value}`)).join('');
-    renderReportCookingOptions('food');
+  function allValues(kind, category){
+    if (kind === 'containerType') return containerOptions.map(o => o.value);
+    if (kind === 'size') return sizeOptions.slice();
+    if (kind === 'cookingMethod') return (category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS).map(o => o.value);
+    return (kind === 'sugar' ? sugarOptions : saltOptions).map(o => o.value);
   }
+  // Each field first shows only the options that fit this dish's food type
+  // (field-defaults.js RELEVANT) plus its current value, then 「其他…」 opens
+  // the full list (and 「收合」 closes it again).
+  function renderReportFieldOptions(det){
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    det.expanded = det.expanded || {};
+    REPORT_FIELDS.forEach(kind => {
+      const all = allValues(kind, category);
+      const short = FIELD_DEFAULTS.relevantOptions(kind, det.foodType, category);
+      const current = (det.detail || {})[kind];
+      // the short list in field-defaults.js order, plus the current value
+      const visible = det.expanded[kind] ? all
+        : short.concat(current && all.includes(current) && !short.includes(current) ? [current] : []);
+      const more = visible.length < all.length || det.expanded[kind];
+      reportLists[kind].innerHTML = visible.map(v => optionButton(kind, v, category)).join('')
+        + (more ? `<button type="button" class="detail-choice detail-more-btn" data-more="${kind}" aria-expanded="${!!det.expanded[kind]}">${det.expanded[kind] ? '收合' : '其他…'}</button>` : '');
+    });
+  }
+  function renderReportChoiceLists(){ /* built per dish by renderReportFieldOptions() */ }
   function syncReportChoices(det){
     const d = det.detail || {};
     Object.entries(reportLists).forEach(([kind, list]) => {
@@ -2918,24 +2983,49 @@
   }
   Object.values(reportLists).forEach(list => {
     list.addEventListener('click', e => {
+      const more = e.target.closest('.detail-more-btn');
+      if (more){
+        const det = selectedReportDet();
+        if (!det) return;
+        const kind = more.dataset.more;
+        det.expanded = det.expanded || {};
+        det.expanded[kind] = !det.expanded[kind];
+        // opening the full list is a user action (1); closing it is not counted
+        if (det.expanded[kind]) logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), field: kind, detail: { what: 'expand-other' } });
+        renderReportFieldOptions(det);
+        syncReportChoices(det);
+        return;
+      }
       const btn = e.target.closest('.detail-choice');
       if (btn) setReportField(btn.dataset.kind, btn.dataset.value);
     });
   });
 
-  function setReportField(kind, value){
+  // opts.source: 'voice' when picked by the 🎤 button (events only)
+  function setReportField(kind, value, opts = {}){
     const det = selectedReportDet();
     if (!det || det.loading) return;
     const wasComplete = isDishComplete(det);
     const prev = (det.detail || {})[kind];
+    const prevSource = (det.fieldSource || {})[kind];
+    const fromDefault = !!prev && prevSource === 'default';
     if (currentMealMeta && prev !== value){
       currentMealMeta.editLog.fieldSetCount += 1;
-      if (prev) currentMealMeta.editLog.fieldChangeCount += 1; // changed an answer already given
+      // changed an answer the user had given (replacing a preset is not one)
+      if (prev && !fromDefault) currentMealMeta.editLog.fieldChangeCount += 1;
     }
-    // one tap on an option = one committed change = one attempt
+    // one tap (or one spoken option) = one committed change = one attempt.
+    // Tapping the preset value itself confirms it: field_set, before = after.
+    const source = opts.source === 'voice' ? 'voice' : null;
     if (prev !== value) logEvent(prev ? 'field_changed' : 'field_set', {
-      actor: 'user', target: dishNoOf(det), field: kind, before: prev || null, after: value, attemptId: nextAttemptId()
+      actor: 'user', target: dishNoOf(det), field: kind, before: prev || null, after: value, attemptId: nextAttemptId(), source,
+      detail: fromDefault ? { fromDefault: true } : null
     });
+    else if (fromDefault) logEvent('field_set', {
+      actor: 'user', target: dishNoOf(det), field: kind, before: prev, after: value, attemptId: nextAttemptId(), source,
+      detail: { confirmedDefault: true }
+    });
+    setFieldSource(det, kind, 'user');
     det.detail = { ...(det.detail || {}), [kind]: value };
     syncReportChoices(det);
     refreshMarkerStates();
@@ -2965,8 +3055,9 @@
     reportDishConf.textContent = confidence;
     reportRenameBtn.disabled = !!det.loading || reportRenaming;
     reportDeleteBtn.disabled = !!det.loading;
-    renderReportCookingOptions(det.category === 'beverage' ? 'beverage' : 'food');
+    renderReportFieldOptions(det);
     syncReportChoices(det);
+    setReportVoiceMsg('');
     renderReportKcal();
     renderReportCount(det);
 
@@ -2977,6 +3068,7 @@
   }
 
   function selectReportDish(id){
+    if (id !== reportSelectedId) stopReportListening();
     reportSelectedId = id;
     reportKcalOpen = false;
     reportDeleteConfirm.hidden = true;
@@ -3007,6 +3099,8 @@
     if (reportCountTag) reportCountTag.textContent = countTag.textContent;
     renumberMarkers();
     renderReportPanel();
+    // presets can fill a dish completely: its calories start right away
+    if (!chatMode) currentDetections.forEach(d => { if (isDishComplete(d)) notifyDishDetailComplete(d, 'completed'); });
     goToScreen('report');
     requestAnimationFrame(() => {
       sizeReportPhotoSlot();
@@ -3038,6 +3132,7 @@
   // Hands the photo stage back to Page 3. Safe to call any time.
   function exitReportMode(){
     reportActive = false;
+    stopReportListening();
     if (chatMode) resetChat();
     Calorie.reset();
     reportSelectedId = null;
@@ -3047,7 +3142,70 @@
     refreshMarkerStates();
   }
 
-  /* rename: up to 3 candidates from /api/recognize, or type one */
+  /* 🎤 Group A: say an option (「鹽二分之一」「蒸的」「碗」「半糖」). The words are
+     matched with voice-match.js's fixed table — no AI, no conversation. */
+  const reportVoiceBtn = document.getElementById('reportVoiceBtn');
+  const reportVoiceMsg = document.getElementById('reportVoiceMsg');
+  let reportRecognition = null;
+  const FIELD_NAME = { containerType: '容器', size: '尺寸', cookingMethod: '烹調', sugar: '糖', salt: '鹽' };
+  function setReportVoiceMsg(text, isError){
+    if (!reportVoiceMsg) return;
+    reportVoiceMsg.textContent = text || '';
+    reportVoiceMsg.classList.toggle('is-error', !!isError);
+  }
+  function stopReportListening(){
+    if (reportRecognition){
+      try { reportRecognition.stop(); } catch (err){ /* already stopped */ }
+      reportRecognition = null;
+    }
+    reportVoiceBtn?.classList.remove('is-listening');
+  }
+  function applySpokenOptions(text){
+    const det = selectedReportDet();
+    if (!det || det.loading) return;
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    const { matches } = VOICE_MATCH.match(text, { category });
+    // a value must exist for this dish (e.g. a food cooking method for food)
+    const usable = matches.filter(m => allValues(m.field, category).includes(m.value));
+    if (!usable.length){
+      setReportVoiceMsg(`沒有聽懂「${text}」,請再說一次或直接點選`, true);
+      return;
+    }
+    usable.forEach(m => setReportField(m.field, m.value, { source: 'voice' }));
+    const label = m => (m.field === 'containerType' ? FIELD_DEFAULTS.CONTAINER_LABELS[m.value] : m.value);
+    setReportVoiceMsg(`已選:${usable.map(m => `${FIELD_NAME[m.field]} ${label(m)}`).join('、')}`);
+  }
+  reportVoiceBtn?.addEventListener('click', () => {
+    if (reportRecognition){ stopReportListening(); return; }
+    if (!selectedReportDet()) return;
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor){ setReportVoiceMsg('這個瀏覽器不支援語音,請直接點選', true); return; }
+    const rec = new Ctor();
+    rec.lang = 'zh-TW';
+    rec.interimResults = false;
+    rec.continuous = false;
+    rec.onresult = ev => {
+      let text = '';
+      for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
+      applySpokenOptions(text.trim());
+    };
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') setReportVoiceMsg('沒有麥克風權限,請直接點選', true);
+      else if (ev.error === 'no-speech') setReportVoiceMsg('沒有聽到聲音,請再說一次或直接點選', true);
+      else if (ev.error !== 'aborted') setReportVoiceMsg('語音辨識失敗,請再說一次或直接點選', true);
+    };
+    rec.onend = () => { if (reportRecognition === rec) stopReportListening(); };
+    try {
+      rec.start();
+      reportRecognition = rec;
+      reportVoiceBtn.classList.add('is-listening');
+      setReportVoiceMsg('請說出選項,例如「碗」「蒸的」「鹽二分之一」「半糖」');
+    } catch (err){
+      setReportVoiceMsg('語音無法啟動,請直接點選', true);
+    }
+  });
+
+  /* rename: type a new name (the AI's suggested names were removed 10/21) */
   reportRenameBtn.addEventListener('click', async () => {
     const det = selectedReportDet();
     if (!det || det.loading || reportRenaming) return;
@@ -3056,12 +3214,13 @@
     const wasComplete = isDishComplete(det);
     const nameBefore = det.name;
     logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), field: 'name', detail: { what: 'rename' } });
+    // typed name only — no AI-suggested names (teacher 10/21)
     openCandidateDialog(det, [], () => {
       reportRenaming = false;
       renderReportPanel();
     }, {
       allowCustom: true,
-      loading: true,
+      loading: false,
       onConfirm(target, prevCategory, how){
         if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
         if (target.name !== nameBefore) logEvent('dish_renamed', {
@@ -3089,8 +3248,7 @@
         else Calorie.forget(target.id); // lost its cooking method: the old figure no longer applies
       }
     });
-    const candidates = await fetchCandidatesForDet(det);
-    if (candidateTargetDet === det) setCandidateChoices(candidates);
+    requestAnimationFrame(() => { if (candidateTargetDet === det) candidateCustomInput.focus(); });
   });
 
   /* delete, with a second confirmation */
@@ -3279,6 +3437,12 @@
       d.aiOriginal = d.aiOriginal || { name: chatDishName(d), confidence: d.confidence ?? null };
     });
     enterReportMode();
+    // presets give every dish a size: start its calories (a countable dish
+    // still waits for the count the user ate — 待補數量)
+    currentDetections.forEach(d => {
+      if ((d.count || d.countable) && !d.countConfirmed){ Calorie.markNeedsCount(d.id, d.countUnit); return; }
+      if (d.detail && d.detail.size){ notifyDishDetailComplete(d, 'completed'); d.kcalStarted = true; }
+    });
     updateChatSelection();
     renderChatTotal();
     const n = currentDetections.length;
@@ -3493,7 +3657,9 @@
       name: chatDishName(d),
       category: d.category === 'beverage' ? 'beverage' : 'food',
       onPhoto: d.onPhoto !== false,
-      fields: { ...(d.detail || {}) },
+      // only what the user said (via the AI) — presets are not shown to it,
+      // so its questions (e.g. about the portion) work as before
+      fields: Object.fromEntries(Object.entries(d.detail || {}).filter(([k, v]) => v && (d.fieldSource || {})[k] !== 'default')),
       notes: [...(d.notes || [])],
       // calorie.js couldn't estimate it yet (a gram / ml item with no container)
       needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion',
@@ -3661,6 +3827,9 @@
           det.detail = { ...det.detail, cookingMethod: undefined };
         }
       }
+      // food ↔ beverage also changes the food type (the fields stay as they are)
+      if (det.category === 'beverage') det.foodType = 'beverage';
+      else if (det.foodType === 'beverage') det.foodType = FIELD_DEFAULTS.guessFoodType(r.name, det.category);
       chatRenames.push({ no: r.no, from, to: r.name });
       if (currentMealMeta) currentMealMeta.editLog.renameCount += 1;
       if (det.labelEl) renderDetLabel(det.labelEl, det);
@@ -3676,6 +3845,13 @@
         if (prev === v) return;
         currentMealMeta.editLog.fieldSetCount += 1;
         if (prev) currentMealMeta.editLog.fieldChangeCount += 1;
+      });
+      Object.entries(u.fields).forEach(([k, v]) => {
+        if (k === 'size' && u.autoSize){
+          if ((det.detail || {}).size !== v) setFieldSource(det, k, 'default');
+          return;
+        }
+        setFieldSource(det, k, 'ai');
       });
       det.detail = { ...(det.detail || {}), ...u.fields };
       if (u.autoSize) chatAutoSized.add(det);
@@ -3710,7 +3886,17 @@
         onPhoto: false,
         chatDescribed: true
       };
+      // presets by food type (guessed from the name), then what the AI recorded
+      det.foodType = FIELD_DEFAULTS.guessFoodType(det.name, det.category);
+      const said = det.detail;
+      det.detail = {};
       chatExtraDets.push(det);
+      applyFieldDefaults(det, chatDishNo(det), 'chat-new-dish');
+      Object.entries(said).forEach(([k, v]) => {
+        if (!v) return;
+        det.detail[k] = v;
+        setFieldSource(det, k, k === 'size' && nd.autoSize ? 'default' : 'ai');
+      });
       if (nd.autoSize) chatAutoSized.add(det);
       touch(det);
     });

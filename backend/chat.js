@@ -19,18 +19,8 @@
  */
 'use strict';
 
-// Same values as script.js containerOptions / sizeOptions /
-// FOOD_COOKING_METHODS / BEVERAGE_COOKING_METHODS / sugarOptions / saltOptions.
-const OPTIONS = {
-  containerType: ['plate', 'bowl', 'cup'],
-  size: ['XS', 'S', 'M', 'L', 'XL'],
-  cookingMethodFood: ['沙拉', '水煮', '蒸', '炒', '煎', '炸', '烤', '燒烤', '烘焙'],
-  cookingMethodBeverage: ['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製', '不適用'],
-  sugar: ['無糖', '微糖(四分之一)', '半糖', '少糖(四分之三)', '全糖'],
-  salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']
-};
-const FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
-const CONTAINER_LABEL = { plate: '盤子', bowl: '碗', cup: '杯子' };
+// The allowed values — the same file the page loads (field-defaults.js).
+const { OPTIONS, FIELDS, CONTAINER_LABELS: CONTAINER_LABEL } = require('./field-defaults');
 const MAX_HISTORY = 12;
 const MAX_NEW_DISHES = 5;
 // one user message is cut to this many characters (incl. the page's

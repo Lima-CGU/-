@@ -34,9 +34,12 @@ const SIZE_MULTIPLIERS = {
 const PORTION_TABLE = {
   plate: { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 },   // 盤子 【待老師確認】
   bowl:  { unit: 'g',  XS: 100, S: 150, M: 200, L: 300, XL: 400 },   // 碗   【待老師確認】
-  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 }    // 杯子 【待老師確認】
+  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },   // 杯子 【待老師確認】
+  // 直接拿 (no container): same grams as a plate 【待老師確認】. A countable
+  // item (per 個/顆 …) never uses this table — it is counted by pieces.
+  none:  { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 }    // 直接拿 【待老師確認】
 };
-const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子' };
+const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', none: '直接拿' };
 
 /* 3. Salt: teaspoons of added salt per answer. Salt only changes sodium. */
 const SALT_TEASPOONS = {        // 【待老師確認】

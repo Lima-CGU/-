@@ -1031,7 +1031,8 @@ body{
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
-.screen-report .report-add-dish-btn{ display: inline-flex; }
+/* Groups B/C only (「+ 整餐/其他」); Group A adds no dishes while recording (10/21) */
+.screen-report.report-chat .report-add-dish-btn{ display: inline-flex; }
 .report-adding .report-add-dish-btn{ background: var(--ink); }
 
 /* Page 4 markers: tappable, three states. A bigger invisible hit area
@@ -2454,3 +2455,14 @@ body.candidate-sheet-open .toast{
 .count-btn{ width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--purple); background: #fff; color: var(--purple-deep); font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .count-btn:disabled{ opacity: 0.35; cursor: not-allowed; }
 .count-value{ min-width: 64px; text-align: center; font-size: 18px; font-weight: 800; color: var(--ink); user-select: none; }
+
+/* Group A: 「其他…」 opens a field's full option list (「收合」 closes it) */
+.detail-choice.detail-more-btn{ border-style: dashed; color: var(--purple-deep); background: #fff; font-weight: 700; }
+.detail-choice.detail-more-btn[aria-expanded="true"]{ color: var(--ink-soft); }
+
+/* Group A: pick options by voice */
+.report-voice-row{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.report-voice-btn{ display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1.5px solid var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 13px; font-weight: 700; cursor: pointer; }
+.report-voice-btn.is-listening{ background: var(--coral); border-color: var(--coral); color: #fff; }
+.report-voice-msg{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: #0b6b4f; min-width: 0; }
+.report-voice-msg.is-error{ color: #b23a28; }
