@@ -16,7 +16,7 @@
   /* ---------- the five fields' allowed values ---------- */
   const OPTIONS = {
     // (「直接拿」 'none' was removed on 10/22: a fruit simply has no container field)
-    containerType: ['plate', 'bowl', 'cup'],
+    containerType: ['plate', 'bowl', 'cup', 'lunchbox'],
     size: ['XS', 'S', 'M', 'L', 'XL'],
     cookingMethodFood: ['生食', '沙拉', '水煮', '蒸', '炒', '煎', '炸', '烤', '燒烤', '滷', '燉', '烘焙'],
     cookingMethodBeverage: ['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製', '不適用'],
@@ -25,7 +25,7 @@
   };
   const FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
   // 'none' stays only so records saved between 10/21 and 10/22 still read well
-  const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', none: '直接拿' };
+  const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒', none: '直接拿' };
 
   /* ---------- food types (from /api/detect) ---------- */
   const FOOD_TYPES = ['staple', 'protein', 'vegetable', 'soup', 'fruit', 'beverage', 'snack', 'other'];
@@ -85,19 +85,28 @@
      A page shows one group of 3–4 cards; 「其他 ↻」 shows the next group and
      wraps back to the first. The group holding the dish's preset is shown
      first. CARD_GROUPS_BY_TYPE overrides a field for one food type. */
+  // A field with at most 6 options shows them all on one page (no 「其他 ↻」);
+  // only a longer list (food cooking methods) is split into groups of ≤ 6.
+  const MAX_CARDS_PER_PAGE = 6;
   const CARD_GROUPS = {
-    containerType: [['plate', 'bowl', 'cup']],
-    size: [['S', 'M', 'L'], ['XS', 'XL']],
-    cookingMethod: [['炒', '煎', '炸'], ['蒸', '水煮', '烤'], ['滷', '燉', '燒烤'], ['生食', '沙拉', '烘焙']],
-    cookingMethodBeverage: [['沖泡', '現煮', '現榨'], ['冰鎮', '熱飲', '調製', '不適用']],
-    sugar: [['無糖', '微糖(四分之一)', '半糖'], ['少糖(四分之三)', '全糖']],
-    salt: [['無鹽', '1/4 茶匙', '1/2 茶匙'], ['3/4 茶匙', '1 茶匙']]
+    containerType: [['plate', 'bowl', 'lunchbox', 'cup']],
+    size: [['XS', 'S', 'M', 'L', 'XL']],
+    cookingMethod: [['炒', '煎', '炸', '蒸', '水煮', '烤'], ['滷', '燉', '燒烤', '生食', '沙拉', '烘焙']],
+    cookingMethodBeverage: [['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製'], ['不適用']],
+    sugar: [['無糖', '微糖(四分之一)', '半糖', '少糖(四分之三)', '全糖']],
+    salt: [['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']]
   };
-  const CARD_GROUPS_BY_TYPE = {                                        // 【待老師確認】
-    staple:   { containerType: [['bowl', 'plate', 'cup']], cookingMethod: [['蒸', '水煮', '炒'], ['煎', '炸', '烤'], ['滷', '燉', '燒烤'], ['生食', '沙拉', '烘焙']] },
-    soup:     { containerType: [['bowl', 'cup', 'plate']], cookingMethod: [['水煮', '燉', '滷'], ['炒', '煎', '炸'], ['蒸', '烤', '燒烤'], ['生食', '沙拉', '烘焙']] },
-    beverage: { containerType: [['cup', 'bowl', 'plate']], sugar: [['無糖', '半糖', '全糖'], ['微糖(四分之一)', '少糖(四分之三)']] },
-    snack:    { sugar: [['半糖', '全糖', '少糖(四分之三)'], ['無糖', '微糖(四分之一)']], cookingMethod: [['烘焙', '炸', '蒸'], ['烤', '煎', '水煮'], ['炒', '滷', '燉'], ['燒烤', '生食', '沙拉']] }
+  // which options a food type offers / in what order (便當盒 only for
+  // staple, protein, vegetable and other) 【待老師確認】
+  const CARD_GROUPS_BY_TYPE = {
+    staple:    { containerType: [['bowl', 'plate', 'lunchbox', 'cup']] },
+    protein:   { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
+    vegetable: { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
+    other:     { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
+    soup:      { containerType: [['bowl', 'cup', 'plate']] },
+    beverage:  { containerType: [['cup', 'bowl', 'plate']] },
+    snack:     { containerType: [['plate', 'bowl', 'cup']] },
+    fruit:     { containerType: [['plate', 'bowl', 'cup']] }
   };
   /** The card groups for one field of one dish; the group with `current` first. */
   function cardGroups(field, foodType, category, current){
@@ -105,6 +114,11 @@
     const key = field === 'cookingMethod' && category === 'beverage' ? 'cookingMethodBeverage' : field;
     const own = (CARD_GROUPS_BY_TYPE[t] || {})[field];
     const groups = ((category === 'beverage' && field === 'cookingMethod') ? CARD_GROUPS[key] : (own || CARD_GROUPS[key])).map(g => g.slice());
+    // a current value the type's list lacks (e.g. set in the Diary) is still shown
+    if (current && !groups.some(g => g.includes(current))){
+      const last = groups[groups.length - 1];
+      if (last.length < MAX_CARDS_PER_PAGE) last.push(current); else groups.push([current]);
+    }
     const i = groups.findIndex(g => g.includes(current));
     return i > 0 ? groups.slice(i).concat(groups.slice(0, i)) : groups;
   }
@@ -160,7 +174,7 @@
   }
 
   return {
-    DEFAULT_COUNT, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS,
+    DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType
   };
 });

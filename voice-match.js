@@ -24,6 +24,7 @@
   // field -> [ [spoken words…], value ]   (homophones included)
   const TABLE = {
     containerType: [
+      [['便當盒', '便當', '飯盒', '餐盒'], 'lunchbox'],
       [['盤子', '盤', '碟子', '碟', '盤的'], 'plate'],
       [['碗', '一碗', '晚'], 'bowl'],
       [['杯子', '杯', '一杯', '悲'], 'cup']

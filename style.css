@@ -2467,9 +2467,12 @@ body.candidate-sheet-open .toast{
 .report-voice-msg.is-error{ color: #b23a28; }
 .report-step-current{ margin: 0; font-family: var(--font-body); font-size: 12px; font-weight: 700; color: var(--ink-soft); }
 .report-step-current[hidden]{ display: none; }
-.screen-report .report-cards{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.screen-report .report-cards{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .screen-report .report-cards[hidden]{ display: none; }
-.screen-report .report-cards .detail-choice{ min-height: 64px; justify-content: center; font-size: 15px; width: 100%; }
+.screen-report .report-cards .detail-choice{ min-height: 48px; height: 48px; padding: 4px 6px; justify-content: center; gap: 4px; font-size: 13px; width: 100%; min-width: 0; }
+.screen-report .report-cards .detail-choice-label{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.screen-report .report-cards .detail-choice-icon svg{ width: 14px; height: 14px; }
+.screen-report .report-cards .detail-sugar-cup{ transform: scale(0.8); flex: 0 0 auto; }
 .report-step-tools{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .report-other-btn{ padding: 8px 14px; border: 1.5px dashed var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 14px; font-weight: 700; cursor: pointer; }
 .report-other-btn[hidden], .report-reveal-btn[hidden]{ display: none; }
@@ -2489,3 +2492,5 @@ body.candidate-sheet-open .toast{
 .report-photo-slot.is-compact .det-label-meta,
 .report-photo-slot.is-compact .det-label-kcal{ display: none; }
 .report-photo-slot.is-compact > .report-add-dish-btn{ position: absolute; left: 8px; right: auto; bottom: 6px; top: auto; z-index: 6; font-size: 12px; padding: 5px 10px; }
+.screen-report .report-cards .detail-choice-sub{ display: block; font-size: 12px; font-weight: 600; line-height: 1.1; color: var(--ink-soft); }
+.screen-report .report-cards .detail-choice-label:has(.detail-choice-sub){ white-space: normal; text-align: center; line-height: 1.15; }

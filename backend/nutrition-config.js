@@ -34,9 +34,11 @@ const SIZE_MULTIPLIERS = {
 const PORTION_TABLE = {
   plate: { unit: 'g',  XS: 100, S: 150, M: 250, L: 350, XL: 450 },   // 盤子 【待老師確認】
   bowl:  { unit: 'g',  XS: 100, S: 150, M: 200, L: 300, XL: 400 },   // 碗   【待老師確認】
-  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 }    // 杯子 【待老師確認】
+  cup:   { unit: 'ml', XS: 150, S: 250, M: 350, L: 500, XL: 700 },   // 杯子 【待老師確認】
+  // 便當盒: same grams as a plate 【待老師確認】
+  lunchbox: { unit: 'g', XS: 100, S: 150, M: 250, L: 350, XL: 450 }  // 便當盒 【待老師確認】
 };
-const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子' };
+const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒' };
 
 /* 2b. Food types without a container field (fruit, 10/22) matched to a
  *     gram item: grams of ONE piece by size × the count. 【待老師確認】
