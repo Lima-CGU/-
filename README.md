@@ -63,7 +63,7 @@ photo-upload-site/
 | 份量對照・盤子 | XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g |
 | 份量對照・碗 | XS 100 g、S 150 g、M 200 g、L 300 g、XL 400 g |
 | 份量對照・杯子 | XS 150 ml、S 250 ml、M 350 ml、L 500 ml、XL 700 ml |
-| 份量對照・直接拿(`none`) | 比照盤子:XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g【待老師確認】 |
+| 沒有容器欄位的水果,每個的公克數(比對到每 100 g 的品項時 × 個數) | XS 50 g、S 100 g、M 150 g、L 200 g、XL 250 g【待老師確認】 |
 | 鹽的茶匙數 | 無鹽 0、1/4 茶匙 0.25、1/2 茶匙 0.5、3/4 茶匙 0.75、1 茶匙 1 |
 | 每茶匙鹽的鈉 | 2358 mg |
 | 異常門檻 | 9.5 kcal/g |
@@ -73,15 +73,28 @@ photo-upload-site/
 
 前端的顯示與計算是共用元件 `calorie.js`(`window.PictaCalorie`),B 組之後只要送出同樣的 `pictameal:dish-detail-complete` 事件、用同一組顯示函式即可。
 
-## 依食物類型的預設值(老師 10/21 決定,三組共用)
+## 依食物類型的預設值與適用欄位(老師 10/21、10/22 決定,三組共用)
 
-起因:老師測一顆柿子時,欄位被迫選「容器:杯子、烹調:水煮」這類不適合水果的選項。現在每道菜會依「食物類型」先帶入對應的預設值,並只先顯示相關的選項。
+起因:老師測一顆柿子時,欄位被迫選「容器:杯子、烹調:水煮」這類不適合水果的選項。現在每道菜會依「食物類型」只問適用的欄位,並先帶入對應的預設值。
 
 **要改數值請改這一個檔案:`backend/field-defaults.js`**。後端(`server.js`、`chat.js`、`nutrition-*`)用 `require` 讀它,App 頁面也直接載入同一個檔案(`<script src="backend/field-defaults.js">`,GitHub Pages 會發佈整個 repo),所以只有一份,不會兩邊不一致。改完要把 `sw.js` 的 `CACHE_NAME` 加 1,並重新部署 Render。
 
 **食物類型 `foodType`**:`/api/detect` 每道菜多回傳一個 `foodType`,只能是 staple(主食:飯、麵、麵包)、protein(肉、魚、蛋、豆製品)、vegetable(蔬菜)、soup(湯)、fruit(水果)、beverage(飲料)、snack(點心、甜點)、other。不合法或沒有就當成 other;飲料(category = beverage)一律是 beverage。對話中新增的菜沒有經過辨識,改用菜名的關鍵字猜(例如有「湯」→ soup,有「飯/麵」→ staple),猜不到就是 other。
 
-**預設值(全部【待老師確認】)**
+**適用欄位(`APPLICABLE`,全部【待老師確認】)**
+
+| foodType | 顯示的欄位 |
+|---|---|
+| fruit 水果 | 份量、數量(不問容器、烹調、糖、鹽) |
+| beverage 飲料 | 容器、份量、糖(不問烹調、鹽) |
+| 其他類型 | 容器、份量、烹調、糖、鹽;可數的菜另外有數量 |
+
+- 不適用的欄位:不顯示、不填預設值,存進紀錄時值是 `null`,來源 `fieldSource` 記成 `na`;CSV 匯出那一欄的值是 `NA`、來源欄是 `na`,看得出是「不適用」(飲料的烹調選項裡本來就有「不適用」這個值,兩者不同)。
+- 判斷一道菜是否「填完」、能不能算熱量,只看適用的欄位(和數量)。
+- AI 分錯類時(例如把炒菜當成水果):A 組在最後一頁有小按鈕「還要補充其他欄位」,按下去會把被隱藏的欄位加回來(之後這些欄位也要填),記一筆 `edit_opened`(`detail.what = 'hidden-fields'`、`detail.fields` = 哪些欄位,算 1 次使用者操作);B/C 組照常用對話描述,AI 記下的欄位來源是 `ai`。
+- 容器的「直接拿」(`none`)已經拿掉(10/22),前端、後端、熱量計算、`chat.js` 的允許值都一致;10/21~10/22 之間存的舊紀錄若有 `none`,日記仍顯示「直接拿」。
+
+**預設值(`DEFAULTS`,只填適用的欄位,全部【待老師確認】)**
 
 | foodType | 容器 | 份量 | 烹調(菜名沒有烹調字時) | 糖 | 鹽 |
 |---|---|---|---|---|---|
@@ -89,40 +102,52 @@ photo-upload-site/
 | protein 蛋白質 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
 | vegetable 蔬菜 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
 | soup 湯 | 碗 | M | (留空) | 無糖 | 1/4 茶匙 |
-| fruit 水果 | 直接拿 | M | 生食 | 無糖 | 無鹽 |
-| beverage 飲料 | 杯子 | M | 不適用 | 無糖 | 無鹽 |
+| fruit 水果 | — | M | — | — | — |
+| beverage 飲料 | 杯子 | M | — | 無糖 | — |
 | snack 點心 | 盤子 | M | (留空) | 半糖 | 無鹽 |
 | other 其他 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
 
-- **烹調方式**:先看菜名裡有沒有烹調關鍵字(燒烤、烘焙、沙拉、水煮、炒、煎、炸、烤、蒸、滷、燉、煮→水煮;「生魚片、生菜、生吃、涼拌」→ 生食,但「花生」「生煎包」不算生食),有就用對應的選項(例如「炒青菜」→ 炒、「滷雞腿」→ 滷);沒有才用上表。飲料看「現榨、現煮、沖泡、冰鎮、熱」等字,沒有就是「不適用」。
+- **數量**:照片上數得到的數量是預設值。水果照片上沒有數量時,A 組的數量預設是 1(`DEFAULT_COUNT`【待老師確認】,畫面上看得到,可以改);B/C 組照舊要受試者說了吃幾個才算(沒說就「待補數量」)。
+- **烹調方式**:先看菜名裡有沒有烹調關鍵字(燒烤、烘焙、沙拉、水煮、炒、煎、炸、烤、蒸、滷、燉、煮→水煮;「生魚片、生菜、生吃、涼拌」→ 生食,但「花生」「生煎包」不算生食),有就用對應的選項(例如「炒青菜」→ 炒);沒有才用上表。
 - **什麼時候套用**:AI 初稿一出來,A、B、C 三組的每道菜都套用;B/C 組在對話中新增的菜也依它的類型套用。日記裡的「+ 新增菜色」和日記編輯沒有改。
-- **事件**:每套用一道菜記一筆 `default_applied`(actor `system`,target = 菜的編號,`detail` 有 `foodType` 和套用的欄位與值),不算進 `userActionCount`。
+- **事件**:每套用一道菜記一筆 `default_applied`(actor `system`,`detail` 有 `foodType`、套用的欄位與值、`notApplicable` 不適用的欄位),不算進 `userActionCount`。
+- **水果的熱量**:比對到以「個/顆」計的品項時照個數算;比對到每 100 公克的品項時,用「每個的公克數 × 個數」換算:XS 50 g、S 100 g、M 150 g、L 200 g、XL 250 g(`backend/nutrition-config.js` 的 `NO_CONTAINER_PIECE_GRAMS`【待老師確認】)。
 
-**每個欄位的來源 `fieldSource`**(存在 record 每道菜上,CSV 多了 `foodType` 和 `containerTypeSource`、`sizeSource`、`cookingMethodSource`、`sugarSource`、`saltSource` 六欄):
-- `default`:系統預設,受試者沒動過
+**每個欄位的來源 `fieldSource`**(存在 record 每道菜上;CSV 有 `foodType` 和 `containerTypeSource`、`sizeSource`、`cookingMethodSource`、`sugarSource`、`saltSource`、`countSource`):
+- `default`:系統預設(含照片上的數量),受試者沒動過
 - `user`:受試者改的(A 組點選或語音、日記 ✏️ 修改)
 - `ai`:B/C 組 AI 依受試者的話更新的
+- `na`:這道菜的類型不適用這個欄位
 - 舊紀錄沒有來源資料,CSV 顯示 `unknown`。
-- 目的是驗證老師的假設:受試者沒仔細看、沒改預設值就會記錯。A 組點一下和預設值相同的選項,也會把來源改成 `user`(事件記 `field_set`,`detail.confirmedDefault: true`),代表受試者確認過;把預設值改掉記 `field_changed`(`before` = 預設值,`detail.fromDefault: true`),`editLog.fieldChangeCount` 只算「改掉自己先前選的」。
-- B/C 組:預設值不會傳給對話 AI(AI 只看到受試者說過的內容),所以 AI 追問份量等規則和以前一樣;但熱量一開始就依預設值計算。
+- 目的是驗證老師的假設:受試者沒仔細看、沒改預設值就會記錄錯誤。A 組點一下和預設值相同的卡牌,也會把來源改成 `user`(事件 `field_set`,`detail.confirmedDefault: true`);把預設值改掉記 `field_changed`(`before` = 預設值,`detail.fromDefault: true`)。
+- B/C 組:預設值不會傳給對話 AI(AI 只看到受試者說過的內容),所以 AI 的追問規則和以前一樣;熱量一進對話頁就依預設值先算。
 
-**新增的選項**
-- 容器加「直接拿」(value `none`):例如手拿的水果、麵包。熱量:可數的食物(以個、顆計的品項)照個數算;要換算公克時比照盤子的份量表(XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g)【待老師確認】(`backend/nutrition-config.js` 的 `PORTION_TABLE.none`)。
-- 食物的烹調方式加「生食」「滷」「燉」(後端 `chat.js` 的允許值和 App 的按鈕都來自 `field-defaults.js`)。
+**修改時照片縮小(三組一樣)**
+- 第 4 頁:A 組點選一道菜開始填、B/C 組進入對話畫面時,照片縮成上方一小條(原本高度的 1/3,`PHOTO_COMPACT_SHARE`),下方操作區有更多空間;照片上的編號標籤仍看得到、可以點(小照片上的標籤只顯示菜名)。
+- 點照片可以暫時放大查看(右下角提示「點照片放大」),再點一次縮回。A 組完成一道菜、回到選菜狀態時,照片恢復原本大小。B/C 組的「+ 整餐/其他」在小照片時移到照片左下方旁邊,不擋住照片。
+- 放大/縮小記事件 `photo_expanded` / `photo_collapsed`(actor `user`),不算進 `userActionCount`。
 
-**只顯示相關選項 + 「其他…」(A 組畫面)**
-- 每個欄位先只顯示和這道菜 foodType 相關的選項,最後一個按鈕是「其他…」,按下去展開完整清單,再按「收合」收起來。例如水果:容器「直接拿、盤子、碗、其他…」、烹調「生食、烤、其他…」;飲料:容器「杯子、其他…」;主食:容器「碗、盤子、直接拿、其他…」。各類型的相關選項寫在 `field-defaults.js` 的 `RELEVANT`【待老師確認】(份量 XS~XL 一律全部顯示)。
-- 目前的值(預設值或已選的值)一定會顯示,而且是已選取狀態。
-- 按「其他…」記一筆 `edit_opened`(actor `user`,`field` = 哪個欄位,`detail.what = 'expand-other'`),算 1 次使用者操作;收合不記。
+**A 組:一頁一題**
+- 點一道菜後一頁只問一個欄位,依序:份量 → 數量(只有可數的菜和水果)→ 容器 → 烹調方式 → 糖 → 鹽;不適用的欄位直接跳過(例如柿子只有份量、數量兩頁,炒青菜有五頁)。
+- 每頁上方顯示「第 n / N 題:欄位名稱」,下方有「上一步」「下一步」,最後一頁的「下一步」是「完成這道菜」(回到選菜狀態)。
+- 預設值所在的卡牌一進頁面就是選取狀態;受試者不改、直接按「下一步」也可以。
+- 換頁記事件 `step_next` / `step_back`(actor `user`,`detail.field` = 這一頁的欄位、`detail.to` = 下一頁或 `done`)。**這兩個事件目前不算進 `userActionCount`,是否計入待老師確認**;原始事件完整保留,分析時可以重算。
+- 改菜名(鉛筆)只能自己輸入菜名;記錄過程中沒有「+ 新增菜色」(10/21)。
 
-**A 組的其他修改**
-- 改菜名(鉛筆)只剩「自己輸入菜名」,不再呼叫 `/api/recognize` 顯示 AI 建議的菜名。
-- 記錄過程中(Page 4)不再有「+ 新增菜色」按鈕;日記裡的「+ 新增菜色」與編輯照舊。
-- **用語音選選項**:欄位面板上方有「🎤 用說的選」。受試者說出選項(例如「鹽二分之一」「蒸的」「碗」「半糖」,也可以一次說好幾個:「碗 半糖」),App 用固定的關鍵字對照表比對成欄位值,不呼叫 AI、不產生對話。比對不到就顯示「沒有聽懂,請再說一次或直接點選」。選到的值記成 `field_set` / `field_changed`,`source: 'voice'`,來源 `user`。
+**A 組:卡牌與「其他 ↻」**
+- 每頁一次只顯示一組 3~4 張卡牌,下方「其他 ↻」換成下一組,全部看完回到第一組。預設值(或目前的值)所在的那一組放在最前面。
+- 分組寫在 `field-defaults.js` 的 `CARD_GROUPS`(各類型可在 `CARD_GROUPS_BY_TYPE` 另外設定)【待老師確認】,例如烹調方式 [炒、煎、炸] → [蒸、水煮、烤] → [滷、燉、燒烤] → [生食、沙拉、烘焙];份量 [S、M、L] → [XS、XL];鹽 [無鹽、1/4 茶匙、1/2 茶匙] → [3/4 茶匙、1 茶匙];糖 [無糖、微糖、半糖] → [少糖、全糖];容器 [盤子、碗、杯子]。
+- 目前選的值不在畫面上這一組時,卡牌上方用一行小字顯示「目前:○○」。
+- 按「其他 ↻」記事件 `options_next`(actor `user`,`field`、`detail.group` = 第幾組),算 1 次使用者操作。(上一版「其他…」展開完整清單的做法已經拿掉。)
+
+**A 組:語音(每一頁的麥克風)**
+- 語音只影響「這一頁的欄位」(例如在烹調方式頁說「真的」→ 蒸;在數量頁說「兩個」→ 2)。
+- 說「換一組」「其他」「下一組」= 按「其他 ↻」;說「下一步」「好了」= 下一步;說「上一步」= 上一步。同一句裡有選項也有指令(「蒸的,下一步」)時先選再換頁。
+- 比對不到時顯示「沒有聽懂,請再說一次,或直接點選卡牌」,後面最多附 10 個字的原話。
+- 選到的值記成 `field_set` / `field_changed`,`source: 'voice'`;語音的換組、換頁事件也帶 `source: 'voice'`。
 
 **同音字對照表 `voice-match.js`(獨立模組,之後 B/C 組共用)**
-- 依欄位判斷同音字:烹調方式「真的/針的/貞的」→ 蒸、「詐/乍」→ 炸、「尖/堅」→ 煎、「吵」→ 炒、「考」→ 烤、「魯」→ 滷、「頓」→ 燉;鹽「二分之一/一半」→ 1/2 茶匙、「四分之一」→ 1/4 茶匙;也接受「1/2」「2分之1」這類寫法。
-- 一個詞同時屬於好幾個欄位時(例如「四分之一」可能是鹽或糖),要有說出欄位名稱(「鹽四分之一」「糖四分之一」)才採用,否則當成沒聽懂。要加詞或同音字,改 `voice-match.js` 的 `TABLE`。
+- 依欄位判斷同音字:烹調方式「真的/針的/貞的」→ 蒸、「詐/乍」→ 炸、「尖/堅」→ 煎、「吵」→ 炒、「考」→ 烤、「魯」→ 滷、「頓」→ 燉;鹽「二分之一/一半」→ 1/2 茶匙、「四分之一」→ 1/4 茶匙;也接受「1/2」「2分之1」這類寫法。在某一頁時只比對那一頁的欄位,所以在鹽的頁面說「四分之一」就是鹽。要加詞或同音字,改 `voice-match.js` 的 `TABLE`(指令在 `COMMANDS`)。
 
 ## 菜色辨識規則(`/api/detect`)
 
@@ -264,6 +289,9 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `record_updated` | system | B/C 組:AI 改了某道菜,每道菜一筆;`field` = 改了哪些欄位,`before`/`after` = 那些欄位的前後值;新增的菜 `before = null` |
 | `suggestion_shown` | system | C 組:顯示一組提示按鈕(`detail.texts`) |
 | `final_confirmed` | user | 按「完成」(連點只記一次;B/C 組在「資訊不完整」確認框按確定之後) |
+| `step_next` / `step_back` | user | A 組一頁一題:下一步/上一步(`detail.field`、`detail.to`) |
+| `options_next` | user | A 組「其他 ↻」換下一組卡牌 |
+| `photo_expanded` / `photo_collapsed` | user | 第 4 頁點小照片放大/縮回 |
 | `back` | user | 鏡頭畫面回首頁、重拍、Page 4 按相機離開 |
 | `cancel` | user | 取消刪除、取消改菜名、取消新增菜色、離開確認框按取消、「完成」確認框按取消 |
 | `error` | system | API 失敗或重試(`detail.api`) |
@@ -294,9 +322,10 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `dish_renamed`:`inputType = picked`(從清單選) | 1 |
 | `message_submitted`:`source = typed` 或 `voice`(文字輸入 + 送出) | 2 |
 | `message_submitted`:`source = suggestion`(點提示按鈕直接送出) | 1 |
+| `options_next`(「其他 ↻」) | 1 |
 | `final_confirmed` | 1 |
 
-`page_view`、`back`、`cancel`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
+`page_view`、`back`、`cancel`、`step_next` / `step_back`(**是否計入待老師確認**)、`photo_expanded` / `photo_collapsed`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
 
 **下載事件**:`format=events` 是一列一個事件的 CSV(`recordId`、`pid`、`group`、`mealId` + 事件所有欄位;`before`/`after`/`detail` 是 JSON 字串),一樣需要 ADMIN_TOKEN,也可以用 `pid`、`group`、`meal` 篩選。
 

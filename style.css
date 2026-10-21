@@ -2456,13 +2456,36 @@ body.candidate-sheet-open .toast{
 .count-btn:disabled{ opacity: 0.35; cursor: not-allowed; }
 .count-value{ min-width: 64px; text-align: center; font-size: 18px; font-weight: 800; color: var(--ink); user-select: none; }
 
-/* Group A: 「其他…」 opens a field's full option list (「收合」 closes it) */
-.detail-choice.detail-more-btn{ border-style: dashed; color: var(--purple-deep); background: #fff; font-weight: 700; }
-.detail-choice.detail-more-btn[aria-expanded="true"]{ color: var(--ink-soft); }
-
-/* Group A: pick options by voice */
-.report-voice-row{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
-.report-voice-btn{ display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1.5px solid var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 13px; font-weight: 700; cursor: pointer; }
+/* Group A: one field per page (10/22) */
+.report-step{ display: flex; flex-direction: column; gap: 10px; }
+.report-step-head{ display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.report-step-title{ font-family: var(--font-body); font-size: 16px; font-weight: 800; color: var(--ink); }
+.report-voice-btn{ display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1.5px solid var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 13px; font-weight: 700; cursor: pointer; flex: 0 0 auto; }
 .report-voice-btn.is-listening{ background: var(--coral); border-color: var(--coral); color: #fff; }
-.report-voice-msg{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: #0b6b4f; min-width: 0; }
+.report-voice-msg{ margin: -4px 0 0; min-height: 0; font-family: var(--font-body); font-size: 12px; font-weight: 600; color: #0b6b4f; }
+.report-voice-msg:empty{ display: none; }
 .report-voice-msg.is-error{ color: #b23a28; }
+.report-step-current{ margin: 0; font-family: var(--font-body); font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.report-step-current[hidden]{ display: none; }
+.screen-report .report-cards{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.screen-report .report-cards[hidden]{ display: none; }
+.screen-report .report-cards .detail-choice{ min-height: 64px; justify-content: center; font-size: 15px; width: 100%; }
+.report-step-tools{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.report-other-btn{ padding: 8px 14px; border: 1.5px dashed var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 14px; font-weight: 700; cursor: pointer; }
+.report-other-btn[hidden], .report-reveal-btn[hidden]{ display: none; }
+.report-reveal-btn{ padding: 6px 10px; border: none; background: none; color: var(--ink-soft); font-family: var(--font-body); font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.report-step-nav{ display: flex; gap: 10px; margin-top: 4px; }
+.report-step-nav .btn{ flex: 1; padding: 12px 10px; font-size: 15px; }
+.screen-report .count-row[hidden]{ display: none; }
+/* while a dish is open, its page has the room: the meal footer waits */
+.screen-report.report-stepping .report-foot{ display: none; }
+
+/* Page 4, all groups: the photo shrinks to a strip while editing; tap = full size */
+.report-photo-slot{ position: relative; transition: height 0.2s ease; }
+.photo-peek-hint{ position: absolute; right: 8px; bottom: 6px; z-index: 6; padding: 3px 9px; border-radius: 999px; background: rgba(34, 28, 53, 0.72); color: #fff; font-family: var(--font-body); font-size: 12px; font-weight: 700; pointer-events: none; }
+.photo-peek-hint[hidden]{ display: none; }
+.report-photo-slot.is-compact .recognize-zoom-toggle{ display: none; }
+/* the small photo: names only on its labels (confidence / kcal lines hidden) */
+.report-photo-slot.is-compact .det-label-meta,
+.report-photo-slot.is-compact .det-label-kcal{ display: none; }
+.report-photo-slot.is-compact > .report-add-dish-btn{ position: absolute; left: 8px; right: auto; bottom: 6px; top: auto; z-index: 6; font-size: 12px; padding: 5px 10px; }

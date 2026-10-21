@@ -206,7 +206,8 @@ const CSV_COLUMNS = [
   'dishNo', 'dishSource', 'aiName', 'aiConfidence', 'finalName', 'renamedFrom',
   'containerType', 'size', 'cookingMethod', 'sugar', 'salt',
   // where each field's value came from: default (system preset, never changed) / user / ai
-  'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource',
+  // (a field that doesn't apply to the food type: value NA, source na)
+  'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource', 'countSource',
   'aiCount', 'finalCount', 'countUnit', 'countEdits',
   'kcal', 'nutritionStatus', 'match', 'matchedName', 'nutritionSource',
   'proteinG', 'fatG', 'carbohydrateG', 'sodiumMg', 'notes',
@@ -257,10 +258,11 @@ function toCsv(records){
         ...meal,
         dishNo: i + 1, dishSource: d.source, aiName: ai.name || null, aiConfidence: ai.confidence ?? null,
         finalName: stripPct(d.name), renamedFrom: d.renamedFrom,
-        containerType: x.containerType, size: x.size, cookingMethod: x.cookingMethod, sugar: x.sugar, salt: x.salt,
-        foodType: d.foodType || null,
         ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt']
-          .map(k => [`${k}Source`, (d.fieldSource && d.fieldSource[k]) || (x[k] ? 'unknown' : null)])),
+          .map(k => [k, d.fieldSource && d.fieldSource[k] === 'na' && !x[k] ? 'NA' : x[k]])),
+        foodType: d.foodType || null,
+        ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt', 'count']
+          .map(k => [`${k}Source`, (d.fieldSource && d.fieldSource[k]) || ((k === 'count' ? d.count : x[k]) ? 'unknown' : null)])),
         aiCount: ai.count ?? null, finalCount: d.count ?? null, countUnit: d.countUnit || ai.countUnit || null,
         countEdits: d.countEdits ?? (d.count != null || ai.count != null ? 0 : null),
         kcal: n.status === 'ok' ? n.kcal : null, nutritionStatus: n.status, match: n.match,

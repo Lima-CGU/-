@@ -24,7 +24,6 @@
   // field -> [ [spoken words…], value ]   (homophones included)
   const TABLE = {
     containerType: [
-      [['直接拿', '直接吃', '手拿', '拿著', '沒有容器', '不用容器', '直接'], 'none'],
       [['盤子', '盤', '碟子', '碟', '盤的'], 'plate'],
       [['碗', '一碗', '晚'], 'bowl'],
       [['杯子', '杯', '一杯', '悲'], 'cup']
@@ -100,10 +99,37 @@
     return TABLE[field];
   }
 
+  // Page commands (Group A, one field per page), checked before options
+  const COMMANDS = [
+    [['換一組', '下一組', '其他', '別的', '換別的', '再換'], 'more'],
+    [['上一步', '上一頁', '回上一'], 'back'],
+    [['下一步', '下一頁', '好了', '可以了', '確定', '完成'], 'next']
+  ];
+  /** 'more' | 'back' | 'next' | null — 下一組 is checked before 下一步. */
+  function command(text){
+    const t = normalize(text);
+    for (const [words, cmd] of COMMANDS) if (words.some(w => t.includes(w))) return cmd;
+    return null;
+  }
+
+  /** A spoken count 1–99: 「3」「三個」「十二隻」「兩個」, else null. */
+  const DIGITS = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  function count(text){
+    const t = normalize(text);
+    const d = /(\d{1,2})/.exec(t);
+    if (d) return Number(d[1]) || null;
+    const m = /([一二兩三四五六七八九]?)(十?)([一二三四五六七八九]?)/.exec(t.replace(/[^零一二兩三四五六七八九十]/g, ' ').trim());
+    if (!m || !m[0]) return null;
+    const [, a, ten, b] = m;
+    const n = ten ? (a ? DIGITS[a] : 1) * 10 + (b ? DIGITS[b] : 0) : (a ? DIGITS[a] : 0);
+    return n || null;
+  }
+
+  // opts.fields: only these fields (e.g. the one on the current page)
   function match(text, opts = {}){
     const category = opts.category === 'beverage' ? 'beverage' : 'food';
     let rest = normalize(text);
-    const fields = Object.keys(FIELD_WORDS);
+    const fields = Array.isArray(opts.fields) && opts.fields.length ? opts.fields.filter(f => FIELD_WORDS[f]) : Object.keys(FIELD_WORDS);
     // fields the user named (鹽 / 糖 / 容器 …): they win when a word is shared
     const named = fields.filter(f => FIELD_WORDS[f].some(w => rest.includes(w)));
 
@@ -140,5 +166,5 @@
     return { matches, ambiguous };
   }
 
-  return { match, normalize, TABLE, FIELD_WORDS };
+  return { match, command, count, normalize, TABLE, FIELD_WORDS, COMMANDS };
 });

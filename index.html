@@ -169,7 +169,7 @@
             </button>
           </div>
         </div>
-        <div class="report-photo-slot" id="reportPhotoSlot"></div>
+        <div class="report-photo-slot" id="reportPhotoSlot"><span class="photo-peek-hint" id="photoPeekHint" hidden>點照片放大</span></div>
         <p class="report-add-hint" id="reportAddHint" hidden>點一下照片上漏掉的菜</p>
         <div class="report-panel" id="reportPanel">
           <p class="report-empty-hint" id="reportEmptyHint">點選照片上的菜色開始填寫</p>
@@ -195,48 +195,37 @@
               <button type="button" class="btn report-delete-yes" id="reportDeleteYes">刪除</button>
             </div>
             <div class="kcal-explain" id="reportKcalExplain" hidden></div>
-            <!-- Group A: pick options by voice (fixed word table, no AI) -->
-            <div class="report-voice-row">
-              <button type="button" class="report-voice-btn" id="reportVoiceBtn" aria-label="用說的選選項">
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-                <span>用說的選</span>
-              </button>
-              <span class="report-voice-msg" id="reportVoiceMsg" role="status"></span>
-            </div>
-            <!-- countable dishes only (AI counted them); not one of the five required fields -->
-            <div class="count-row" id="reportCountRow" hidden>
-              <span class="count-label">數量</span>
-              <div class="count-stepper" role="group" aria-label="數量">
-                <button type="button" class="count-btn" id="reportCountMinus" aria-label="少一個">−</button>
-                <span class="count-value" id="reportCountValue" aria-live="polite">1</span>
-                <button type="button" class="count-btn" id="reportCountPlus" aria-label="多一個">+</button>
+            <!-- Group A: one field per page (份量 → 數量 → 容器 → 烹調 → 糖 → 鹽,
+                 fields that don't apply to the food type are skipped) -->
+            <div class="report-step" id="reportStep">
+              <div class="report-step-head">
+                <span class="report-step-title" id="reportStepTitle"></span>
+                <!-- pick by voice (fixed word table, no AI); only this page's field -->
+                <button type="button" class="report-voice-btn" id="reportVoiceBtn" aria-label="用說的">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                  <span>用說的</span>
+                </button>
               </div>
-            </div>
-            <div class="detail-section">
-              <div class="detail-section-head">份量</div>
-              <div class="detail-option-group">
-                <p class="detail-option-label">容器類型</p>
-                <div class="detail-option-list" id="reportContainerList"></div>
+              <p class="report-voice-msg" id="reportVoiceMsg" role="status"></p>
+              <!-- the 數量 page: "−  N 個  +" -->
+              <div class="count-row" id="reportCountRow" hidden>
+                <span class="count-label">數量</span>
+                <div class="count-stepper" role="group" aria-label="數量">
+                  <button type="button" class="count-btn" id="reportCountMinus" aria-label="少一個">−</button>
+                  <span class="count-value" id="reportCountValue" aria-live="polite">1</span>
+                  <button type="button" class="count-btn" id="reportCountPlus" aria-label="多一個">+</button>
+                </div>
               </div>
-              <div class="detail-option-group">
-                <p class="detail-option-label">尺寸</p>
-                <div class="detail-option-list" id="reportSizeList"></div>
+              <p class="report-step-current" id="reportStepCurrent" hidden></p>
+              <div class="detail-option-list report-cards" id="reportStepCards"></div>
+              <div class="report-step-tools">
+                <button type="button" class="report-other-btn" id="reportOtherBtn">其他 ↻</button>
+                <button type="button" class="report-reveal-btn" id="reportRevealBtn" hidden>還要補充其他欄位</button>
               </div>
-            </div>
-            <div class="detail-section">
-              <div class="detail-section-head">烹調方式</div>
-              <div class="detail-scroll-wrap">
-                <div class="detail-option-list detail-cooking-list" id="reportCookingList"></div>
-                <div class="detail-scroll-hint" aria-hidden="true">›</div>
+              <div class="report-step-nav">
+                <button type="button" class="btn btn-outline" id="reportStepBack">上一步</button>
+                <button type="button" class="btn btn-primary" id="reportStepNext">下一步</button>
               </div>
-            </div>
-            <div class="detail-section">
-              <div class="detail-section-head">糖</div>
-              <div class="detail-option-list detail-sugar-list" id="reportSugarList"></div>
-            </div>
-            <div class="detail-section">
-              <div class="detail-section-head">鹽</div>
-              <div class="detail-option-list detail-salt-list" id="reportSaltList"></div>
             </div>
           </div>
         </div>
