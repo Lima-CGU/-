@@ -81,15 +81,23 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 
 每一道也請判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘固體或半固體食物(包含湯品)一律填 "food"。
 
-數量:如果一道菜是由「可以一個一個數」的食物組成(例如雞腿、雞翅、雞塊、排骨、雞蛋、水餃、煎餃、包子、壽司、蝦、香蕉、香蕉切片、蛋的切塊),請加上 count(整數,照片上看得到的數量)和 countUnit(只能是 隻、顆、個、片、根、塊、粒、條 其中之一)。
-- 雞腿、雞翅、雞塊、排骨、蛋、水餃、煎餃、包子、壽司、蝦、香蕉這類明顯可以逐一數的食物「一定要」回傳 count,不可以省略。
-- 盤中有好幾個時要一個一個數(可以依位置逐一點數,例如由左到右、由上到下),疊在一起或被遮住的部分依看得到的形狀合理估計(例如露出一截骨頭或一角也算一個)。
-- 只有在照片太模糊、真的完全看不出有幾個時,才不回傳 count。
-- 無法逐一數的菜(炒麵、炒青菜、白飯、湯、沙拉、飲料)不要回傳 count 和 countUnit。
+極重要:肉類只寫「看得出來」的種類,不要猜。
+- 只有看得到明確特徵時才寫具體種類:要寫魚種(例如「鮭魚」),必須看得到魚皮、魚肉的片狀紋理,或鮭魚那種橘粉色魚肉;要寫「雞腿」,必須看得到雞腿的形狀或骨頭。豬排、牛排等也一樣,要看得到該部位的形狀。
+- 看不出是雞、豬、牛還是魚時,一律用通用名稱,例如「照燒肉塊」「醬燒肉塊」「炒肉丁」「炸肉塊」,而且 confidence 要設在 60 以下。
+- 不要因為醬汁顏色(深色、紅色、照燒色)或料理方式(照燒、紅燒、糖醋)就猜成特定食材。例如深色、淋了醬的肉塊,看不到魚皮或魚肉紋理,就不能寫「照燒鮭魚」,要寫「照燒肉塊」。
+
+數量:只有「本來就是一個一個吃」的食物才回傳 count(整數,照片上看得到的數量)和 countUnit(只能是 隻、顆、個、片、根、塊、粒、條 其中之一)。
+- 只有這些可以回傳 count:雞腿、雞翅、炸雞塊(整塊的炸物)、帶骨排骨、整顆的雞蛋、水餃、煎餃、包子、壽司、蝦、整根香蕉。這些看得清楚時「一定要」回傳 count。
+- 切成一口大小的肉丁、肉塊、豆腐丁、切片水果(例如蘋果切片、香蕉切片)、蛋的切塊,一律不要回傳 count 和 countUnit(之後改用份量判斷)。
+- 無法逐一數的菜(炒麵、炒青菜、白飯、湯、沙拉、飲料)也不要回傳 count 和 countUnit。
+- 盤中有好幾個時要一個一個數(依位置由左到右、由上到下逐一點數),疊在一起或被遮住的部分依看得到的形狀合理估計(例如露出一截骨頭或一角也算一個)。
+- 同一盤數出來超過 12 個時,請重新確認是不是切成一口大小的切塊;如果是,就不要回傳 count。
+- 照片太模糊、真的看不出有幾個時,不回傳 count。
 
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
 請「只」回傳如下格式的 JSON,不要加任何說明文字(count、countUnit 只在可數時才加):
-{"dishes":[{"name":"菜名","confidence":90,"category":"food","x":10,"y":15,"w":30,"h":25},{"name":"滷雞腿","confidence":88,"category":"food","x":50,"y":20,"w":30,"h":30,"count":3,"countUnit":"隻"}]}
+{"dishes":[{"name":"白飯","confidence":92,"category":"food","x":5,"y":55,"w":35,"h":30},{"name":"滷雞腿","confidence":88,"category":"food","x":50,"y":20,"w":30,"h":30,"count":3,"countUnit":"隻"},{"name":"照燒肉塊","confidence":55,"category":"food","x":10,"y":12,"w":32,"h":28}]}
+(第三個例子是看不出是哪種肉的一口大小肉塊:用通用名稱、confidence 低於 60,而且不回傳 count。)
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜。`;
 
 // imageUrl 可傳 null,這時只送純文字給 GPT-4o(不需要 vision)
@@ -152,6 +160,30 @@ async function callOpenAIVision(imageUrl, prompt, maxTokens, temperature){
     err.status = 502;
     err.detail = data;
     throw err;
+  }
+}
+
+// /api/detect asks with temperature 0 so the same photo gets the same
+// answer. A model that rejects temperature (400 unsupported_parameter, or
+// unsupported_value — gpt-6.1-sol only accepts the default 1) is asked again
+// without it, and that is remembered per model so later requests don't pay
+// for a failing first call.
+const noTemperatureModels = new Set();
+function rejectsTemperature(err){
+  const e = err && err.detail && err.detail.error;
+  if (!err || err.status !== 400 || !e) return false;
+  return e.param === 'temperature'
+    || (/unsupported_(parameter|value)/.test(String(e.code || e.type || '')) && /temperature/i.test(String(e.message || '')));
+}
+async function callDetectAI(imageUrl){
+  if (noTemperatureModels.has(OPENAI_MODEL)) return callOpenAIVision(imageUrl, DETECT_PROMPT, 1000);
+  try {
+    return await callOpenAIVision(imageUrl, DETECT_PROMPT, 1000, 0);
+  } catch (err){
+    if (!rejectsTemperature(err)) throw err;
+    noTemperatureModels.add(OPENAI_MODEL);
+    console.warn('[detect] model %s does not accept temperature=0; retrying without temperature (and not sending it again)', OPENAI_MODEL);
+    return callOpenAIVision(imageUrl, DETECT_PROMPT, 1000);
   }
 }
 
@@ -549,7 +581,7 @@ app.post('/api/detect', async (req, res) => {
           ...normalizeDishBox(box)
         }));
     } else {
-      const parsed = await callOpenAIVision(toDataUrl(imageBase64), DETECT_PROMPT, 1000);
+      const parsed = await callDetectAI(toDataUrl(imageBase64));
       dishes = (Array.isArray(parsed.dishes) ? parsed.dishes : [])
         .slice(0, 8)
         .map(d => {
