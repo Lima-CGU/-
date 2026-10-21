@@ -148,7 +148,7 @@ function validate(body){
   // user said); Group A always sends all five fields.
   const hasContainer = b.containerType != null && b.containerType !== '';
   const hasSalt = b.salt != null && b.salt !== '';
-  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup。' };
+  if (hasContainer && !cfg.PORTION_TABLE[b.containerType]) return { error: 'containerType 必須是 plate / bowl / cup / lunchbox。' };
   if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   const hasCount = b.count != null && b.count !== '';

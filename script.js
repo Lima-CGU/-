@@ -2458,6 +2458,8 @@
     { value: 'bowl', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '碗' },
     { value: 'cup', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4h10l-1.2 15a1.5 1.5 0 0 1-1.5 1.3h-4.6a1.5 1.5 0 0 1-1.5-1.3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>', label: '杯子' }
   ];
+  // 便當盒 (10/22) — a plain box
+  containerOptions.push({ value: 'lunchbox', icon: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3.5" y="7" width="17" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 10.5h17M12 10.5V18" stroke="currentColor" stroke-width="1.4"/></svg>', label: '便當盒' });
   const sizeOptions = ['XS', 'S', 'M', 'L', 'XL'];
   // Same reasoning as DIARY_ICON_* above: these were emoji and rendered as a
   // garbled glyph on some devices/fonts. Every cooking-method icon — both the
@@ -2972,9 +2974,12 @@
 
   // Next unfilled dish after the selected one, in marker-number order,
   // wrapping to the start; null if none is left.
+  // (with no dish open: after the one edited last — 1 → 2 → 3, then wrap)
+  let lastReportDishId = null;
   function nextUnfilledReportDet(){
     const all = currentDetections;
-    const start = all.indexOf(selectedReportDet());
+    const from = selectedReportDet() || all.find(d => d.id === lastReportDishId) || null;
+    const start = all.indexOf(from); // -1: nothing edited yet -> from dish 1
     for (let k = 1; k <= all.length; k++){
       const d = all[(start + k + all.length) % all.length];
       if (!d.loading && !isDishComplete(d)) return d;
@@ -2999,7 +3004,9 @@
     }
     if (kind === 'sugar'){
       const o = sugarOptions.find(x => x.value === value);
-      return o ? choiceHtml(kind, o.value, `<span class="detail-sugar-cup" aria-hidden="true"><span class="detail-sugar-fill" style="height:${o.level}%"></span></span><span class="detail-choice-label">${o.value}</span>`, `糖 ${o.value}`) : '';
+      // 「微糖(四分之一)」: the part in brackets on a second, smaller line
+      const [main, sub] = o.value.split(/(?=\()/);
+      return o ? choiceHtml(kind, o.value, `<span class="detail-sugar-cup" aria-hidden="true"><span class="detail-sugar-fill" style="height:${o.level}%"></span></span><span class="detail-choice-label">${main}${sub ? `<span class="detail-choice-sub">${sub}</span>` : ''}</span>`, `糖 ${o.value}`) : '';
     }
     const o = saltOptions.find(x => x.value === value);
     return o ? choiceHtml(kind, o.value, `<span class="detail-choice-icon">${o.icon}</span><span class="detail-choice-label">${o.value}</span>`, `鹽 ${o.value}`) : '';
@@ -3042,8 +3049,8 @@
       const g = (det.cardGroup[field] || 0) % groups.length;
       reportStepCards.innerHTML = groups[g].map(v => optionButton(field, v, category)).join('');
       const current = (det.detail || {})[field];
-      // the current value isn't among these cards: say what it is
-      reportStepCurrent.hidden = !current || groups[g].includes(current);
+      // only a split field (more than one group) needs 「目前:…」
+      reportStepCurrent.hidden = groups.length < 2 || !current || groups[g].includes(current);
       reportStepCurrent.textContent = current ? `目前:${fieldValueLabel(field, current)}` : '';
     } else {
       reportStepCurrent.hidden = true;
@@ -3190,6 +3197,7 @@
       photoPeek = false;
     }
     reportSelectedId = id;
+    if (id) lastReportDishId = id;
     reportScreenEl.classList.toggle('report-stepping', !!id && !chatMode);
     reportKcalOpen = false;
     reportDeleteConfirm.hidden = true;
@@ -3214,6 +3222,7 @@
   function enterReportMode(){
     reportActive = true;
     reportSelectedId = null; // nothing selected until the user taps a dish
+    lastReportDishId = null;
     setReportAdding(false);
     reportDeleteConfirm.hidden = true;
     currentDetections.forEach(d => { d.detail = d.detail || {}; });
