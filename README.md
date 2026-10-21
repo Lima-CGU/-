@@ -63,6 +63,7 @@ photo-upload-site/
 | 份量對照・盤子 | XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g |
 | 份量對照・碗 | XS 100 g、S 150 g、M 200 g、L 300 g、XL 400 g |
 | 份量對照・杯子 | XS 150 ml、S 250 ml、M 350 ml、L 500 ml、XL 700 ml |
+| 份量對照・直接拿(`none`) | 比照盤子:XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g【待老師確認】 |
 | 鹽的茶匙數 | 無鹽 0、1/4 茶匙 0.25、1/2 茶匙 0.5、3/4 茶匙 0.75、1 茶匙 1 |
 | 每茶匙鹽的鈉 | 2358 mg |
 | 異常門檻 | 9.5 kcal/g |
@@ -71,6 +72,57 @@ photo-upload-site/
 註:份量對照表只在比對到公克/毫升品項時使用;盤子、碗以公克計,杯子以毫升計,單位不同時視為 1 ml ≈ 1 g。
 
 前端的顯示與計算是共用元件 `calorie.js`(`window.PictaCalorie`),B 組之後只要送出同樣的 `pictameal:dish-detail-complete` 事件、用同一組顯示函式即可。
+
+## 依食物類型的預設值(老師 10/21 決定,三組共用)
+
+起因:老師測一顆柿子時,欄位被迫選「容器:杯子、烹調:水煮」這類不適合水果的選項。現在每道菜會依「食物類型」先帶入對應的預設值,並只先顯示相關的選項。
+
+**要改數值請改這一個檔案:`backend/field-defaults.js`**。後端(`server.js`、`chat.js`、`nutrition-*`)用 `require` 讀它,App 頁面也直接載入同一個檔案(`<script src="backend/field-defaults.js">`,GitHub Pages 會發佈整個 repo),所以只有一份,不會兩邊不一致。改完要把 `sw.js` 的 `CACHE_NAME` 加 1,並重新部署 Render。
+
+**食物類型 `foodType`**:`/api/detect` 每道菜多回傳一個 `foodType`,只能是 staple(主食:飯、麵、麵包)、protein(肉、魚、蛋、豆製品)、vegetable(蔬菜)、soup(湯)、fruit(水果)、beverage(飲料)、snack(點心、甜點)、other。不合法或沒有就當成 other;飲料(category = beverage)一律是 beverage。對話中新增的菜沒有經過辨識,改用菜名的關鍵字猜(例如有「湯」→ soup,有「飯/麵」→ staple),猜不到就是 other。
+
+**預設值(全部【待老師確認】)**
+
+| foodType | 容器 | 份量 | 烹調(菜名沒有烹調字時) | 糖 | 鹽 |
+|---|---|---|---|---|---|
+| staple 主食 | 碗 | M | (留空) | 無糖 | 無鹽 |
+| protein 蛋白質 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
+| vegetable 蔬菜 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
+| soup 湯 | 碗 | M | (留空) | 無糖 | 1/4 茶匙 |
+| fruit 水果 | 直接拿 | M | 生食 | 無糖 | 無鹽 |
+| beverage 飲料 | 杯子 | M | 不適用 | 無糖 | 無鹽 |
+| snack 點心 | 盤子 | M | (留空) | 半糖 | 無鹽 |
+| other 其他 | 盤子 | M | (留空) | 無糖 | 1/4 茶匙 |
+
+- **烹調方式**:先看菜名裡有沒有烹調關鍵字(燒烤、烘焙、沙拉、水煮、炒、煎、炸、烤、蒸、滷、燉、煮→水煮;「生魚片、生菜、生吃、涼拌」→ 生食,但「花生」「生煎包」不算生食),有就用對應的選項(例如「炒青菜」→ 炒、「滷雞腿」→ 滷);沒有才用上表。飲料看「現榨、現煮、沖泡、冰鎮、熱」等字,沒有就是「不適用」。
+- **什麼時候套用**:AI 初稿一出來,A、B、C 三組的每道菜都套用;B/C 組在對話中新增的菜也依它的類型套用。日記裡的「+ 新增菜色」和日記編輯沒有改。
+- **事件**:每套用一道菜記一筆 `default_applied`(actor `system`,target = 菜的編號,`detail` 有 `foodType` 和套用的欄位與值),不算進 `userActionCount`。
+
+**每個欄位的來源 `fieldSource`**(存在 record 每道菜上,CSV 多了 `foodType` 和 `containerTypeSource`、`sizeSource`、`cookingMethodSource`、`sugarSource`、`saltSource` 六欄):
+- `default`:系統預設,受試者沒動過
+- `user`:受試者改的(A 組點選或語音、日記 ✏️ 修改)
+- `ai`:B/C 組 AI 依受試者的話更新的
+- 舊紀錄沒有來源資料,CSV 顯示 `unknown`。
+- 目的是驗證老師的假設:受試者沒仔細看、沒改預設值就會記錯。A 組點一下和預設值相同的選項,也會把來源改成 `user`(事件記 `field_set`,`detail.confirmedDefault: true`),代表受試者確認過;把預設值改掉記 `field_changed`(`before` = 預設值,`detail.fromDefault: true`),`editLog.fieldChangeCount` 只算「改掉自己先前選的」。
+- B/C 組:預設值不會傳給對話 AI(AI 只看到受試者說過的內容),所以 AI 追問份量等規則和以前一樣;但熱量一開始就依預設值計算。
+
+**新增的選項**
+- 容器加「直接拿」(value `none`):例如手拿的水果、麵包。熱量:可數的食物(以個、顆計的品項)照個數算;要換算公克時比照盤子的份量表(XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g)【待老師確認】(`backend/nutrition-config.js` 的 `PORTION_TABLE.none`)。
+- 食物的烹調方式加「生食」「滷」「燉」(後端 `chat.js` 的允許值和 App 的按鈕都來自 `field-defaults.js`)。
+
+**只顯示相關選項 + 「其他…」(A 組畫面)**
+- 每個欄位先只顯示和這道菜 foodType 相關的選項,最後一個按鈕是「其他…」,按下去展開完整清單,再按「收合」收起來。例如水果:容器「直接拿、盤子、碗、其他…」、烹調「生食、烤、其他…」;飲料:容器「杯子、其他…」;主食:容器「碗、盤子、直接拿、其他…」。各類型的相關選項寫在 `field-defaults.js` 的 `RELEVANT`【待老師確認】(份量 XS~XL 一律全部顯示)。
+- 目前的值(預設值或已選的值)一定會顯示,而且是已選取狀態。
+- 按「其他…」記一筆 `edit_opened`(actor `user`,`field` = 哪個欄位,`detail.what = 'expand-other'`),算 1 次使用者操作;收合不記。
+
+**A 組的其他修改**
+- 改菜名(鉛筆)只剩「自己輸入菜名」,不再呼叫 `/api/recognize` 顯示 AI 建議的菜名。
+- 記錄過程中(Page 4)不再有「+ 新增菜色」按鈕;日記裡的「+ 新增菜色」與編輯照舊。
+- **用語音選選項**:欄位面板上方有「🎤 用說的選」。受試者說出選項(例如「鹽二分之一」「蒸的」「碗」「半糖」,也可以一次說好幾個:「碗 半糖」),App 用固定的關鍵字對照表比對成欄位值,不呼叫 AI、不產生對話。比對不到就顯示「沒有聽懂,請再說一次或直接點選」。選到的值記成 `field_set` / `field_changed`,`source: 'voice'`,來源 `user`。
+
+**同音字對照表 `voice-match.js`(獨立模組,之後 B/C 組共用)**
+- 依欄位判斷同音字:烹調方式「真的/針的/貞的」→ 蒸、「詐/乍」→ 炸、「尖/堅」→ 煎、「吵」→ 炒、「考」→ 烤、「魯」→ 滷、「頓」→ 燉;鹽「二分之一/一半」→ 1/2 茶匙、「四分之一」→ 1/4 茶匙;也接受「1/2」「2分之1」這類寫法。
+- 一個詞同時屬於好幾個欄位時(例如「四分之一」可能是鹽或糖),要有說出欄位名稱(「鹽四分之一」「糖四分之一」)才採用,否則當成沒聽懂。要加詞或同音字,改 `voice-match.js` 的 `TABLE`。
 
 ## 菜色辨識規則(`/api/detect`)
 
@@ -138,7 +190,7 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 - `times`:`startedAt`(確認照片、進入辨識)、`nextAt`(Page 3 按「下一步」)、`doneAt`(按「完成」)、`durationSec`;以及事件算出的 `taskStartAt`、`photoConfirmedAt`、`aiDraftAt`、`firstEditAt`、`finalConfirmedAt`、`totalSec`、`correctionSec`、`aiProcessingSec`、`preEditDelaySec`(見下方「計時與操作事件紀錄」)
 - `events`(操作事件)、`userActionCount`(見下方)
 - `aiDetections`:AI 原始辨識(菜名、信心度、框座標);每道菜的 `aiOriginal`
-- `dishes`:最後的菜名、5 個欄位(`detail`)、熱量結果(`nutrition`);`nutrition`:整餐熱量
+- `dishes`:最後的菜名、5 個欄位(`detail`)、食物類型(`foodType`)、每個欄位的來源(`fieldSource`:default / user / ai)、熱量結果(`nutrition`);`nutrition`:整餐熱量
 - `editLog`:`renameCount`(改菜名次數)、`fieldSetCount`(選欄位次數)、`fieldChangeCount`(把已填的值改掉的次數)、`deletedDishes`、`addedDishes`;之後在日記上修改會再加上 `diaryEditCount`、`diaryDeletedDishes`,並以同一個 ID 重新上傳
 - `group`:`A`、`B` 或 `C`
 - B、C 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;`messageCount`、`userMessageCount`、`clarificationCount`、`offTopicCount`(被拒答次數)、新增與更名的菜),每道菜的 `notes`、`renamedFrom`。每則使用者訊息有 `source`:`typed`(自己打字,含語音輸入)或 `suggestion`(點提示按鈕);被拒答的 AI 訊息有 `offTopic: true`

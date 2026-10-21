@@ -16,6 +16,7 @@ const cors = require('cors');
 const sharp = require('sharp');
 
 const app = express();
+const fieldDefaults = require('./field-defaults');
 // Render sits in front as one proxy: req.ip = the visitor's address
 // (used by the admin wrong-password limit)
 app.set('trust proxy', 1);
@@ -81,6 +82,16 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 
 每一道也請判斷 category:像咖啡、茶、牛奶、果汁、豆漿、汽水這類「用喝的、液態、不需要咀嚼」的東西,category 填 "beverage";其餘固體或半固體食物(包含湯品)一律填 "food"。
 
+每一道也請判斷 foodType(食物類型),只能是下列其中之一:
+- "staple" 主食:飯、麵、粥、麵包、吐司、饅頭、地瓜等澱粉類
+- "protein" 蛋白質:肉、魚、海鮮、蛋、豆腐、豆製品
+- "vegetable" 蔬菜:青菜、菇類、沙拉等以蔬菜為主的菜
+- "soup" 湯品
+- "fruit" 水果(整顆或切片都算)
+- "beverage" 飲料(category 是 "beverage" 時一律填這個)
+- "snack" 點心、甜點、零食
+- "other" 都不是或看不出來
+
 極重要:肉類只寫「看得出來」的種類,不要猜。
 - 只有看得到明確特徵時才寫具體種類:要寫魚種(例如「鮭魚」),必須看得到魚皮、魚肉的片狀紋理,或鮭魚那種橘粉色魚肉;要寫「雞腿」,必須看得到雞腿的形狀或骨頭。豬排、牛排等也一樣,要看得到該部位的形狀。
 - 看不出是雞、豬、牛還是魚時,一律用通用名稱,例如「照燒肉塊」「醬燒肉塊」「炒肉丁」「炸肉塊」,而且 confidence 要設在 60 以下。
@@ -96,7 +107,7 @@ const DETECT_PROMPT = `你是食物辨識與定位助手。這是一張餐點照
 
 座標系統:照片左上角是 (0,0),右下角是 (100,100),單位是百分比。
 請「只」回傳如下格式的 JSON,不要加任何說明文字(count、countUnit 只在可數時才加):
-{"dishes":[{"name":"白飯","confidence":92,"category":"food","x":5,"y":55,"w":35,"h":30},{"name":"滷雞腿","confidence":88,"category":"food","x":50,"y":20,"w":30,"h":30,"count":3,"countUnit":"隻"},{"name":"照燒肉塊","confidence":55,"category":"food","x":10,"y":12,"w":32,"h":28}]}
+{"dishes":[{"name":"白飯","confidence":92,"category":"food","foodType":"staple","x":5,"y":55,"w":35,"h":30},{"name":"滷雞腿","confidence":88,"category":"food","foodType":"protein","x":50,"y":20,"w":30,"h":30,"count":3,"countUnit":"隻"},{"name":"照燒肉塊","confidence":55,"category":"food","foodType":"protein","x":10,"y":12,"w":32,"h":28}]}
 (第三個例子是看不出是哪種肉的一口大小肉塊:用通用名稱、confidence 低於 60,而且不回傳 count。)
 x,y 是邊界框左上角座標百分比,w,h 是邊界框寬高百分比。最多列出 8 道菜。`;
 
@@ -578,6 +589,7 @@ app.post('/api/detect', async (req, res) => {
           name: String(box.name || '食物區塊').trim(),
           confidence: Math.max(0, Math.min(100, box.confidence || 90)),
           category: 'food',
+          foodType: 'other',
           ...normalizeDishBox(box)
         }));
     } else {
@@ -591,6 +603,8 @@ app.post('/api/detect', async (req, res) => {
             name: String(d.name || '').trim(),
             confidence: Math.max(0, Math.min(100, Math.round(Number(d.confidence) || 0))),
             category: normalizeCategory(d.category),
+            // unknown / missing -> 'other' (field-defaults.js)
+            foodType: fieldDefaults.normalizeFoodType(d.foodType, normalizeCategory(d.category)),
             ...padded,
             ...normalizeCount(d)
           };

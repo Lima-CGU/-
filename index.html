@@ -195,6 +195,14 @@
               <button type="button" class="btn report-delete-yes" id="reportDeleteYes">刪除</button>
             </div>
             <div class="kcal-explain" id="reportKcalExplain" hidden></div>
+            <!-- Group A: pick options by voice (fixed word table, no AI) -->
+            <div class="report-voice-row">
+              <button type="button" class="report-voice-btn" id="reportVoiceBtn" aria-label="用說的選選項">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <span>用說的選</span>
+              </button>
+              <span class="report-voice-msg" id="reportVoiceMsg" role="status"></span>
+            </div>
             <!-- countable dishes only (AI counted them); not one of the five required fields -->
             <div class="count-row" id="reportCountRow" hidden>
               <span class="count-label">數量</span>
@@ -415,6 +423,9 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<!-- field options / food-type presets: the same file the backend uses -->
+<script src="backend/field-defaults.js"></script>
+<script src="voice-match.js"></script>
 <script src="calorie.js"></script>
 <script src="sync.js"></script>
 <script src="script.js"></script>
