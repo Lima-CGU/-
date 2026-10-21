@@ -1,5 +1,19 @@
 # PICTAMEAL Project Handoff
 
+## 每次修改後的自我審查（必做）
+每次完成修改、commit 之前，一定要做以下步驟：
+1. 自動檢查：所有改過的 JS 跑 node --check；寫小測試驗證這次改的功能；用 Playwright（Chromium 在 /opt/pw-browsers）以 ?group=A、B、C 各打開一次頁面，fetch 用假資料模擬後端，確認沒有 console error。
+2. 審查委員會：派 5 個子代理（subagent），各自只看這次的 diff 與相關程式，獨立回報問題（每個問題要有檔案:行號、會發生什麼、建議怎麼修）：
+   ① 正確性：邏輯錯誤、空值、會當掉的地方、舊資料相容性
+   ② 研究資料完整性：events、times、userActionCount、fieldSource、userReviewed、CSV 匯出，會不會錯記、漏記、重複記，或資料錯了卻看不出來
+   ③ 三組公平性：A／B／C 的預設值、可記錄的資訊、提示機會是否一致；有沒有某一組多拿到 AI 提示或少了某個欄位
+   ④ 手機介面：以 390×844 與 390×700 截圖，檢查空白過多、擠在一起、左右捲動、按鈕被擠出畫面、文字被切掉
+   ⑤ 安全與隱私：不能有金鑰、ADMIN_TOKEN、老師的 foods1000 資料或匯出的實驗資料出現在 repo 或前端
+3. 驗證：再派一個子代理，逐一實際重現每個回報的問題，標成「確認」「誤報」或「無法確定」，排除誤報。
+4. 修復：「確認」的問題直接修好，修完重新做步驟 1 和 2（最多來回 2 輪，避免浪費額度）。
+5. 不能自己改的：只要會改變實驗設計（欄位、選項、預設值的數字、三組的差異、計分規則、流程順序），一律不要自己修，列在回報裡讓研究助理決定。
+6. 回報：用繁體中文分成「已修好」「需要研究助理決定」「已知但暫時不修」三段；附上手機截圖。
+
 ## Project
 
 PICTAMEAL is a mobile-first food diary web app. The frontend is plain HTML/CSS/JavaScript. The backend is Node.js + Express and proxies OpenAI requests so the API key stays server-side.
