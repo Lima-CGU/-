@@ -49,7 +49,8 @@ photo-upload-site/
 - 連續單位(公克 g / 毫升 c.c.):總熱量 = 資料庫熱量 ÷ 重量基準 × 實際份量。TFND 的基準是 100 g;foods1000 用它自己的重量欄。實際份量由「容器 × 尺寸」對照表決定。
 - 蛋白質、脂肪、醣類用和熱量相同的倍數換算。
 - 鹽只影響鈉:鈉(mg)= 品項本身的鈉(同樣倍數換算)+ 鹽的茶匙數 × 2358;無鹽 = 0。
-- 烹調方式、糖只記錄,不影響任何數字。
+- 糖只記錄,不影響任何數字。烹調方式只影響「用油」(下一點)。
+- **用油(老師 10/21)**:依烹調方式加上用油的熱量:用油茶匙數 = 對照表 × 尺寸倍數(XS 0.5 / S 0.75 / M 1 / L 1.5 / XL 2)× 數量(有算數量的菜才乘)。1 茶匙油 = 5 g = 45 kcal、脂肪 5 g。比對到的品項名稱裡已經有烹調方式(例如「炸雞腿」「炒青菜」「煎蛋」,關鍵字:炒、煎、炸、烤、燒烤、烘焙、酥、滷、燉、蒸、煮、燙)時不加油,避免重複計算。有加油時,熱量標籤點開會多一行「食物 ○ kcal＋用油 ○ kcal(○ 茶匙油)」,算式後面也有「＋ 用油 ○ 茶匙 ○ kcal」。存檔的 `nutrition` 多了 `foodKcal`、`oilTeaspoons`、`oilKcal`(`kcal` 是含油的總數)。
 - 換算後每公克超過 9.5 大卡視為資料異常:不顯示數字,回傳 `anomaly` 並寫 log。
 - 比對程度 none → 不計算,顯示「無法估算」。approx → 顯示「(近似)」。
 - 候選分成 A(份/碗/顆/根/片/個/杯等離散單位,通常是 foods1000)和 B(每 100 g / 公克 / 毫升)。只要 A 裡有同一種食物(名稱不必完全相同,例如水煮蛋 → 以「顆/個」計的雞蛋),一律選 A;找不到才用 B 加份量對照表。
@@ -64,7 +65,10 @@ photo-upload-site/
 | 份量對照・碗 | XS 100 g、S 150 g、M 200 g、L 300 g、XL 400 g |
 | 份量對照・杯子 | XS 150 ml、S 250 ml、M 350 ml、L 500 ml、XL 700 ml |
 | 份量對照・便當盒(`lunchbox`) | 比照盤子:XS 100 g、S 150 g、M 250 g、L 350 g、XL 450 g【待老師確認】 |
-| 沒有容器欄位的水果,每個的公克數(比對到每 100 g 的品項時 × 個數) | XS 50 g、S 100 g、M 150 g、L 200 g、XL 250 g【待老師確認】 |
+| 水果每個的公克數(`FRUIT_PIECE_GRAMS`;沒有容器欄位,比對到每 100 g 的品項時 × 個數) | XS 50 g、S 100 g、M 150 g(中等大小)、L 200 g、XL 250 g【待老師確認】 |
+| 每種烹調方式的用油茶匙數(`OIL_TEASPOONS`,M 份量) | 生食、沙拉、水煮、蒸、燉、滷、不適用 0;烤、燒烤、烘焙 0.5;炒、煎 1;炸 2【待老師確認】 |
+| 每茶匙油(`OIL_PER_TEASPOON`) | 5 g、45 kcal、脂肪 5 g【待老師確認】 |
+| 品項名稱已含烹調方式就不加油(`COOKED_NAME_WORDS`) | 炒、煎、炸、烤、燒烤、烘焙、酥、滷、燉、蒸、煮、燙【待老師確認】 |
 | 鹽的茶匙數 | 無鹽 0、1/4 茶匙 0.25、1/2 茶匙 0.5、3/4 茶匙 0.75、1 茶匙 1 |
 | 每茶匙鹽的鈉 | 2358 mg |
 | 異常門檻 | 9.5 kcal/g |
@@ -112,7 +116,8 @@ photo-upload-site/
 - **烹調方式**:先看菜名裡有沒有烹調關鍵字(燒烤、烘焙、沙拉、水煮、炒、煎、炸、烤、蒸、滷、燉、煮→水煮;「生魚片、生菜、生吃、涼拌」→ 生食,但「花生」「生煎包」不算生食),有就用對應的選項(例如「炒青菜」→ 炒);沒有才用上表。
 - **什麼時候套用**:AI 初稿一出來,A、B、C 三組的每道菜都套用;B/C 組在對話中新增的菜也依它的類型套用。日記裡的「+ 新增菜色」和日記編輯沒有改。
 - **事件**:每套用一道菜記一筆 `default_applied`(actor `system`,`detail` 有 `foodType`、套用的欄位與值、`notApplicable` 不適用的欄位),不算進 `userActionCount`。
-- **水果的熱量**:比對到以「個/顆」計的品項時照個數算;比對到每 100 公克的品項時,用「每個的公克數 × 個數」換算:XS 50 g、S 100 g、M 150 g、L 200 g、XL 250 g(`backend/nutrition-config.js` 的 `NO_CONTAINER_PIECE_GRAMS`【待老師確認】)。
+- **水果的熱量**:比對到以「個/顆」計的品項時照個數算;比對到每 100 公克的品項時,用「每個的公克數 × 個數」換算:XS 50 g、S 100 g、M 150 g、L 200 g、XL 250 g(`backend/nutrition-config.js` 的 `FRUIT_PIECE_GRAMS`【待老師確認】)。
+- **「柿子/甜柿」顯示無法估算的修正(10/21)**:原因是熱量請求沒有帶 `foodType` 時(例如對話中新增的菜、舊版頁面),後端不知道它是水果,就當成需要容器的每 100 g 品項而回「待補份量」;另外「柿子」的搜尋關鍵字找不到 TFND 的「甜柿」。現在後端沒收到 `foodType` 時會用菜名猜類型(柿 → 水果),搜尋時也會去掉字尾的「子/兒」再找一次(柿子 → 柿),所以「甜柿 2 顆、M」= 每 100 g 55 kcal × 300 g = 165 kcal。
 
 **每個欄位的來源 `fieldSource`**(存在 record 每道菜上;CSV 有 `foodType` 和 `containerTypeSource`、`sizeSource`、`cookingMethodSource`、`sugarSource`、`saltSource`、`countSource`):
 - `default`:系統預設(含照片上的數量),受試者沒動過
@@ -210,9 +215,14 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 - 選菜時輸入列上方顯示該道菜的裁切縮圖(整餐顯示整張照片),送出的「我點選了 X」訊息也附縮圖;存檔只記菜的編號。等待 AI 時顯示「正在整理…」動畫並暫停輸入。AI 不會說「已記錄完成」,使用者沒有要補充時會提醒按「完成」。
 - 「完成」隨時可按;有菜沒描述或缺尺寸時會先確認。存檔包含完整對話、訊息數、追問次數、每道菜的備註、新增和更名的菜。日記卡片顯示熱量與備註,沒有 ✏️ 編輯(要修改請回到對話)。B、C 組的日記卡片相同。
 - **拒答無關問題(B、C 組)**:AI 只處理這一餐的飲食紀錄。使用者問寫作業、寫程式、翻譯、閒聊、時事、要它扮演其他角色或忽略規則時,一律只回「我只能協助記錄這一餐吃了什麼喔～請告訴我你吃了哪些食物、吃了多少。」,不改任何菜的欄位,也沒有提示按鈕;回應帶 `offTopic: true`,存檔記次數。
-- **C 組提示按鈕**:每次 AI 回覆後換成新的一組(0~4 個,沒有就隱藏),依對話情境和選取的菜提示「下一句可能想說的」,例如剛描述完一道菜時是「這道很鹹」「我只吃一半」「分量比較多」「加了很多醬」,問數量時是「吃了 2 個」「全部吃完」;用使用者的口吻,不含熱量、營養數字或健康建議。點按鈕 = 把按鈕文字當成使用者訊息直接送出(和打字送出完全一樣,也套用目前選取的菜)。等待 AI 回覆時按鈕隱藏。按鈕一排橫向排列,放不下時可以橫向捲動。
+- **回覆長度(老師 10/21)**:AI 每次最多兩行、40 個中文字以內,不用條列;確認只用一句話,例如「好的,柿子 2 顆,一般大小。」。後端 `cleanReply` 再保險一次:超過兩行只留前兩行,超過 60 字(不算換行)就截斷並加「…」。拒答的固定句不受影響。
+- **語音優先**:輸入列最左邊是大的紫色麥克風按鈕(56 px),送出按鈕改成淺色;輸入框提示「按麥克風說說看，也可以打字」。
+- **語音同音字修正**:用 🎤 輸入的文字送給 AI 之前,先用 `voice-match.js` 的 `fixHomophones` 修正同音字,只在烹調、份量、糖、鹽的情境才改:「真的/針的 + 食物」→「蒸的」(真的雞 → 蒸的雞;「真的很好吃」不改)、詐的 → 炸的、尖的 → 煎的、吵的/吵青菜 → 炒、考的 → 烤的、魯的 → 滷的、頓的 → 燉的、少言/多言/無言 → 鹽、半唐/無堂 → 糖、大分/小分/半分 → 份(「二分之一」「一分糖」不改)。`chat.messages` 的使用者訊息存 `voiceRaw`(原本辨識到的)和 `voiceFixed`(修正後、送出的);`message_submitted` 事件的 `detail.voiceFixed` 記有沒有改到(true/false)。SYSTEM_PROMPT 也加了一條:語音可能有同音字,請依食物情境理解,真的看不懂就追問一次。
+- **目前的值**:選了一道菜時,輸入框上方多一行小字顯示這道菜目前的值,只列適用欄位,例如「一般大小・盤子・炒・無糖・鹽 1/4 茶匙」;水果只有「一般大小」(使用者說過吃了幾個才會加「2 顆」)。
+- **AI 看得到預設值**:送給 AI 的菜色清單現在包含每道菜的類型、適用欄位,以及每個欄位目前的值和來源(「預設」或「已修改」)。規則:使用者沒提到的欄位就維持原值,不要改;份量只是預設值、使用者也沒說時,仍可追問份量。
+- **C 組提示按鈕**:每次 AI 回覆後換成新的一組(0~4 個,沒有就隱藏),依「目前選取的菜」的類型和適用欄位產生:水果是「一顆」「兩顆」「半顆」「比較大顆」,炒青菜是「鹽多一點」「比較少」「是用燙的」,問數量時是「吃了 2 個」「全部吃完」;不出現這道菜不適用的欄位(水果不會有鹽、糖、烹調、容器),也不猜食材或調味(不會有「加了醬汁」「有放蔥」)。後端 `cleanSuggestions` 再過濾一次:依選取的菜(沒選就看 AI 在問數量的菜、或這次唯一改到的菜)丟掉不適用欄位的字(鹽/鹹/淡、糖/甜、炒煎炸烤蒸煮燙滷燉…、碗/盤/杯/便當),以及醬、醋、蔥、蒜、薑、辣椒、胡椒、芝麻、咖哩、起司、麻油、奶油、檸檬、「加了」「有放」「淋」等調味/食材字;用使用者的口吻,不含熱量、營養數字或健康建議。點按鈕 = 把按鈕文字當成使用者訊息直接送出(和打字送出完全一樣,也套用目前選取的菜)。等待 AI 回覆時按鈕隱藏。按鈕一排橫向排列,放不下時可以橫向捲動。
 
-**`POST /api/chat` 的規則**:輸入 `group`(`'B'` 或 `'C'`,其他值一律當 `'B'`)、菜色清單(編號、菜名、已記錄的欄位)、目前選取的菜或「整餐」、最近 12 則對話、這句話(後端截斷到 500 字,含「我點選了 X。」前綴);回傳 `reply`、`updates`、`notes`、`newDishes`、`renameDishes`、`isClarification`、`offTopic`,C 組另外有 `suggestions`(和回覆是同一次 AI 呼叫產生,不多呼叫)。後端會檢查每個欄位值都在允許的選項內(飲料用飲料的烹調方式),不合法的直接丟掉;回覆中提到熱量或營養素的句子會被移除。`suggestions` 只保留字串、去掉頭尾空白、最多 4 個、每個最多 10 字(超過的整個丟掉),含熱量/營養/健康字眼的也丟掉;B 組回應裡一律沒有 `suggestions`。`offTopic: true` 時後端強制改成固定的拒答句、清空所有更新。使用 `OPENAI_MODEL`、`max_completion_tokens`(900),不設 temperature。
+**`POST /api/chat` 的規則**:輸入 `group`(`'B'` 或 `'C'`,其他值一律當 `'B'`)、菜色清單(編號、菜名、`foodType`、目前所有欄位的值 `fields` 與來源 `fieldSource`;沒帶 `foodType` 時後端用菜名猜)、目前選取的菜或「整餐」、最近 12 則對話、這句話(後端截斷到 500 字,含「我點選了 X。」前綴);回傳 `reply`、`updates`、`notes`、`newDishes`、`renameDishes`、`isClarification`、`offTopic`,C 組另外有 `suggestions`(和回覆是同一次 AI 呼叫產生,不多呼叫)。後端會檢查每個欄位值都在允許的選項內(飲料用飲料的烹調方式),不合法的直接丟掉;回覆中提到熱量或營養素的句子會被移除。`suggestions` 只保留字串、去掉頭尾空白、最多 4 個、每個最多 10 字(超過的整個丟掉),含熱量/營養/健康字眼的也丟掉;B 組回應裡一律沒有 `suggestions`。`offTopic: true` 時後端強制改成固定的拒答句、清空所有更新。使用 `OPENAI_MODEL`、`max_completion_tokens`(900),不設 temperature。
 
 ## 研究資料(Firestore)
 
@@ -228,7 +238,7 @@ B 組從 Page 3 按「下一步」進入對話頁(和 A 組同一個畫面、同
 - `dishes`:最後的菜名、5 個欄位(`detail`)、食物類型(`foodType`)、每個欄位的來源(`fieldSource`:default / user / ai)、熱量結果(`nutrition`);`nutrition`:整餐熱量
 - `editLog`:`renameCount`(改菜名次數)、`fieldSetCount`(選欄位次數)、`fieldChangeCount`(把已填的值改掉的次數)、`deletedDishes`、`addedDishes`;之後在日記上修改會再加上 `diaryEditCount`、`diaryDeletedDishes`,並以同一個 ID 重新上傳
 - `group`:`A`、`B` 或 `C`
-- B、C 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;`messageCount`、`userMessageCount`、`clarificationCount`、`offTopicCount`(被拒答次數)、新增與更名的菜),每道菜的 `notes`、`renamedFrom`。每則使用者訊息有 `source`:`typed`(自己打字,含語音輸入)或 `suggestion`(點提示按鈕);被拒答的 AI 訊息有 `offTopic: true`
+- B、C 組:`chat`(完整對話:角色、內容、時間、當時選取的菜編號;用語音輸入的訊息另有 `voiceRaw`、`voiceFixed`;`messageCount`、`userMessageCount`、`clarificationCount`、`offTopicCount`(被拒答次數)、新增與更名的菜),每道菜的 `notes`、`renamedFrom`。每則使用者訊息有 `source`:`typed`(自己打字,含語音輸入)或 `suggestion`(點提示按鈕);被拒答的 AI 訊息有 `offTopic: true`
 - C 組另外:`chat.suggestionShownCount`(總共顯示過幾個按鈕)、`chat.suggestionTapCount`(點了幾次)、`chat.suggestionTaps`(每次點的按鈕文字與時間);每則 AI 訊息存當時顯示的 `suggestions`
 - `apiErrors`:API 錯誤(哪個 API、時間、訊息);`upload`:上傳嘗試次數與失敗原因
 - 後端加上:`receivedAt`、`firstReceivedAt`、`uploadCount`、`photoStored`、`photoBytes`;在日記刪掉整餐時會標記 `deletedFromDiary`(資料保留)
@@ -249,7 +259,7 @@ Invoke-WebRequest "$api/api/admin/export?format=events" -Headers $h -OutFile eve
 Invoke-WebRequest "$api/api/admin/photo?id=紀錄ID"     -Headers $h -OutFile 紀錄ID.jpg
 ```
 
-可加 `&pid=P001`、`&group=A`(`B`、`C` 也可以)或 `&meal=M01` 只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、`mealId`、各時間與耗時(含 `totalSec`、`correctionSec`、`aiProcessingSec`、`preEditDelaySec`)、`userActionCount`、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量、比對程度、比對品項、營養素、備註、整餐熱量、B/C 組訊息數與追問次數、`suggestionShownCount`、`suggestionTapCount`(只有 C 組有值)、`offTopicCount`(B/C 組)、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
+可加 `&pid=P001`、`&group=A`(`B`、`C` 也可以)或 `&meal=M01` 只匯出部分資料。CSV 欄位:紀錄 ID、pid、group、`mealId`、各時間與耗時(含 `totalSec`、`correctionSec`、`aiProcessingSec`、`preEditDelaySec`)、`userActionCount`、菜的編號與來源、AI 原始菜名與信心度、最後菜名、5 個欄位、熱量(含油)、`oilTeaspoons`、`oilKcal`(用油茶匙數與熱量)、比對程度、比對品項、營養素、備註、整餐熱量、B/C 組訊息數與追問次數、`suggestionShownCount`、`suggestionTapCount`(只有 C 組有值)、`offTopicCount`(B/C 組)、改名/修改/刪除/新增、API 錯誤數等。**匯出的檔案含老師提供的私有食材品項名稱(matchedName),不要放進這個 repo。**
 
 **在 Firebase 後台看紀錄**:[Firebase Console](https://console.firebase.google.com/) → 專案 **pictameal** → 左側「Firestore Database」→「資料」分頁 → `meals`(每餐一份)、`photos`(照片)。點文件就能看到所有欄位。
 
@@ -275,7 +285,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 - `target`:菜的編號(和照片上的圓圈編號相同;B/C 組含對話新增的菜),整餐是 `'meal'`,沒有對象是 `null`
 - `source`:只有 `message_submitted` 有,`typed`(打字)、`voice`(用 🎤 語音輸入到輸入框再送出)、`suggestion`(點 C 組提示按鈕)
 - `status`:`success`、`failed`、`cancelled`
-- **隱私**:事件裡不放對話原文(原文在 `chat.messages`);`message_submitted` 只記字數。A 組的 `before`/`after` 記菜名和欄位值。
+- **隱私**:事件裡不放對話原文(原文在 `chat.messages`);`message_submitted` 只記字數(和 `voiceFixed`:語音文字有沒有被同音字修正改到)。A 組的 `before`/`after` 記菜名和欄位值。
 - **上限**:每餐最多 3000 筆;到上限時最後一筆是 `error`(`detail.reason = 'event-limit'`),之後不再記錄,紀錄上標 `eventsCapped: true`。整筆紀錄若超過上傳上限(約 850 KB),會從後面截掉事件並標 `eventsTruncated: { kept, total }`。
 
 **事件清單**
@@ -294,7 +304,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `dish_renamed` | user | A 組:改菜名(before/after = 舊/新菜名;`detail.inputType` = `typed` 自己打字 / `picked` 從候選清單選) |
 | `count_changed` | user | A 組:數量 −/+ |
 | `dish_added` / `dish_deleted` | user | A 組:點照片新增一道菜 / 確認刪除 |
-| `message_submitted` | user | B/C 組:送出一則訊息(含點提示按鈕) |
+| `message_submitted` | user | B/C 組:送出一則訊息(含點提示按鈕);`detail` = `length`、`selected`、`voiceFixed` |
 | `ai_response_displayed` | ai | B/C 組:AI 回覆顯示(`detail`:`isClarification`、`offTopic`、`updatedDishes`、`latencyMs`…) |
 | `record_updated` | system | B/C 組:AI 改了某道菜,每道菜一筆;`field` = 改了哪些欄位,`before`/`after` = 那些欄位的前後值;新增的菜 `before = null` |
 | `suggestion_shown` | system | C 組:顯示一組提示按鈕(`detail.texts`) |

@@ -2369,6 +2369,9 @@ body.candidate-sheet-open .toast{
 .chat-total-note[hidden], .chat-sel-chip[hidden]{ display: none; }
 .chat-sel-chip{ color: #0b6b4f; display: flex; align-items: center; gap: 8px; margin-top: 0; }
 .chat-sel-chip[hidden]{ display: none; }
+/* the selected dish's current values, e.g. 一般大小・炒・無糖・鹽 1/4 茶匙 */
+.chat-sel-values{ font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--ink-soft); margin-top: -4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-sel-values[hidden]{ display: none; }
 /* Group C: suggestion buttons right above the input — one row, scrolls
    sideways when the four don't fit */
 .chat-suggest-row{
@@ -2430,9 +2433,15 @@ body.candidate-sheet-open .toast{
   justify-content: center;
   cursor: pointer;
 }
-.chat-mic-btn{ background: var(--purple-soft); color: var(--purple-deep); }
-.chat-mic-btn.is-listening{ background: var(--coral); color: #fff; }
-.chat-send-btn{ background: var(--purple); color: #fff; }
+.chat-input-row{ align-items: center; }
+/* voice first: the mic is the big filled button, send is the quieter one */
+.chat-mic-btn{
+  flex: 0 0 56px; width: 56px; height: 56px;
+  background: var(--purple); color: #fff;
+  box-shadow: 0 4px 12px rgba(109, 79, 224, 0.35);
+}
+.chat-mic-btn.is-listening{ background: var(--coral); color: #fff; box-shadow: 0 0 0 6px rgba(255, 111, 89, 0.22); }
+.chat-send-btn{ background: var(--purple-soft); color: var(--purple-deep); }
 .chat-send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
 
 /* every text on the chat page is >= 12px — incl. the label confidence */

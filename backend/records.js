@@ -209,7 +209,7 @@ const CSV_COLUMNS = [
   // (a field that doesn't apply to the food type: value NA, source na)
   'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource', 'countSource',
   'aiCount', 'finalCount', 'countUnit', 'countEdits',
-  'kcal', 'nutritionStatus', 'match', 'matchedName', 'nutritionSource',
+  'kcal', 'oilTeaspoons', 'oilKcal', 'nutritionStatus', 'match', 'matchedName', 'nutritionSource',
   'proteinG', 'fatG', 'carbohydrateG', 'sodiumMg', 'notes',
   'mealTotalKcal', 'messageCount', 'userMessageCount', 'clarificationCount',
   'suggestionShownCount', 'suggestionTapCount', 'offTopicCount',
@@ -266,6 +266,7 @@ function toCsv(records){
         aiCount: ai.count ?? null, finalCount: d.count ?? null, countUnit: d.countUnit || ai.countUnit || null,
         countEdits: d.countEdits ?? (d.count != null || ai.count != null ? 0 : null),
         kcal: n.status === 'ok' ? n.kcal : null, nutritionStatus: n.status, match: n.match,
+        oilTeaspoons: n.status === 'ok' ? n.oilTeaspoons ?? 0 : null, oilKcal: n.status === 'ok' ? n.oilKcal ?? 0 : null,
         matchedName: n.matchedName, nutritionSource: n.source,
         proteinG: n.proteinG, fatG: n.fatG, carbohydrateG: n.carbohydrateG, sodiumMg: n.sodiumMg,
         notes: Array.isArray(d.notes) ? d.notes.join('; ') : ''

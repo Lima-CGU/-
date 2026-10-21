@@ -3588,6 +3588,7 @@
   const chatTotalNum   = document.getElementById('chatTotalNum');
   const chatTotalNote  = document.getElementById('chatTotalNote');
   const chatSelChip    = document.getElementById('chatSelChip');
+  const chatSelValues  = document.getElementById('chatSelValues');
   const chatSuggestRow = document.getElementById('chatSuggestRow');
   const CHAT_HISTORY_SENT = 12;      // recent messages sent with each turn
   const CHAT_TIMEOUT_MS = 45000;
@@ -3705,6 +3706,7 @@
     updateChatSelection();
   }
   function updateChatSelection(){
+    updateChatValues();
     reportAddDishBtn.classList.toggle('is-active', chatMealSelected);
     reportAddDishBtn.setAttribute('aria-pressed', String(chatMealSelected));
     const det = selectedReportDet();
@@ -3723,6 +3725,27 @@
     chatSelChip.append(img, label);
     if (det) ensureReportThumb(det).then(url => { if (url && img.isConnected) img.src = url; });
     else img.src = currentPhotoData || '';
+  }
+  // one line with the selected dish's current values (its applicable fields only)
+  const CHAT_SIZE_WORDS = { XS: '特小份', S: '小份', M: '一般大小', L: '大份', XL: '特大份' };
+  function chatValuesLine(det){
+    const v = det.detail || {};
+    const fields = dishFields(det);
+    const parts = [];
+    if (fields.includes('size') && v.size) parts.push(CHAT_SIZE_WORDS[v.size] || v.size);
+    if (det.count && det.countConfirmed) parts.push(`${det.count} ${det.countUnit || '個'}`); // the photo count isn't what was eaten
+    if (fields.includes('containerType') && v.containerType) parts.push(FIELD_DEFAULTS.CONTAINER_LABELS[v.containerType] || v.containerType);
+    if (fields.includes('cookingMethod') && v.cookingMethod) parts.push(v.cookingMethod);
+    if (fields.includes('sugar') && v.sugar) parts.push(v.sugar);
+    if (fields.includes('salt') && v.salt) parts.push(v.salt === '無鹽' ? v.salt : `鹽 ${v.salt}`);
+    return parts.join('・');
+  }
+  function updateChatValues(){
+    if (!chatSelValues) return;
+    const det = selectedReportDet();
+    const text = det ? chatValuesLine(det) : '';
+    chatSelValues.hidden = !text;
+    chatSelValues.textContent = text;
   }
   function chatSelection(){
     const det = selectedReportDet();
@@ -3843,9 +3866,11 @@
       name: chatDishName(d),
       category: d.category === 'beverage' ? 'beverage' : 'food',
       onPhoto: d.onPhoto !== false,
-      // only what the user said (via the AI) — presets are not shown to it,
-      // so its questions (e.g. about the portion) work as before
-      fields: Object.fromEntries(Object.entries(d.detail || {}).filter(([k, v]) => v && (d.fieldSource || {})[k] !== 'default')),
+      foodType: d.foodType || null,
+      // every current value + where it came from ('default' = the preset);
+      // the AI keeps the ones the user doesn't mention
+      fields: Object.fromEntries(Object.entries(d.detail || {}).filter(([, v]) => v)),
+      fieldSource: Object.fromEntries(REPORT_FIELDS.map(k => [k, (d.fieldSource || {})[k] || null])),
       notes: [...(d.notes || [])],
       // calorie.js couldn't estimate it yet (a gram / ml item with no container)
       needsPortion: (Calorie.getState(d.id) || {}).status === 'needs-portion',
@@ -3862,21 +3887,26 @@
   async function sendChat(text, source = 'typed'){
     if (chatBusy) return;
     const sel = chatSelection();
-    const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${text}`
-      : sel && sel.type === 'meal' ? `關於整餐:${text}` : text;
+    // 🎤 text: fix speech homophones (真的雞 → 蒸的雞) before the AI sees it;
+    // the record keeps both versions
+    const voice = source === 'typed' && chatVoiceUsed;
+    const fixed = voice && VOICE_MATCH && VOICE_MATCH.fixHomophones ? VOICE_MATCH.fixHomophones(text) : { text, changed: false };
+    const said = fixed.text;
+    const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${said}`
+      : sel && sel.type === 'meal' ? `關於整餐:${said}` : said;
     const history = chatMessages.slice(-CHAT_HISTORY_SENT).map(m => ({ role: m.role, content: m.content }));
     // events: one message = one correction attempt; never the words themselves
     const attemptId = chatAttemptId = nextAttemptId();
     logEvent('message_submitted', {
       actor: 'user', target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, attemptId,
       source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed'),
-      detail: { length: text.length, selected: sel ? sel.type : null }
+      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed }
     });
     if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,
       thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null,
-      meta: { source }
+      meta: { source, ...(voice ? { voiceRaw: text, voiceFixed: said } : {}) }
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
     renderChatSuggestions([]); // no buttons while waiting

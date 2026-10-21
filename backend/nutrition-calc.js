@@ -106,11 +106,24 @@ function compute(item, input){
   const sodiumMg = round(itemSodium + salt * cfg.SODIUM_MG_PER_TEASPOON);
   if (salt > 0) how += `;鹽 ${String(input.salt).replace(/\s+/g, '')} → 鈉 +${round(salt * cfg.SODIUM_MG_PER_TEASPOON)} mg`;
 
+  // cooking oil: by method × size × count, unless the item already includes it
+  const oil = oilFor(item, input);
+  const foodKcal = round(kcal);
+  const oilKcal = round(oil * cfg.OIL_PER_TEASPOON.kcal);
+  const fatG = isNum(item.fatG) || oil ? round((isNum(item.fatG) ? item.fatG * factor : 0) + oil * cfg.OIL_PER_TEASPOON.fatG, 1) : null;
+  if (oil > 0){
+    formula += ` ＋ 用油 ${oil} 茶匙 ${oilKcal} kcal`;
+    how += `;${input.cookingMethod} 用油 ${oil} 茶匙(× ${cfg.OIL_PER_TEASPOON.kcal} kcal)`;
+  }
+
   return {
     status: 'ok',
-    kcal: round(kcal),
+    kcal: foodKcal + oilKcal,
+    foodKcal,
+    oilTeaspoons: oil,
+    oilKcal,
     proteinG: scale(item.proteinG),
-    fatG: scale(item.fatG),
+    fatG,
     carbohydrateG: scale(item.carbohydrateG),
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
@@ -123,4 +136,16 @@ function compute(item, input){
   };
 }
 
-module.exports = { compute, saltTeaspoons, sizeMultiplier, isContinuous };
+/** Teaspoons of cooking oil for this dish (0 when none applies). */
+function oilFor(item, input){
+  const per = cfg.OIL_TEASPOONS[String(input.cookingMethod || '').trim()];
+  if (!per) return 0;
+  // the matched item's name already says how it was cooked: oil included
+  if (cfg.COOKED_NAME_WORDS.some(w => String(item.name || '').includes(w))) return 0;
+  const m = sizeMultiplier(item.category, input.size);
+  if (!isNum(m)) return 0;
+  const pieces = Number.isInteger(input.count) && input.count > 0 ? input.count : 1;
+  return round(per * m * pieces, 2);
+}
+
+module.exports = { oilFor, compute, saltTeaspoons, sizeMultiplier, isContinuous };
