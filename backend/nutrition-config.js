@@ -40,10 +40,26 @@ const PORTION_TABLE = {
 };
 const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒' };
 
-/* 2b. Food types without a container field (fruit, 10/22) matched to a
- *     gram item: grams of ONE piece by size × the count. 【待老師確認】
+/* 2b. Fruit portion table (fruit has no container field): grams of ONE
+ *     piece by size, × the count, when the matched item is per 100 g.
+ *     「一般水果一顆約 150 公克」 = M. 【待老師確認】
  *     (A per-piece item, e.g. 1 個, is counted by pieces as usual.)      */
-const NO_CONTAINER_PIECE_GRAMS = { XS: 50, S: 100, M: 150, L: 200, XL: 250 }; // 【待老師確認】
+const FRUIT_PIECE_GRAMS = { XS: 50, S: 100, M: 150, L: 200, XL: 250 }; // 【待老師確認】
+const NO_CONTAINER_PIECE_GRAMS = FRUIT_PIECE_GRAMS; // (older name, same table)
+
+/* 2c. Cooking oil (teacher 10/21) 【待老師確認】: teaspoons of oil per dish by
+ *     cooking method, × the size multiplier, × the count for a counted dish.
+ *     Not added when the matched item's own name already has a cooking word
+ *     (炸雞腿, 炒青菜, 煎蛋 … — its calories already include the oil).     */
+const OIL_TEASPOONS = {                 // 【待老師確認】
+  '生食': 0, '沙拉': 0, '水煮': 0, '蒸': 0, '燉': 0, '滷': 0, '不適用': 0,
+  '烤': 0.5, '燒烤': 0.5, '烘焙': 0.5,
+  '炒': 1, '煎': 1,
+  '炸': 2
+};
+const OIL_PER_TEASPOON = { grams: 5, kcal: 45, fatG: 5 }; // 1 茶匙油 【待老師確認】
+// a matched item whose name has one of these already includes its oil
+const COOKED_NAME_WORDS = ['炒', '煎', '炸', '烤', '燒烤', '烘焙', '酥', '滷', '燉', '蒸', '煮', '燙'];
 
 /* 3. Salt: teaspoons of added salt per answer. Salt only changes sodium. */
 const SALT_TEASPOONS = {        // 【待老師確認】
@@ -77,7 +93,7 @@ const MAX_KCAL_PER_GRAM = 9.5;
 const CONTINUOUS_UNIT = /^(公克|克|g\b|毫升|ml\b|c\.?c\.?)/i;
 
 module.exports = {
-  NO_CONTAINER_PIECE_GRAMS,
+  NO_CONTAINER_PIECE_GRAMS, FRUIT_PIECE_GRAMS, OIL_TEASPOONS, OIL_PER_TEASPOON, COOKED_NAME_WORDS,
   SIZE_MULTIPLIERS, PORTION_TABLE, CONTAINER_LABELS, SALT_TEASPOONS,
   SODIUM_MG_PER_TEASPOON, MAX_KCAL_PER_GRAM, CONTINUOUS_UNIT,
   COUNTABLE_UNITS, MAX_COUNT, COUNT_UNIT_GROUPS

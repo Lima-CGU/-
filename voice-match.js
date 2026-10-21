@@ -167,5 +167,37 @@
     return { matches, ambiguous };
   }
 
-  return { match, command, count, normalize, TABLE, FIELD_WORDS, COMMANDS };
+  /* ---------- Groups B/C: fix speech homophones before the text goes to the AI ----------
+     Only in a cooking / size / sugar / salt context, so ordinary words stay:
+     「真的雞」→「蒸的雞」, but 「真的很好吃」 is left alone. */
+  const FOOD_AFTER = '(?=[\\u4e00-\\u9fff]{0,4}(雞|鴨|鵝|豬|牛|羊|魚|蝦|蟹|蛋|肉|排|翅|腿|菜|豆|飯|麵|餃|包|粿|糕|餅|薯|瓜|筍|菇|花枝|魷|蚵|丸|腸|塊|片|的))';
+  const HOMOPHONE_RULES = [
+    // cooking: 「X的 + food」 or 「用X的」
+    [new RegExp('(真|針|貞|爭)的' + FOOD_AFTER, 'g'), '蒸的'],
+    [new RegExp('(詐|乍)的' + FOOD_AFTER, 'g'), '炸的'],
+    [new RegExp('(尖|堅|奸)的' + FOOD_AFTER, 'g'), '煎的'],
+    [new RegExp('吵的' + FOOD_AFTER, 'g'), '炒的'],
+    [new RegExp('考的' + FOOD_AFTER, 'g'), '烤的'],
+    [new RegExp('魯的' + FOOD_AFTER, 'g'), '滷的'],
+    [new RegExp('頓的' + FOOD_AFTER, 'g'), '燉的'],
+    [/用(真|針|貞)的/g, '用蒸的'], [/用(詐|乍)的/g, '用炸的'], [/用(尖|堅)的/g, '用煎的'],
+    [/用吵的/g, '用炒的'], [/用考的/g, '用烤的'], [/用魯的/g, '用滷的'], [/用頓的/g, '用燉的'],
+    // 「吵青菜」「吵飯」: 吵 right before a food word
+    [/吵(?=(青菜|高麗菜|空心菜|菠菜|地瓜葉|飯|麵|蛋|肉|蝦|豆))/g, '炒'],
+    [/魯(?=(肉|蛋|豆干|雞腿|牛肉|味))/g, '滷'],
+    // salt / sugar
+    [/(少|多|加|無|沒|不加|一點)(言|嚴|顏|研)/g, '$1鹽'],
+    [/(無|微|半|少|全|去|沒)(唐|堂|塘)/g, '$1糖'],
+    // size: 大分 / 小分 / 半分 / 兩分 → 份 (not 分之 / 分糖)
+    [/([大小半兩一])分(?![之糖鐘鍾])/g, '$1份']
+  ];
+  /** -> { text, changed } — the corrected text and whether anything changed. */
+  function fixHomophones(text){
+    const raw = String(text || '');
+    let out = raw;
+    for (const [re, to] of HOMOPHONE_RULES) out = out.replace(re, to);
+    return { text: out, changed: out !== raw };
+  }
+
+  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS };
 });

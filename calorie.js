@@ -244,6 +244,8 @@
         return;
       }
       line(r.formula);
+      // cooking oil added on top of the food itself (10/21)
+      if (r.oilKcal > 0) line(`食物 ${r.foodKcal} kcal＋用油 ${r.oilKcal} kcal(${r.oilTeaspoons} 茶匙油)`);
       const grid = document.createElement('div');
       grid.className = 'kcal-explain-grid';
       [['蛋白質', r.proteinG, 'g'], ['脂肪', r.fatG, 'g'], ['醣類', r.carbohydrateG, 'g'], ['鈉', r.sodiumMg, 'mg']].forEach(([label, v, u]) => {

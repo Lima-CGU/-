@@ -29,8 +29,11 @@ function keywordsFor(name){
   for (let len = k.length - 1; len >= 2; len--){
     for (let start = k.length - len; start >= 0; start--) out.push(k.slice(start, start + len));
   }
+  // a filler ending (柿子 → 柿, 桃子 → 桃) — TFND has 甜柿 / 筆柿 but no 柿子
+  const core = k.length >= 2 && /[子兒]$/.test(k) ? k.slice(0, -1) : null;
+  if (core && !out.includes(core)) out.push(core);
   // last, the head noun alone (煎餃 -> 餃, so 水餃 can be offered as a close dish)
-  if (k.length >= 2) out.push(k.slice(-1));
+  if (k.length >= 2 && !out.includes(k.slice(-1))) out.push(k.slice(-1));
   return out;
 }
 
@@ -163,7 +166,8 @@ function validate(body){
       salt: hasSalt ? String(b.salt) : null,  // null = not recorded: sodium is the item's own only
       count: hasCount ? b.count : null,        // only used with a countable-unit item
       // a food type without a container field (fruit): gram items use grams per piece × count
-      noContainer: !fieldDefaults.applicableFields(fieldDefaults.normalizeFoodType(b.foodType, category), category).includes('containerType'),
+      // (no foodType sent — an older page / saved dish: guess it from the name, 甜柿 → fruit)
+      noContainer: !fieldDefaults.applicableFields(fieldDefaults.normalizeFoodType(b.foodType || fieldDefaults.guessFoodType(name, category), category), category).includes('containerType'),
       countUnit
     }
   };
