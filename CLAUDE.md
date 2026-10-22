@@ -82,6 +82,14 @@ The app is used in a three-arm study: **Group A** (traditional — report with b
 - **Diary ✏️**: `openDetailAdjustModal` hides the cooking / sugar / salt sections that don't apply (`applicableFields(foodType || guessFoodType(name))`); the container group is always hidden.
 - **Layout (A)**: `sizeReportPhotoSlot` (A only): picking = photo fills `reportPhotoRoom()` (body minus heading) minus the hint line; dish open = `A_STRIP_SHARE` 0.38 of the room (peek 0.6); `updateReportDone` re-sizes (footer height changes). CSS: stepping panel is a flex column, cards / count row `margin-block: auto` (centred), `.report-step-nav` sticky at the bottom. Checked 390×844, 390×700, desktop.
 
+## Teacher 10/23 fix4 (branch teacher-1023-fix4)
+
+- **No scrollbar on A's pages**: `#reportStepCurrent` (「目前:○○」) always keeps an 18px line (`[hidden]` → `visibility: hidden` while stepping); `sizeReportPhotoSlot` (A, dish open) shrinks the strip by what the panel still overflows, measured against the TARGET height (the slot's height animates), min `PHOTO_COMPACT_MIN_PX`; re-run from `renderReportStep` and `setReportVoiceMsg`; the stepping panel hides its scrollbar (`scrollbar-width: none` / `::-webkit-scrollbar`). Checked every field page at 390×844, 390×700, 1280×800.
+- **其他 ↻ never changes the value**: `nextCardGroup` only swaps cards; card taps within `CARD_SWAP_GUARD_MS` (400 ms) of a swap are ignored (`cardsSwappedAt`). The reported 甜椒炒香腸 → 沙拉 could not be reproduced (preset 炒, stays 炒 through 3× 其他 + a quick double tap); the guard covers a tap landing on the new group.
+- **燙 → 水煮**: `COOKING_KEYWORDS` 汆燙/川燙/燙 → 水煮; voice-match 水煮 words + 燙/燙的/汆燙/川燙.
+- **guessFoodType**: 玉米/地瓜/馬鈴薯 moved to a LAST staple rule (after vegetable): 玉米炒蔬菜丁 / 三色蔬菜 → vegetable, 玉米濃湯 → soup, 玉米 / 玉米飯 / 烤地瓜 → staple; vegetable words + 甜椒/青椒/彩椒. Tests: `test-guess-food-type.js`, `test-cooking-from-name.js` (燙 cases, 甜椒炒香腸 → 炒), `test-voice-count.js` (燙的 → 水煮).
+- **Mixed-dish pick**: see "Nutrition data" (main ingredient, approx; 「生」 sample state is fine).
+
 ## Food-type presets + applicable fields (teacher 10/21, 10/22) — all groups
 
 (**Container parts below are superseded by 10/22 fix2 above.**)
@@ -105,7 +113,7 @@ Details: `backend/data/README.md`.
 - **TFND** (public, `backend/data/tfnd.json`, built by `backend/scripts/build-tfnd.js`): 2,180 foods, values **per 100 g**, `per100g.kcal` = 修正熱量 (fallback 熱量). License 政府資料開放授權條款-第1版.
 - `backend/nutrition-db.js`: `init()` (called once at server start) loads foods1000 from Firestore into memory; on failure it logs why and keeps working with TFND only. `searchFoods(name)` → foods1000 (exact → partial) → TFND (exact → partial) → core-word guesses; each result carries `source` and `basis` (`perUnit` / `per100g`). Credentials: env `FIREBASE_SERVICE_ACCOUNT` (whole key JSON), else `backend/firebase-key.json` (`backend/firebase-admin-init.js`).
 - **No endpoint may return the foods1000 table.** The future `/api/nutrition` returns one dish's computed result only.
-- Mixed dishes (番茄炒蛋, 煎餃, 雞腿便當) are in neither table as such — `/api/nutrition` picks the closest item (match level `approx`) or says `none`; a real dish → ingredients step is still open.
+- Mixed dishes (番茄炒蛋, 煎餃, 雞腿便當) are in neither table as such — `/api/nutrition` picks the closest item (match level `approx`) or says `none`; a real dish → ingredients step is still open. Since 10/23 fix4 the pick prompt says: for a mixed dish pick its MAIN ingredient matching the food type (甜椒炒香腸 → 香腸, approx); TFND's 「樣品狀態:生」 doesn't disqualify an item; `none` only when not even the main ingredient is listed (the old rule 「混合菜餚只有生的原料 → none」 made 甜椒炒香腸 無法估算).
 
 ## Page 4, Groups B and C (chat) — report by talking to the AI
 
@@ -234,7 +242,7 @@ README 「後台使用說明」 is the step-by-step guide for research assistant
 - Live site (`lima-cgu.github.io`): `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
 - **Network-first** for navigations and `index.html`, `script.js`, `style.css`, `calorie.js`, `sync.js`, `manifest.json`, `sw.js` (`NETWORK_FIRST`): fetched with `cache: 'no-cache'` (also bypasses GitHub Pages' max-age 600 HTTP cache), the cache is updated on success and used only offline (a navigation falls back to the cached page ignoring the query, then `index.html`). Images / icons stay cache-first. Install uses `cache: 'reload'`. This is what keeps an old index.html from running with a new script.js (that broke 下一步: `chatSuggestRow` was null). `script.js` also null-checks the chat elements and the 數量 rows before use.
-- The cache name is currently `pictameal-shell-v31`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v32`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks

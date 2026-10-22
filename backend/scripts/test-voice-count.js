@@ -1,6 +1,7 @@
 /**
  * Tests for voice-match.js count() / command() (Group A's 數量 page):
- * 「下一個」「前一個」「上一個」「再來一個」「下一道」 are never the count 1.
+ * 「下一個」「前一個」「上一個」「再來一個」「下一道」 are never the count 1;
+ * on the 烹調方式 page 「燙的」 = 水煮.
  *   node backend/scripts/test-voice-count.js
  */
 'use strict';
@@ -20,7 +21,15 @@ const CASES = [
   // speech fillers before the command are still a command
   ['嗯，下一個', null, 'next'], ['欸下一個', null, 'next'], ['我要下一個', null, 'next'], ['回到上一個', null, 'back']
 ];
+// 燙 on the 烹調方式 page = 水煮 (10/23)
+const { match } = require('../../voice-match');
+const COOK = [['燙的', '水煮'], ['是燙的', '水煮'], ['汆燙', '水煮'], ['川燙', '水煮'], ['炒的', '炒']];
 let failed = 0;
+for (const [said, want] of COOK){
+  const m = match(said, { fields: ['cookingMethod'] }).matches.find(x => x.field === 'cookingMethod');
+  if (!m || m.value !== want){ failed += 1; console.log(`FAIL cooking ${said} -> ${m && m.value} (want ${want})`); }
+  else console.log(`ok   cooking ${said} -> ${m.value}`);
+}
 for (const [said, n, cmd] of CASES){
   try {
     assert.strictEqual(count(said), n, 'count');

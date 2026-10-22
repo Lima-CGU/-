@@ -3120,6 +3120,7 @@
     reportStepBack.disabled = idx === 0;
     reportStepNext.textContent = last ? '完成這道菜' : '下一步';
     syncReportChoices(det);
+    if (reportActive && !chatMode) sizeReportPhotoSlot(); // re-fit the page (lines appear / disappear)
   }
   function renderReportChoiceLists(){ /* built per page by renderReportStep() */ }
   function syncReportChoices(det){
@@ -3128,9 +3129,17 @@
       btn.classList.toggle('selected', btn.dataset.value === d[btn.dataset.kind]);
     });
   }
+  // (10/23) right after 「其他 ↻」 swaps the cards, a tap is ignored for a
+  // moment: a quick double tap (or a tap landing as the cards move) must
+  // never pick a card of the new group — switching groups never changes
+  // the value
+  let cardsSwappedAt = 0;
+  const CARD_SWAP_GUARD_MS = 400;
   reportStepCards.addEventListener('click', e => {
     const btn = e.target.closest('.detail-choice');
-    if (btn) setReportField(btn.dataset.kind, btn.dataset.value);
+    if (!btn) return;
+    if (performance.now() - cardsSwappedAt < CARD_SWAP_GUARD_MS) return;
+    setReportField(btn.dataset.kind, btn.dataset.value);
   });
   // 「其他 ↻」: the next group of cards (counted as one user action)
   function nextCardGroup(source){
@@ -3142,6 +3151,7 @@
     if (groups.length < 2) return;
     det.cardGroup = det.cardGroup || {};
     det.cardGroup[field] = ((det.cardGroup[field] || 0) + 1) % groups.length;
+    cardsSwappedAt = performance.now();
     logEvent('options_next', { actor: 'user', target: dishNoOf(det), field, source: source || null,
       detail: { group: det.cardGroup[field] + 1, groups: groups.length } });
     renderReportStep(det);
@@ -3365,6 +3375,20 @@
       }
     }
     reportPhotoSlot.style.height = `${Math.round(h)}px`;
+    // (10/23) Group A, a dish open: if the page still doesn't fit (a short
+    // screen, the desktop phone frame, a voice message line), the photo
+    // strip gives up the missing pixels — down to its minimum — so the
+    // page needs no scrolling
+    if (!chatMode && compact && reportSelectedId){
+      // (the slot's height animates: measure against the target height h,
+      // not the height it has at this moment)
+      const slotNow = reportPhotoSlot.getBoundingClientRect().height;
+      const over = reportPanel.scrollHeight - (reportPanel.clientHeight + slotNow - h);
+      if (over > 0){
+        h = Math.max(PHOTO_COMPACT_MIN_PX, h - Math.ceil(over) - 1);
+        reportPhotoSlot.style.height = `${Math.round(h)}px`;
+      }
+    }
     reportPhotoSlot.classList.toggle('is-compact', compact);
     // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
     const btnHome = compact ? reportPhotoSlot : recognizeWrap;
@@ -3413,6 +3437,7 @@
     if (!reportVoiceMsg) return;
     reportVoiceMsg.textContent = text || '';
     reportVoiceMsg.classList.toggle('is-error', !!isError);
+    if (reportActive && !chatMode) sizeReportPhotoSlot(); // the line takes room on the page
   }
   function stopReportListening(){
     if (reportRecognition){
