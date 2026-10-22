@@ -71,6 +71,15 @@ t('closing filter keeps 「還有剩一些」', () => {
   const v = validate({ reply: '好的。', suggestions: ['還有剩一些', '還有喝飲料', '沒有了'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo, message: r.message });
   assert.deepStrictEqual(v.suggestions, ['還有剩一些']);
 });
+// (review round 2) dish names with 甜/鹹/糖 and names inside other names
+for (const [name, list, ctx] of [
+  ['甜不辣吃了一半', dishes, 1],
+  ['炒飯吃了一半', [{ no: 1, name: '炒飯', category: 'food', foodType: 'staple', fields: { size: 'M' }, fieldSource: { size: 'default' } }, { no: 2, name: '飯', category: 'food', foodType: 'staple', fields: { size: 'M' }, fieldSource: { size: 'default' } }], 1]
+]) t(`net still fires: 「${name}」`, () => {
+  const r = parseRequest({ group: 'B', dishes: list, contextDish: ctx, history: [], message: name });
+  const v = validate({ reply: '好的。' }, r.dishes, 'B', r.selected, { contextNo: r.contextNo, message: r.message });
+  assert.ok(v.updates.some(u => u.no === ctx && u.fields.size === 'XS' && u.halfFromText), JSON.stringify(v.updates));
+});
 t('the AI is told the recent dish', () => {
   const r = req({ contextDish: 1, message: '是炸的' });
   const ctx = buildMessages(r).find(m => m.role === 'system' && m.content.includes('使用者目前選取'));

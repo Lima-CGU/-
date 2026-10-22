@@ -4159,7 +4159,7 @@
         detail: { auto: 'size-from-count', newDish: !b }
       });
       if (halfSize) logEvent('record_updated', {
-        actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: { size: b ? b.size ?? null : null }, after: { size: 'XS' },
+        actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: b ? b.size ?? null : null, after: 'XS',
         detail: { auto: 'size-from-half', halfFromText: true }
       });
       const notesAdded = a.notes - (b ? b.notes : 0);

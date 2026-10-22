@@ -248,11 +248,21 @@ function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
   // Skipped when: the AI is asking back; the AI already resized / recounted
   // ANY dish or added / renamed one (the half may be about that one); the
   // message names another dish; this answer changed the dish's sugar / salt.
-  const otherNamed = halfDish && dishes.some(d => d.no !== halfDish.no && d.name && said.includes(d.name));
+  // dish names are taken out first (longest first): 甜不辣 / 鹹酥雞 must not
+  // count as sugar / salt talk, and 炒飯 must not count as naming 飯
+  let rest = said;
+  let otherNamed = false;
+  if (halfDish){
+    [...dishes].filter(d => d.name).sort((a, b) => b.name.length - a.name.length).forEach(d => {
+      if (!rest.includes(d.name)) return;
+      if (d.no !== halfDish.no) otherNamed = true;
+      rest = rest.split(d.name).join('·');
+    });
+  }
   const aiHandled = updates.some(x => x.fields.size || x.count != null) || list(p.newDishes).length || renameDishes.length;
   const ownU = halfDish && updates.find(x => x.no === halfDish.no);
   const tasteChanged = ownU && (ownU.fields.sugar || ownU.fields.salt);
-  if (halfDish && HALF_WORDS.test(said) && !NOT_HALF_WORDS.test(said) && p.isClarification !== true
+  if (halfDish && HALF_WORDS.test(rest) && !NOT_HALF_WORDS.test(rest) && p.isClarification !== true
       && !aiHandled && !otherNamed && !tasteChanged
       && !halfDish.counted && !halfDish.count && halfDish.fields.size !== 'XS'){
     let u = ownU;
