@@ -3379,13 +3379,23 @@
     // screen, the desktop phone frame, a voice message line), the photo
     // strip gives up the missing pixels — down to its minimum — so the
     // page needs no scrolling
-    if (!chatMode && compact && reportSelectedId){
-      // (the slot's height animates: measure against the target height h,
-      // not the height it has at this moment)
+    // The same cap applies to a tapped (enlarged) photo, so no option card
+    // ever ends up hidden below the buttons.
+    if (!chatMode && reportSelectedId){
+      // The page's NATURAL height (no stretching / centring, .report-measure)
+      // against the room the panel will have at the TARGET height h — the
+      // slot's height animates, so its current height is only used to
+      // convert. Always computed from the target, never from the current
+      // height, so repeated calls never creep smaller and it grows back.
+      reportScreenEl.classList.add('report-measure');
+      const natural = reportDish.offsetHeight;
+      reportScreenEl.classList.remove('report-measure');
       const slotNow = reportPhotoSlot.getBoundingClientRect().height;
-      const over = reportPanel.scrollHeight - (reportPanel.clientHeight + slotNow - h);
+      const panelAtTarget = reportPanel.clientHeight + slotNow - h;
+      const over = natural - panelAtTarget;
       if (over > 0){
-        h = Math.max(PHOTO_COMPACT_MIN_PX, h - Math.ceil(over) - 1);
+        const floor = compact ? PHOTO_COMPACT_MIN_PX : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over));
+        h = Math.max(floor, h - Math.ceil(over));
         reportPhotoSlot.style.height = `${Math.round(h)}px`;
       }
     }

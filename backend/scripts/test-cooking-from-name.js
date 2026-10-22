@@ -15,6 +15,8 @@ const CASES = [
   ['燙青菜', '水煮'], ['清燙肉片', '水煮'], ['汆燙花枝', '水煮'], ['川燙地瓜葉', '水煮'],
   // the reported dish: its cooking preset is 炒
   ['甜椒炒香腸', '炒'],
+  // a bare 燙 never beats another cooking word; 燙麵 (hot-water dough) / 滾燙 are not 水煮
+  ['燙青菜炒肉', '炒'], ['炒燙青菜', '炒'], ['燙麵蒸餃', '蒸'], ['燙麵煎餃', '煎'], ['滾燙熱湯', ''],
   // exceptions
   ['炸醬麵', ''], ['炸醬', ''], ['紅燒牛肉麵', ''], ['烤麩', ''], ['燒賣', ''],
   // an exception does not hide another real cooking word

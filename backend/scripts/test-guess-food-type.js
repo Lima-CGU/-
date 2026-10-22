@@ -11,7 +11,7 @@ const { guessFoodType } = require('../field-defaults');
 const CASES = [
   ['玉米炒蔬菜丁', 'vegetable'], ['三色蔬菜', 'vegetable'], ['玉米濃湯', 'soup'],
   ['玉米', 'staple'], ['玉米飯', 'staple'], ['烤地瓜', 'staple'], ['白飯', 'staple'],
-  ['青菜炒飯', 'staple'], ['甜椒炒香腸', 'protein'], ['燙青菜', 'vegetable'], ['蘋果', 'fruit']
+  ['青菜炒飯', 'staple'], ['地瓜葉', 'vegetable'], ['炒地瓜葉', 'vegetable'], ['川燙地瓜葉', 'vegetable'], ['甜椒炒香腸', 'protein'], ['燙青菜', 'vegetable'], ['蘋果', 'fruit']
 ];
 let failed = 0;
 for (const [name, want] of CASES){

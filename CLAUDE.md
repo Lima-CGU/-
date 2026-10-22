@@ -84,10 +84,10 @@ The app is used in a three-arm study: **Group A** (traditional — report with b
 
 ## Teacher 10/23 fix4 (branch teacher-1023-fix4)
 
-- **No scrollbar on A's pages**: `#reportStepCurrent` (「目前:○○」) always keeps an 18px line (`[hidden]` → `visibility: hidden` while stepping); `sizeReportPhotoSlot` (A, dish open) shrinks the strip by what the panel still overflows, measured against the TARGET height (the slot's height animates), min `PHOTO_COMPACT_MIN_PX`; re-run from `renderReportStep` and `setReportVoiceMsg`; the stepping panel hides its scrollbar (`scrollbar-width: none` / `::-webkit-scrollbar`). Checked every field page at 390×844, 390×700, 1280×800.
+- **No scrollbar on A's pages**: `#reportStepCurrent` (「目前:○○」) always keeps an 18px line (`[hidden]` → `visibility: hidden` while stepping); `sizeReportPhotoSlot` (A, dish open — strip AND tapped/peek photo) caps the photo so the page's NATURAL height fits: `.report-measure` on the screen turns off stretching/centring, `reportDish.offsetHeight` is read, compared with the panel height at the TARGET height (the slot animates), always computed from the target (no creeping, grows back); strip min `PHOTO_COMPACT_MIN_PX`; re-run from `renderReportStep` and `setReportVoiceMsg`; the stepping panel hides its scrollbar (`scrollbar-width: none` / `::-webkit-scrollbar`). Checked every field page at 390×844, 390×700, 1280×800.
 - **其他 ↻ never changes the value**: `nextCardGroup` only swaps cards; card taps within `CARD_SWAP_GUARD_MS` (400 ms) of a swap are ignored (`cardsSwappedAt`). The reported 甜椒炒香腸 → 沙拉 could not be reproduced (preset 炒, stays 炒 through 3× 其他 + a quick double tap); the guard covers a tap landing on the new group.
-- **燙 → 水煮**: `COOKING_KEYWORDS` 汆燙/川燙/燙 → 水煮; voice-match 水煮 words + 燙/燙的/汆燙/川燙.
-- **guessFoodType**: 玉米/地瓜/馬鈴薯 moved to a LAST staple rule (after vegetable): 玉米炒蔬菜丁 / 三色蔬菜 → vegetable, 玉米濃湯 → soup, 玉米 / 玉米飯 / 烤地瓜 → staple; vegetable words + 甜椒/青椒/彩椒. Tests: `test-guess-food-type.js`, `test-cooking-from-name.js` (燙 cases, 甜椒炒香腸 → 炒), `test-voice-count.js` (燙的 → 水煮).
+- **燙 → 水煮**: `COOKING_KEYWORDS` 汆燙/川燙 → 水煮 (early), a bare 燙 → 水煮 LAST (燙青菜炒肉 → 炒); `COOKING_EXCEPTIONS` + 燙麵/燙捲/滾燙 (燙麵蒸餃 → 蒸); voice-match 水煮 words + 燙/燙的/汆燙/川燙.
+- **guessFoodType**: 玉米/地瓜/馬鈴薯 moved to a LAST staple rule (after vegetable): 玉米炒蔬菜丁 / 三色蔬菜 → vegetable, 玉米濃湯 → soup, 玉米 / 玉米飯 / 烤地瓜 → staple; vegetable words + 葉 (地瓜葉 → vegetable) + 甜椒/青椒/彩椒. Tests: `test-guess-food-type.js`, `test-cooking-from-name.js` (燙 cases, 甜椒炒香腸 → 炒), `test-voice-count.js` (燙的 → 水煮).
 - **Mixed-dish pick**: see "Nutrition data" (main ingredient, approx; 「生」 sample state is fine).
 
 ## Food-type presets + applicable fields (teacher 10/21, 10/22) — all groups
