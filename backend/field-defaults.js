@@ -121,15 +121,20 @@
      生食 only as a word of its own (生魚片, 生菜 …), not inside 花生 / 生煎. */
   const COOKING_KEYWORDS = [
     ['燒烤', '燒烤'], ['烘焙', '烘焙'], ['沙拉', '沙拉'], ['水煮', '水煮'],
+    // 汆燙 / 川燙 = blanched in boiling water -> 水煮 (teacher 10/23) 【待老師確認】
+    ['汆燙', '水煮'], ['川燙', '水煮'],
     ['炒', '炒'], ['煎', '煎'], ['炸', '炸'], ['烤', '烤'], ['蒸', '蒸'],
-    ['滷', '滷'], ['燉', '燉'], ['煮', '水煮']
+    ['滷', '滷'], ['燉', '燉'], ['煮', '水煮'],
+    // a bare 燙 last, so 燙青菜炒肉 is still 炒 (燙麵 / 滾燙 are exceptions)
+    ['燙', '水煮']
   ];
   const RAW_WORDS = /生魚片|生菜|生食|生鮮|生吃|涼拌/;
   // words whose cooking character is NOT the cooking method: 炸醬(麵) is a
   // sauce, not fried; 紅燒 is braised, not 燒烤; 烤麩 is a braised gluten dish;
   // 燒賣 is steamed. They are taken out of the name before the keyword search.
   // 【待老師確認】
-  const COOKING_EXCEPTIONS = ['炸醬', '紅燒', '烤麩', '燒賣'];
+  // 燙麵 / 燙捲 = hot-water dough (燙麵蒸餃 is 蒸), 滾燙 = just hot (10/23)
+  const COOKING_EXCEPTIONS = ['炸醬', '紅燒', '烤麩', '燒賣', '燙麵', '燙捲', '滾燙'];
   const BEVERAGE_KEYWORDS = [['現榨', '現榨'], ['現煮', '現煮'], ['沖泡', '沖泡'], ['冰鎮', '冰鎮'], ['熱', '熱飲'], ['調酒', '調製']];
 
   function cookingFromName(name, category){
@@ -161,13 +166,19 @@
     ['soup', /湯|羹/],
     ['fruit', /蘋果|香蕉|柿|橘|柑|橙|柳丁|葡萄|芭樂|奇異果|鳳梨|芒果|西瓜|哈密瓜|木瓜|草莓|藍莓|櫻桃|水梨|梨子|桃子|水蜜桃|荔枝|龍眼|火龍果|蓮霧|棗|水果/],
     ['snack', /蛋糕|餅乾|布丁|甜甜圈|冰淇淋|巧克力|甜點|點心|鬆餅|蛋塔|麻糬|果凍|洋芋片|雪花冰/],
-    ['staple', /飯|麵|粥|吐司|麵包|饅頭|包子|水餃|煎餃|餃|粄條|米粉|冬粉|燒餅|蛋餅|三明治|漢堡|貝果|壽司|地瓜|馬鈴薯|玉米/],
+    ['staple', /飯|麵|粥|吐司|麵包|饅頭|包子|水餃|煎餃|餃|粄條|米粉|冬粉|燒餅|蛋餅|三明治|漢堡|貝果|壽司/],
     ['protein', /雞|鴨|鵝|豬|牛|羊|魚|蝦|蟹|貝|蚵|花枝|魷|肉|排骨|蛋|豆腐|豆干|豆皮|培根|火腿|香腸/],
-    ['vegetable', /菜|青江|空心|高麗|花椰|筍|菇|茄子|苦瓜|絲瓜|南瓜|豆芽|四季豆|秋葵|蘿蔔|番茄|小黃瓜|洋蔥|沙拉/]
+    ['vegetable', /菜|葉|青江|空心|高麗|花椰|筍|菇|茄子|苦瓜|絲瓜|南瓜|豆芽|四季豆|秋葵|蘿蔔|番茄|小黃瓜|洋蔥|沙拉|甜椒|青椒|彩椒/],
+    // starchy vegetables count as a staple only when nothing above matched:
+    // 「玉米」「烤地瓜」 → staple, 「玉米炒蔬菜丁」 → vegetable, 「玉米濃湯」 → soup,
+    // 「玉米飯」 → staple (飯) (10/23) 【待老師確認】
+    ['staple', /地瓜|馬鈴薯|玉米/]
   ];
   function guessFoodType(name, category){
     if (category === 'beverage') return 'beverage';
-    const n = String(name || '');
+    // tea leaves (茶葉 / 桑葉茶) are not a vegetable — no regex lookbehind
+    // (older iPhone Safari can't parse it)
+    const n = String(name || '').replace(/茶葉|葉茶/g, '茶');
     const hit = TYPE_WORDS.find(([, re]) => re.test(n));
     return hit ? hit[0] : 'other';
   }
