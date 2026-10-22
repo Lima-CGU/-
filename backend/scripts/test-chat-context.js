@@ -54,7 +54,7 @@ t('the prompt: a size only for a dish the user selected or named', () => {
 });
 t('closing filter keeps 「還有剩一些」', () => {
   const r = req({ contextDish: 1, message: '好' });
-  const v = validate({ reply: '好的。', suggestions: ['還有剩一些', '還有喝飲料', '沒有了'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo, message: r.message });
+  const v = validate({ reply: '好的。', suggestions: ['還有剩一些', '還有喝飲料', '沒有了'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo });
   assert.deepStrictEqual(v.suggestions, ['還有剩一些']);
 });
 t('the AI is told the recent dish', () => {
@@ -64,18 +64,18 @@ t('the AI is told the recent dish', () => {
 });
 t('C buttons: closing buttons dropped while the recent dish has open fields', () => {
   const r = req({ contextDish: 1, message: '吃完了' });
-  const v = validate({ reply: '好的。', suggestions: ['沒有了', '還有喝飲料', '是滷的', '比較鹹', '下一道'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo, message: r.message });
+  const v = validate({ reply: '好的。', suggestions: ['沒有了', '還有喝飲料', '是滷的', '比較鹹', '下一道'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo });
   assert.deepStrictEqual(v.suggestions, ['是滷的', '比較鹹']);
 });
 t('C buttons: closing buttons allowed once every field was discussed', () => {
   const done = dishes.map(d => d.no === 1 ? { ...d, fieldSource: { size: 'ai', cookingMethod: 'ai', sugar: 'ai', salt: 'ai' } } : d);
   const r = parseRequest({ group: 'C', dishes: done, contextDish: 1, history: [], message: '好' });
-  const v = validate({ reply: '好的。', suggestions: ['下一道', '沒有了'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo, message: r.message });
+  const v = validate({ reply: '好的。', suggestions: ['下一道', '沒有了'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo });
   assert.deepStrictEqual(v.suggestions, ['下一道', '沒有了']);
 });
 t('Group B never gets suggestions', () => {
   const r = req({ contextDish: 1, message: '是炸的' });
-  const v = validate({ reply: '好的。', suggestions: ['是滷的'] }, r.dishes, 'B', r.selected, { contextNo: r.contextNo, message: r.message });
+  const v = validate({ reply: '好的。', suggestions: ['是滷的'] }, r.dishes, 'B', r.selected, { contextNo: r.contextNo });
   assert.ok(!('suggestions' in v));
 });
 
