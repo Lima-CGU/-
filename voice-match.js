@@ -1,6 +1,6 @@
 /**
  * Spoken words -> field values, with a FIXED keyword / homophone table (no AI).
- * Group A uses it to pick options by voice; Groups B/C can share it later.
+ * Group A uses it to pick options by voice; Groups B/C use fixHomophones.
  *
  *   PictaVoiceMatch.match(text, { category })
  *     -> { matches: [{ field, value, heard }], ambiguous: [heard…] }
@@ -23,12 +23,7 @@
 
   // field -> [ [spoken words…], value ]   (homophones included)
   const TABLE = {
-    containerType: [
-      [['便當盒', '便當', '飯盒', '餐盒'], 'lunchbox'],
-      [['盤子', '盤', '碟子', '碟', '盤的'], 'plate'],
-      [['碗', '一碗', '晚'], 'bowl'],
-      [['杯子', '杯', '一杯', '悲'], 'cup']
-    ],
+    // (no containerType: the container field was removed 10/22)
     size: [
       [['特小', '一點點', '幾口', '很少', '半份', 'XS', 'xs'], 'XS'],
       [['小份', '少一點', '少量', '小'], 'S'],
@@ -77,7 +72,6 @@
 
   // naming the field restricts the words to that field
   const FIELD_WORDS = {
-    containerType: ['容器', '裝在', '裝'],
     size: ['份量', '分量', '大小', '尺寸'],
     cookingMethod: ['烹調', '煮法', '做法', '作法', '料理方式', '方式'],
     sugar: ['糖', '甜度', '甜'],
@@ -103,9 +97,11 @@
   // Page commands (Group A, one field per page), checked before options
   const COMMANDS = [
     [['換一組', '下一組', '其他', '別的', '換別的', '再換'], 'more'],
-    [['上一步', '上一頁', '回上一'], 'back'],
-    [['下一步', '下一頁', '好了', '可以了', '確定', '完成'], 'next']
+    [['上一步', '上一頁', '回上一', '上一個', '前一個'], 'back'],
+    [['下一步', '下一頁', '下一個', '下一道', '好了', '可以了', '確定', '完成'], 'next']
   ];
+  // words with a 一 that is not a count (「再來一個」 is simply ignored)
+  const NOT_A_COUNT = /(下一|上一|前一|再來一|回上一)(個|道|步|頁|組|題)?|換一組|一點|一下/g;
   /** 'more' | 'back' | 'next' | null — 下一組 is checked before 下一步. */
   function command(text){
     const t = normalize(text);
@@ -113,17 +109,31 @@
     return null;
   }
 
-  /** A spoken count 1–99: 「3」「三個」「十二隻」「兩個」, else null. */
+  /** A spoken count 1–99, or 'all' (「全部」): only a clear number —
+   *  digits (「4」「4 個」), a Chinese number with a unit (「三塊」「十二隻」「兩個」),
+   *  or a Chinese number said on its own (「三」) except a lone 「一」. A 一 inside
+   *  a word (「下一步」「換一組」「一點」) is never a count. Else null.
+   *  (The caller checks command() first: 「下一步」 is a command, not 1.) */
   const DIGITS = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  function count(text){
-    const t = normalize(text);
-    const d = /(\d{1,2})/.exec(t);
-    if (d) return Number(d[1]) || null;
-    const m = /([一二兩三四五六七八九]?)(十?)([一二三四五六七八九]?)/.exec(t.replace(/[^零一二兩三四五六七八九十]/g, ' ').trim());
-    if (!m || !m[0]) return null;
+  const COUNT_UNITS = '個隻顆片根塊粒條份碗盤杯支串尾';
+  const CN_NUM = '([一二兩三四五六七八九]?十[一二三四五六七八九]?|[一二兩三四五六七八九])';
+  function cnNumber(s){
+    const m = /^([一二兩三四五六七八九]?)(十?)([一二三四五六七八九]?)$/.exec(s);
+    if (!m) return null;
     const [, a, ten, b] = m;
     const n = ten ? (a ? DIGITS[a] : 1) * 10 + (b ? DIGITS[b] : 0) : (a ? DIGITS[a] : 0);
     return n || null;
+  }
+  function count(text){
+    const t = normalize(text).replace(NOT_A_COUNT, '·');
+    if (/全部|全吃|都吃完|吃光/.test(t)) return 'all';
+    const d = /(\d{1,2})/.exec(t);
+    if (d) return Number(d[1]) || null;
+    const withUnit = new RegExp(CN_NUM + '[' + COUNT_UNITS + ']').exec(t);
+    if (withUnit) return cnNumber(withUnit[1]);
+    const alone = t.replace(/^(吃了|我吃了|有|共|總共)/, '').replace(/[了啦喔吧]$/, '');
+    if (new RegExp('^' + CN_NUM + '$').test(alone) && alone !== '一') return cnNumber(alone);
+    return null;
   }
 
   // opts.fields: only these fields (e.g. the one on the current page)
@@ -199,5 +209,5 @@
     return { text: out, changed: out !== raw };
   }
 
-  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS };
+  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
 });

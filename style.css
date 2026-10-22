@@ -1066,6 +1066,47 @@ body{
   border-color: #fff;
   box-shadow: 0 0 0 3px var(--teal), 0 2px 6px rgba(0,0,0,0.3);
 }
+/* Group A (10/22): white hollow = not confirmed yet; solid green + soft
+   halo = selected; solid green + small white ✓ (top-right) = confirmed by
+   the user (完成這道菜). Selected and confirmed = halo + ✓. B/C keep the
+   rules above. */
+.screen-report:not(.report-chat) .det-marker.marker-empty:not(.marker-active){
+  background: rgba(28, 22, 35, 0.35);
+  border: 2px solid #fff;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.screen-report:not(.report-chat) .det-marker.marker-active{
+  background: var(--teal);
+  border: 2px solid #fff;
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(18, 169, 129, 0.35), 0 0 0 9px rgba(18, 169, 129, 0.15), 0 2px 6px rgba(0,0,0,0.3);
+}
+.screen-report:not(.report-chat) .det-marker.marker-done{
+  background: var(--teal);
+  border: 2px solid #fff;
+  color: #fff;
+}
+.screen-report:not(.report-chat) .det-marker.marker-done:not(.marker-active){
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.screen-report:not(.report-chat) .det-marker.marker-done::after{
+  content: '✓';
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
 
 /* rename sheet (Page 4): type-your-own field + loading line */
 .candidate-custom-input{
@@ -1414,6 +1455,7 @@ body{
 }
 .detail-name-input:focus{ outline: none; border-color: var(--purple); }
 
+.detail-section[hidden], .detail-option-group[hidden]{ display: none !important; }
 .detail-section{
   border: 1.5px solid var(--line);
   background: #f9f6ff;
@@ -2487,6 +2529,18 @@ body.candidate-sheet-open .toast{
 .report-other-btn[hidden], .report-reveal-btn[hidden]{ display: none; }
 .report-reveal-btn{ padding: 6px 10px; border: none; background: none; color: var(--ink-soft); font-family: var(--font-body); font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .report-step-nav{ display: flex; gap: 10px; margin-top: 4px; }
+/* Group A (10/22): no wasted space. Picking: the hint sits right under the
+   photo. A dish open: the page fills the panel, few cards are centred and
+   上一步 / 下一步 stay at the very bottom (sticky if the page must scroll). */
+.screen-report:not(.report-chat):not(.report-stepping) .report-panel{ margin-top: 6px; }
+.screen-report:not(.report-chat):not(.report-stepping) .report-empty-hint{ margin: 4px 0 0; }
+.screen-report.report-stepping .report-panel{ display: flex; flex-direction: column; margin-top: 10px; }
+.screen-report.report-stepping .report-dish:not([hidden]){ flex: 1 0 auto; display: flex; flex-direction: column; }
+.screen-report.report-stepping .report-step{ flex: 1 0 auto; }
+.screen-report.report-stepping .report-cards,
+.screen-report.report-stepping .count-row{ margin-block: auto; }
+.screen-report.report-stepping .report-step-tools:not(:has(> :not([hidden]))){ display: none; }
+.screen-report.report-stepping .report-step-nav{ position: sticky; bottom: 0; margin-top: 0; padding: 8px 0 2px; background: var(--surface, #fff); z-index: 2; }
 .report-step-nav .btn{ flex: 1; padding: 12px 10px; font-size: 15px; }
 .screen-report .count-row[hidden]{ display: none; }
 /* while a dish is open, its page has the room: the meal footer waits */

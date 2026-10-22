@@ -13,6 +13,7 @@
 'use strict';
 
 const cfg = require('./nutrition-config');
+const { COOKING_EXCEPTIONS } = require('./field-defaults');
 
 const round = (n, d = 0) => { const m = 10 ** d; return Math.round(n * m) / m; };
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -35,7 +36,7 @@ const unitLabel = u => String(u || '').replace(/[(（].*$/, '').trim();
 
 /**
  * @param item   a nutrition-db search result (the one the AI picked)
- * @param input  { containerType, size, salt }
+ * @param input  { foodType, size, salt, count?, countUnit?, cookingMethod? }
  * @returns {{status:'ok'|'anomaly'|'unsupported', ...}}
  */
 function compute(item, input){
@@ -48,15 +49,15 @@ function compute(item, input){
   const itemUnit = unitLabel(item.unit);
 
   if (isContinuous(item)){
-    let portion = cfg.PORTION_TABLE[input.containerType];
-    // no container field for this food type (fruit): grams of one piece × count
+    // food type × size (the container is no longer used); fruit: grams of one piece × count
+    const type = input.foodType in cfg.FOOD_TYPE_PORTIONS || input.foodType === 'fruit' ? input.foodType : 'other';
+    let portion = cfg.FOOD_TYPE_PORTIONS[type];
     let pieces = null;
-    if (!portion && input.noContainer){
+    if (type === 'fruit'){
       pieces = Number.isInteger(input.count) ? input.count : 1;
-      const g = cfg.NO_CONTAINER_PIECE_GRAMS;
+      const g = cfg.FRUIT_PIECE_GRAMS;
       portion = { unit: 'g', XS: g.XS * pieces, S: g.S * pieces, M: g.M * pieces, L: g.L * pieces, XL: g.XL * pieces };
     }
-    if (!portion) return { status: 'needs-portion' };   // grams/ml item, container unknown
     const served = portion[input.size];
     const base = item.weightG;
     if (!isNum(served) || !isNum(base) || base <= 0) return { status: 'unsupported', reason: 'no-portion' };
@@ -70,8 +71,8 @@ function compute(item, input){
     formula = `每 ${base}${baseU} ${item.kcal} kcal × ${served}${amountUnit}`;
     how = `以「${item.name}」每 ${base} ${baseUnit}為基準,` +
       (pieces != null
-        ? `${input.size} 每個約 ${cfg.NO_CONTAINER_PIECE_GRAMS[input.size]} 公克 × ${pieces} 個 = ${served} 公克`
-        : `${cfg.CONTAINER_LABELS[input.containerType]} ${input.size} 約 ${served} ${amountUnit === 'ml' ? '毫升' : '公克'}`) +
+        ? `${input.size} 每個約 ${cfg.FRUIT_PIECE_GRAMS[input.size]} 公克 × ${pieces} 個 = ${served} 公克`
+        : `${cfg.FOOD_TYPE_LABELS[type]} ${input.size} 約 ${served} ${amountUnit === 'ml' ? '毫升' : '公克'}`) +
       `(÷ ${base} × ${served})`;
     if (pieces != null) countUsed = pieces;
   } else {
@@ -107,7 +108,7 @@ function compute(item, input){
   if (salt > 0) how += `;鹽 ${String(input.salt).replace(/\s+/g, '')} → 鈉 +${round(salt * cfg.SODIUM_MG_PER_TEASPOON)} mg`;
 
   // cooking oil: by method × size × count, unless the item already includes it
-  const oil = oilFor(item, input);
+  const oil = oilFor(item, input, countUsed);
   const foodKcal = round(kcal);
   const oilKcal = round(oil * cfg.OIL_PER_TEASPOON.kcal);
   const fatG = isNum(item.fatG) || oil ? round((isNum(item.fatG) ? item.fatG * factor : 0) + oil * cfg.OIL_PER_TEASPOON.fatG, 1) : null;
@@ -136,15 +137,18 @@ function compute(item, input){
   };
 }
 
-/** Teaspoons of cooking oil for this dish (0 when none applies). */
-function oilFor(item, input){
+/** Teaspoons of cooking oil for this dish (0 when none applies).
+ *  × the count only when the calculation used it (countUsed), else × 1. */
+function oilFor(item, input, countUsed){
   const per = cfg.OIL_TEASPOONS[String(input.cookingMethod || '').trim()];
   if (!per) return 0;
   // the matched item's name already says how it was cooked: oil included
-  if (cfg.COOKED_NAME_WORDS.some(w => String(item.name || '').includes(w))) return 0;
+  // (炸醬 / 紅燒 … are not cooking methods — field-defaults.js COOKING_EXCEPTIONS)
+  const itemName = COOKING_EXCEPTIONS.reduce((n, w) => n.split(w).join('·'), String(item.name || ''));
+  if (cfg.COOKED_NAME_WORDS.some(w => itemName.includes(w))) return 0;
   const m = sizeMultiplier(item.category, input.size);
   if (!isNum(m)) return 0;
-  const pieces = Number.isInteger(input.count) && input.count > 0 ? input.count : 1;
+  const pieces = Number.isInteger(countUsed) && countUsed > 0 ? countUsed : 1;
   return round(per * m * pieces, 2);
 }
 

@@ -240,7 +240,7 @@
     return 1;
   }
   // (step_next / step_back / photo_expanded / photo_collapsed are logged but not counted — 待老師確認)
-  const USER_ACTION_EVENTS = ['options_next', 'item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
+  const USER_ACTION_EVENTS = ['dish_reviewed', 'options_next', 'item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted', 'final_confirmed'];
   // What goes onto the record: events, the new times and userActionCount.
   function taskSummary(){
     const task = currentTask;
@@ -502,12 +502,9 @@
 
   function formatDishDetail(detail){
     if (!detail) return '';
-    const containerMap = FIELD_DEFAULTS.CONTAINER_LABELS;
     const parts = [];
 
-    if (detail.containerType) {
-      parts.push(containerMap[detail.containerType] || detail.containerType);
-    }
+    // (no container: the field was removed 10/22; old records keep the value)
     if (detail.size) {
       parts.push(detail.size);
     }
@@ -584,9 +581,7 @@
   const DIARY_ATTR_FIELDS = [
     { icon: DIARY_ICON_COOKING, get: d => d.cookingMethod || '' },
     { icon: DIARY_ICON_PORTION, get: d => {
-      const containerMap = FIELD_DEFAULTS.CONTAINER_LABELS;
       const parts = [];
-      if (d.containerType) parts.push(containerMap[d.containerType] || d.containerType);
       if (d.size) parts.push(d.size);
       return parts.join('・');
     } },
@@ -2269,13 +2264,14 @@
   // and Page 4 marking) — then shows it as a Diary card.
   // opts (Group B chat only): extraDets = dishes added in the chat that are
   // not on the photo (no box); recordExtra = extra record fields (the chat).
-  // all five fields, null when empty / not applicable (fieldSource 'na')
+  // all five fields, null when empty / not applicable (fieldSource 'na');
+  // containerType is always null since 10/22 (the field was removed)
   function savedDetail(d){
     const x = d.detail || {};
-    return Object.fromEntries(REPORT_FIELDS.map(k => [k, x[k] || null]));
+    return Object.fromEntries(REPORT_FIELDS.map(k => [k, k === 'containerType' ? null : x[k] || null]));
   }
   function savedFieldSource(d){
-    const src = { ...(d.fieldSource || {}) };
+    const src = { ...(d.fieldSource || {}), containerType: 'na' };
     // a count that applies but was never given stays empty (not 'na')
     if (!src.count){
       if (Number.isInteger(d.count)) src.count = 'default';
@@ -2326,6 +2322,8 @@
         tapPoint: d.tapPoint ? { ...d.tapPoint } : null,
         foodType: d.foodType || 'other',
         fieldSource: savedFieldSource(d),
+        // Group A: the user walked through this dish's pages to 完成這道菜
+        ...(chatMode ? {} : { userReviewed: !!d.userReviewed }),
         // countable dishes: final count (AI's is in aiOriginal.count) + edits
         ...(d.count || d.countable ? {
           count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true,
@@ -2638,6 +2636,9 @@
     detailDraft = { ...(det.detail || {}) };
     renderCookingMethodOptions(det.category === 'beverage' ? 'beverage' : 'food');
     syncDetailSelectionState();
+    // only the fields that apply to this dish's food type (same rule as Group
+    // A's pages; a saved dish without foodType: guessed from its name)
+    syncDetailSections(det, null);
 
     // Only a Diary dish (identified by having a refreshRow hook) gets the
     // merged name field — the recognize screen's own ⚙ button still edits
@@ -2656,6 +2657,26 @@
     detailAdjustModal.hidden = false;
   }
 
+  // Shows only the sections that apply. typedName: the name in the sheet's
+  // name box — when it differs from the dish's, the food type is guessed
+  // from it (what retypeAfterRename will do on 確認).
+  function syncDetailSections(det, typedName){
+    if (!det) return;
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    const current = stripConfidenceText(det.name || '');
+    const renamed = typedName && typedName !== current;
+    const foodType = renamed ? FIELD_DEFAULTS.guessFoodType(typedName, category)
+      : det.foodType || FIELD_DEFAULTS.guessFoodType(current, category);
+    const shown = FIELD_DEFAULTS.applicableFields(foodType, category).concat(renamed ? [] : det.extraFields || []);
+    [['cookingMethod', detailCookingList], ['sugar', detailSugarList], ['salt', detailSaltList]].forEach(([k, list]) => {
+      const section = list.closest('.detail-section');
+      if (section) section.hidden = !shown.includes(k);
+    });
+  }
+  detailNameInput?.addEventListener('input', () => {
+    if (detailAdjustTarget && !detailNameField.hidden) syncDetailSections(detailAdjustTarget, detailNameInput.value.trim());
+  });
+
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     const prevDetail = detailAdjustTarget.detail || {};
@@ -2669,7 +2690,11 @@
     }
     if (!detailNameField.hidden){
       const newName = detailNameInput.value.trim();
+      const renamed = !!newName && newName !== stripConfidenceText(detailAdjustTarget.name || '');
       if (newName) detailAdjustTarget.name = newName;
+      // same rule as Group A Page 4: a new name may be another food type —
+      // its fields (and a count the user didn't set) follow
+      if (renamed) retypeAfterRename(detailAdjustTarget);
     }
     if (detailAdjustTarget.labelEl) {
       renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
@@ -2730,22 +2755,25 @@
   const photoPeekHint     = document.getElementById('photoPeekHint');
   // the five fields (a dish is "filled" when every one that APPLIES has a value)
   const REPORT_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+  // the fields a dish can still have (containerType was removed 10/22 — it
+  // stays in REPORT_FIELDS only so a record keeps all five keys)
+  const ACTIVE_FIELDS = ['size', 'cookingMethod', 'sugar', 'salt'];
   // page order; fields that don't apply are skipped
-  const STEP_ORDER = ['size', 'count', 'containerType', 'cookingMethod', 'sugar', 'salt'];
+  const STEP_ORDER = ['size', 'count', 'cookingMethod', 'sugar', 'salt'];
   const STEP_LABEL = { size: '份量', count: '數量', containerType: '容器', cookingMethod: '烹調方式', sugar: '糖', salt: '鹽' };
 
   /* Which fields a dish has: its food type's (field-defaults.js APPLICABLE),
      plus any the user called back with 「還要補充其他欄位」 (det.extraFields). */
   function dishFields(det){
     const own = FIELD_DEFAULTS.applicableFields(det.foodType, det.category);
-    return REPORT_FIELDS.filter(f => own.includes(f) || (det.extraFields || []).includes(f));
+    return ACTIVE_FIELDS.filter(f => own.includes(f) || (det.extraFields || []).includes(f));
   }
   function hasCountStep(det){
     return FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) || !!det.count || !!det.countable;
   }
   function hiddenFields(det){
     const shown = dishFields(det);
-    return REPORT_FIELDS.filter(f => !shown.includes(f));
+    return ACTIVE_FIELDS.filter(f => !shown.includes(f));
   }
   function reportSteps(det){
     const fields = dishFields(det);
@@ -2764,6 +2792,14 @@
     // also needs its 數量 — never silently 1
     // only the fields that apply; a dish with a 數量 step needs its count
     return dishFields(det).every(k => !!d[k]) && (!hasCountStep(det) || Number.isInteger(det.count));
+  }
+  /* Group A (10/22): a dish counts as done only once the USER walked through
+     its pages and tapped 「完成這道菜」 (det.userReviewed) — presets alone fill
+     every field but are not a confirmation. Markers, 已填 n / N, 下一道 and
+     完成 use this; calories still start from the presets (isDishComplete).
+     A later edit keeps userReviewed true. */
+  function isDishReviewed(det){
+    return !!det.userReviewed && isDishComplete(det);
   }
 
   /* Preset values by food type (backend/field-defaults.js, 【待老師確認】).
@@ -2824,7 +2860,8 @@
       const m = d.markerEl;
       if (!m) return;
       // Group B: "done" = described in the chat
-      const done = reportActive && (chatMode ? !!d.chatDescribed : isDishComplete(d));
+      // Group A: "done" = the user confirmed it (完成這道菜)
+      const done = reportActive && (chatMode ? !!d.chatDescribed : isDishReviewed(d));
       m.classList.toggle('marker-empty', reportActive && !done);
       m.classList.toggle('marker-done', done);
       m.classList.toggle('marker-active', reportActive && d.id === reportSelectedId);
@@ -2832,7 +2869,7 @@
         m.setAttribute('role', 'button');
         m.setAttribute('tabindex', '0');
         m.removeAttribute('aria-hidden');
-        m.setAttribute('aria-label', `第 ${i + 1} 道菜${done ? '(已填完)' : ''}`);
+        m.setAttribute('aria-label', `第 ${i + 1} 道菜${done ? (chatMode ? '(已填完)' : '(已確認)') : ''}`);
       } else {
         m.removeAttribute('role');
         m.removeAttribute('tabindex');
@@ -2854,7 +2891,7 @@
   // dish is filled. Called on every select / field / rename / add / delete.
   function updateReportDone(){
     const all = currentDetections;
-    const filled = all.filter(d => !d.loading && isDishComplete(d)).length;
+    const filled = all.filter(d => !d.loading && isDishReviewed(d)).length;
     const allDone = all.length > 0 && filled === all.length;
     const sel = selectedReportDet();
     reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
@@ -2864,6 +2901,8 @@
     reportDoneBtn.hidden = !allDone;
     reportDoneBtn.disabled = isSavingMeal || !allDone;
     renderReportTotal();
+    // the footer's height may have changed: the photo fills what's left
+    if (reportActive && !chatMode) sizeReportPhotoSlot();
   }
 
   /* ---------- 數量 (countable dishes) ---------- */
@@ -2957,7 +2996,8 @@
       if (reportActive && !chatMode){
         refreshMarkerStates();
         updateReportDone();
-        if (det.id === reportSelectedId) renderReportCount(det);
+        // the 數量 page just appeared: redraw the current page (its number changes)
+        if (det.id === reportSelectedId) renderReportStep(det);
       }
     }
     if (det && det.labelEl) renderDetLabel(det.labelEl, det);
@@ -2982,7 +3022,7 @@
     const start = all.indexOf(from); // -1: nothing edited yet -> from dish 1
     for (let k = 1; k <= all.length; k++){
       const d = all[(start + k + all.length) % all.length];
-      if (!d.loading && !isDishComplete(d)) return d;
+      if (!d.loading && !isDishReviewed(d)) return d;
     }
     return null;
   }
@@ -3019,11 +3059,17 @@
   }
   /* One field per page. Cards come in groups of 3–4 (field-defaults.js
      cardGroups: the group holding the preset first); 「其他 ↻」 shows the next
-     group and wraps around. det.step = page index, det.cardGroup[field]. */
+     group and wraps around. det.step = the current page's FIELD NAME (not an
+     index), so a 數量 page appearing / disappearing never shifts the user
+     onto another question; det.cardGroup[field]. */
   function currentStepField(det){
     const steps = reportSteps(det);
-    det.step = Math.max(0, Math.min(steps.length - 1, det.step || 0));
-    return steps[det.step];
+    if (!steps.includes(det.step)){
+      // the page left the list (e.g. a rename): the next one in STEP_ORDER that's still there
+      const after = STEP_ORDER.slice(STEP_ORDER.indexOf(det.step) + 1).find(f => steps.includes(f));
+      det.step = STEP_ORDER.includes(det.step) ? (after || steps[steps.length - 1]) : steps[0];
+    }
+    return det.step;
   }
   function stepGroups(det, field){
     const category = det.category === 'beverage' ? 'beverage' : 'food';
@@ -3037,7 +3083,8 @@
     const steps = reportSteps(det);
     const field = currentStepField(det);
     const category = det.category === 'beverage' ? 'beverage' : 'food';
-    reportStepTitle.textContent = `第 ${det.step + 1} / ${steps.length} 題:${STEP_LABEL[field]}`;
+    const idx = steps.indexOf(field);
+    reportStepTitle.textContent = `第 ${idx + 1} / ${steps.length} 題:${STEP_LABEL[field]}`;
     const isCount = field === 'count';
     if (reportCountRow) reportCountRow.hidden = !isCount;
     if (isCount) renderCountStepper('reportCount', det.count, det.countUnit);
@@ -3056,9 +3103,9 @@
       reportStepCurrent.hidden = true;
     }
     reportOtherBtn.hidden = isCount || groups.length < 2;
-    const last = det.step === steps.length - 1;
+    const last = idx === steps.length - 1;
     reportRevealBtn.hidden = !last || !hiddenFields(det).length;
-    reportStepBack.disabled = det.step === 0;
+    reportStepBack.disabled = idx === 0;
     reportStepNext.textContent = last ? '完成這道菜' : '下一步';
     syncReportChoices(det);
   }
@@ -3095,16 +3142,29 @@
     if (!det || det.loading) return;
     const steps = reportSteps(det);
     const field = currentStepField(det);
-    const to = det.step + delta;
+    const to = steps.indexOf(field) + delta;
     if (to < 0) return;
     stopReportListening();
     if (to >= steps.length){
+      // 「完成這道菜」: every page must have an answer (a 數量 page that appeared
+      // behind the user, an empty cooking method …) — else go there first
+      const missing = steps.find(f => (f === 'count' ? !Number.isInteger(det.count) : !(det.detail || {})[f]));
+      if (missing){
+        det.step = missing;
+        renderReportStep(det);
+        setReportVoiceMsg(`還有「${STEP_LABEL[missing]}」沒有選`, true);
+        return;
+      }
       logEvent('step_next', { actor: 'user', target: dishNoOf(det), field, source: source || null, detail: { field, to: 'done' } });
+      const first = !det.userReviewed;
+      det.userReviewed = true;
+      // a confirmation, not a change: no attemptId (README: A's attempts are actual edits only)
+      logEvent('dish_reviewed', { actor: 'user', target: dishNoOf(det), attemptId: null, source: source || null, detail: { first } });
       selectReportDish(null);
       return;
     }
     logEvent(delta > 0 ? 'step_next' : 'step_back', { actor: 'user', target: dishNoOf(det), field, source: source || null, detail: { field, to: steps[to] } });
-    det.step = to;
+    det.step = steps[to];
     setReportVoiceMsg('');
     renderReportStep(det);
     reportPanel.scrollTop = 0;
@@ -3119,7 +3179,7 @@
     if (!fields.length) return;
     det.extraFields = (det.extraFields || []).concat(fields);
     logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), detail: { what: 'hidden-fields', fields } });
-    det.step = reportSteps(det).indexOf(fields.find(f => reportSteps(det).includes(f)));
+    det.step = fields.find(f => reportSteps(det).includes(f)) || det.step;
     renderReportStep(det);
     refreshMarkerStates();
     updateReportDone();
@@ -3193,7 +3253,7 @@
       stopReportListening();
       setReportVoiceMsg('');
       const det = currentDetections.find(d => d.id === id);
-      if (det) det.step = 0;
+      if (det) det.step = null; // -> the first page
       photoPeek = false;
     }
     reportSelectedId = id;
@@ -3258,6 +3318,17 @@
   // for all three groups. Tapping it shows it full size until tapped again.
   const PHOTO_COMPACT_SHARE = 1 / 3;
   const PHOTO_COMPACT_MIN_PX = 96;
+  // Group A (10/22, no wasted space): picking a dish = the photo fills the
+  // room between the heading and the footer (the hint right under it);
+  // a dish open = a strip of A_STRIP_SHARE of that room; tapped = A_PEEK_SHARE.
+  const A_STRIP_SHARE = 0.38;
+  const A_PEEK_SHARE = 0.6;
+  function reportPhotoRoom(){
+    const body = reportPhotoSlot.parentElement;
+    const head = body.querySelector('.report-heading');
+    const headH = head ? head.offsetHeight + (parseFloat(getComputedStyle(head).marginBottom) || 0) : 0;
+    return body.clientHeight - headH;
+  }
   let photoPeek = false;
   const photoCompactMode = () => reportActive && (chatMode || !!reportSelectedId);
   function sizeReportPhotoSlot(){
@@ -3269,7 +3340,18 @@
     if (!nw || !nh || !width || !screenH) return;
     const normal = Math.min(width * nh / nw, screenH * REPORT_PHOTO_MAX_SCREEN_SHARE);
     const compact = photoCompactMode() && !photoPeek;
-    const h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
+    let h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
+    if (!chatMode){
+      const fit = width * nh / nw;
+      const room = reportPhotoRoom();
+      if (room > 0){
+        // the hint line under the photo while picking
+        const hintH = reportSelectedId ? 0 : reportEmptyHint.offsetHeight + 16;
+        h = !reportSelectedId ? Math.min(fit, room - hintH)
+          : compact ? Math.max(PHOTO_COMPACT_MIN_PX, Math.min(fit, room * A_STRIP_SHARE))
+          : Math.min(fit, room * A_PEEK_SHARE);
+      }
+    }
     reportPhotoSlot.style.height = `${Math.round(h)}px`;
     reportPhotoSlot.classList.toggle('is-compact', compact);
     // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
@@ -3335,8 +3417,11 @@
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const field = currentStepField(det);
     let picked = null;
+    const cmd = VOICE_MATCH.command(text);
     if (field === 'count'){
-      const n = VOICE_MATCH.count(text);
+      // a command (下一步 / 換一組 / 上一步 …) is never read as a number
+      let n = cmd ? null : VOICE_MATCH.count(text);
+      if (n === 'all') n = (det.aiOriginal && det.aiOriginal.count) || det.count || null; // 全部 = the photo's count
       if (n){
         setReportCount(n, 'voice');
         picked = `數量 ${n} ${det.countUnit || '個'}`;
@@ -3349,7 +3434,6 @@
         picked = `${FIELD_NAME[field]} ${fieldValueLabel(field, m.value)}`;
       }
     }
-    const cmd = VOICE_MATCH.command(text);
     if (!picked && !cmd){
       const heard = String(text || '').replace(/\s+/g, '');
       setReportVoiceMsg(`沒有聽懂,請再說一次,或直接點選卡牌${heard ? `(聽到:${heard.length > 10 ? heard.slice(0, 10) + '…' : heard})` : ''}`, true);
@@ -3419,6 +3503,8 @@
           }
         });
         if (target.name !== nameBefore && !target.count) target.countable = false; // re-learned from the next calculation
+        // a new name may mean another food type (蘋果 → 炒飯): its fields follow
+        if (target.name !== nameBefore) retypeAfterRename(target);
         // a category switch (food <-> beverage) swaps the cooking options;
         // drop a cooking method the new list doesn't have
         if (target.category !== prevCategory && target.detail && target.detail.cookingMethod){
@@ -3436,6 +3522,61 @@
     });
     requestAnimationFrame(() => { if (candidateTargetDet === det) candidateCustomInput.focus(); });
   });
+
+  /* Group A rename (10/22): guess the food type again from the new name and
+     re-apply its fields. Newly applicable fields that have no value — or
+     still hold an untouched preset — get the new type's preset (source
+     'default'); fields that no longer apply become null / 'na'. Values the
+     user set are kept. The page list follows (det.step is a field name). */
+  function retypeAfterRename(det){
+    const name = splitNameConfidence(det.name || '').name;
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    const before = det.foodType || 'other';
+    const foodType = FIELD_DEFAULTS.normalizeFoodType(FIELD_DEFAULTS.guessFoodType(name, category), category);
+    det.foodType = foodType;
+    det.extraFields = [];
+    const presets = FIELD_DEFAULTS.defaultsFor(name, foodType, category);
+    const applicable = FIELD_DEFAULTS.applicableFields(foodType, category);
+    const detail = { ...(det.detail || {}) };
+    det.fieldSource = det.fieldSource || {};
+    ACTIVE_FIELDS.forEach(k => {
+      const src = det.fieldSource[k];
+      if (!applicable.includes(k)){
+        detail[k] = null;
+        det.fieldSource[k] = 'na';
+      } else if (!detail[k] || src === 'default' || src === 'na'){
+        detail[k] = presets[k] || null;
+        if (presets[k]) det.fieldSource[k] = 'default'; else delete det.fieldSource[k];
+      }
+    });
+    det.detail = detail;
+    det.groupOrder = {};
+    det.cardGroup = {};
+    // another food type: a count the user didn't set (the AI's photo count,
+    // a preset) no longer applies — the next calculation decides again
+    // whether the dish is countable. A count the user set is kept.
+    if (foodType !== before && (det.fieldSource.count !== 'user')){
+      det.count = null;
+      det.countable = false;
+      det.countUnit = null;
+      delete det.fieldSource.count;
+    }
+    if (FIELD_DEFAULTS.alwaysCounted(foodType, category)){
+      det.countable = true;
+      det.countUnit = det.countUnit || '個';
+      if (!Number.isInteger(det.count)){
+        det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+        setFieldSource(det, 'count', 'default');
+      }
+    } else if (det.fieldSource.count === 'default' && !(det.aiOriginal && det.aiOriginal.count)){
+      // a preset count of the old type (fruit = 1) means nothing for 炒飯
+      det.count = null;
+      det.countable = false;
+      delete det.fieldSource.count;
+    }
+    logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: presets, notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
+    if (det.labelEl) renderDetLabel(det.labelEl, det);
+  }
 
   /* delete, with a second confirmation */
   reportDeleteBtn.addEventListener('click', () => {

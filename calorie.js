@@ -37,7 +37,6 @@
     return {
       name: d.name,
       category: d.category === 'beverage' ? 'beverage' : 'food',
-      containerType: x.containerType,
       size: x.size,
       cookingMethod: x.cookingMethod,
       sugar: x.sugar,
@@ -45,7 +44,7 @@
       // countable dishes: how many (only used with a per-piece item)
       count: Number.isInteger(d.count) ? d.count : undefined,
       countUnit: d.countUnit || undefined,
-      // fruit has no container: the server then uses grams per piece × count
+      // grams of a per-100 g item = food type × size (fruit: per piece × count)
       foodType: d.foodType || undefined
     };
   }

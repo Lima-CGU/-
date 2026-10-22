@@ -15,8 +15,10 @@
 
   /* ---------- the five fields' allowed values ---------- */
   const OPTIONS = {
-    // (「直接拿」 'none' was removed on 10/22: a fruit simply has no container field)
-    containerType: ['plate', 'bowl', 'cup', 'lunchbox'],
+    // The container field was removed for every group (teacher 10/22: all the
+    // dishes of a lunch box sit in the same box, so it says nothing about the
+    // portion). No value is allowed any more; old records keep theirs.
+    containerType: [],
     size: ['XS', 'S', 'M', 'L', 'XL'],
     cookingMethodFood: ['生食', '沙拉', '水煮', '蒸', '炒', '煎', '炸', '烤', '燒烤', '滷', '燉', '烘焙'],
     cookingMethodBeverage: ['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製', '不適用'],
@@ -24,7 +26,7 @@
     salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']
   };
   const FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
-  // 'none' stays only so records saved between 10/21 and 10/22 still read well
+  // labels only for old records (plate / bowl / cup / lunchbox / none)
   const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒', none: '直接拿' };
 
   /* ---------- food types (from /api/detect) ---------- */
@@ -46,16 +48,17 @@
      A field that doesn't apply is not shown, gets no preset, is saved as
      null with fieldSource 'na', and is not needed for a dish to be filled.
      'count' = the 數量 step (other types get it only when the dish is countable). */
-  const ALL_FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+  // (no type has containerType any more — removed 10/22)
+  const OTHER_FIELDS = ['size', 'cookingMethod', 'sugar', 'salt'];
   const APPLICABLE = {
     fruit:    ['size', 'count'],                     // 【待老師確認】
-    beverage: ['containerType', 'size', 'sugar']     // 【待老師確認】
-    // every other type: all five fields (+ count when countable) 【待老師確認】
+    beverage: ['size', 'sugar']                      // 【待老師確認】
+    // every other type: size, cooking, sugar, salt (+ count when countable) 【待老師確認】
   };
   /** The five-field keys that apply (no 'count'). */
   function applicableFields(foodType, category){
     const t = normalizeFoodType(foodType, category);
-    return (APPLICABLE[t] || ALL_FIELDS).filter(f => f !== 'count');
+    return (APPLICABLE[t] || OTHER_FIELDS).filter(f => f !== 'count');
   }
   /** Does this type always have a 數量 step (not only when countable)? */
   function alwaysCounted(foodType, category){
@@ -71,14 +74,14 @@
      cookingMethod here is only the fallback when the dish name has no
      cooking word (see cookingFromName); '' = left empty for the user. */
   const DEFAULTS = {
-    staple:    { containerType: 'bowl',  size: 'M', cookingMethod: '',    sugar: '無糖', salt: '無鹽' },     // 【待老師確認】
-    protein:   { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
-    vegetable: { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
-    soup:      { containerType: 'bowl',  size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    staple:    { size: 'M', cookingMethod: '', sugar: '無糖', salt: '無鹽' },     // 【待老師確認】
+    protein:   { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    vegetable: { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    soup:      { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
     fruit:     { size: 'M' },                                    // 【待老師確認】 (only size + count apply)
-    beverage:  { containerType: 'cup',   size: 'M', sugar: '無糖' },       // 【待老師確認】 (no cooking / salt)
-    snack:     { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '半糖', salt: '無鹽' },     // 【待老師確認】
-    other:     { containerType: 'plate', size: 'M', cookingMethod: '',    sugar: '無糖', salt: '1/4 茶匙' }  // 【待老師確認】
+    beverage:  { size: 'M', sugar: '無糖' },                     // 【待老師確認】 (no cooking / salt)
+    snack:     { size: 'M', cookingMethod: '', sugar: '半糖', salt: '無鹽' },     // 【待老師確認】
+    other:     { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }  // 【待老師確認】
   };
 
   /* ---------- option cards (Group A, one field per page) 【待老師確認】 ----------
@@ -89,31 +92,21 @@
   // only a longer list (food cooking methods) is split into groups of ≤ 6.
   const MAX_CARDS_PER_PAGE = 6;
   const CARD_GROUPS = {
-    containerType: [['plate', 'bowl', 'lunchbox', 'cup']],
     size: [['XS', 'S', 'M', 'L', 'XL']],
     cookingMethod: [['炒', '煎', '炸', '蒸', '水煮', '烤'], ['滷', '燉', '燒烤', '生食', '沙拉', '烘焙']],
     cookingMethodBeverage: [['沖泡', '現煮', '現榨', '冰鎮', '熱飲', '調製'], ['不適用']],
     sugar: [['無糖', '微糖(四分之一)', '半糖', '少糖(四分之三)', '全糖']],
     salt: [['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']]
   };
-  // which options a food type offers / in what order (便當盒 only for
-  // staple, protein, vegetable and other) 【待老師確認】
-  const CARD_GROUPS_BY_TYPE = {
-    staple:    { containerType: [['bowl', 'plate', 'lunchbox', 'cup']] },
-    protein:   { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
-    vegetable: { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
-    other:     { containerType: [['plate', 'bowl', 'lunchbox', 'cup']] },
-    soup:      { containerType: [['bowl', 'cup', 'plate']] },
-    beverage:  { containerType: [['cup', 'bowl', 'plate']] },
-    snack:     { containerType: [['plate', 'bowl', 'cup']] },
-    fruit:     { containerType: [['plate', 'bowl', 'cup']] }
-  };
+  // per food type overrides of a field's cards (only held the container
+  // lists, removed 10/22; kept for later per-type lists) 【待老師確認】
+  const CARD_GROUPS_BY_TYPE = {};
   /** The card groups for one field of one dish; the group with `current` first. */
   function cardGroups(field, foodType, category, current){
     const t = normalizeFoodType(foodType, category);
     const key = field === 'cookingMethod' && category === 'beverage' ? 'cookingMethodBeverage' : field;
     const own = (CARD_GROUPS_BY_TYPE[t] || {})[field];
-    const groups = ((category === 'beverage' && field === 'cookingMethod') ? CARD_GROUPS[key] : (own || CARD_GROUPS[key])).map(g => g.slice());
+    const groups = (((category === 'beverage' && field === 'cookingMethod') ? CARD_GROUPS[key] : (own || CARD_GROUPS[key])) || [[]]).map(g => g.slice());
     // a current value the type's list lacks (e.g. set in the Diary) is still shown
     if (current && !groups.some(g => g.includes(current))){
       const last = groups[groups.length - 1];
@@ -132,6 +125,11 @@
     ['滷', '滷'], ['燉', '燉'], ['煮', '水煮']
   ];
   const RAW_WORDS = /生魚片|生菜|生食|生鮮|生吃|涼拌/;
+  // words whose cooking character is NOT the cooking method: 炸醬(麵) is a
+  // sauce, not fried; 紅燒 is braised, not 燒烤; 烤麩 is a braised gluten dish;
+  // 燒賣 is steamed. They are taken out of the name before the keyword search.
+  // 【待老師確認】
+  const COOKING_EXCEPTIONS = ['炸醬', '紅燒', '烤麩', '燒賣'];
   const BEVERAGE_KEYWORDS = [['現榨', '現榨'], ['現煮', '現煮'], ['沖泡', '沖泡'], ['冰鎮', '冰鎮'], ['熱', '熱飲'], ['調酒', '調製']];
 
   function cookingFromName(name, category){
@@ -140,9 +138,10 @@
       const hit = BEVERAGE_KEYWORDS.find(([k]) => n.includes(k));
       return hit ? hit[1] : '';
     }
-    const hit = COOKING_KEYWORDS.find(([k]) => n.includes(k));
+    const m = COOKING_EXCEPTIONS.reduce((s, w) => s.split(w).join('·'), n);
+    const hit = COOKING_KEYWORDS.find(([k]) => m.includes(k));
     if (hit) return hit[1];
-    return RAW_WORDS.test(n) ? '生食' : '';
+    return RAW_WORDS.test(m) ? '生食' : '';
   }
 
   /** The default value of every field for one dish: { containerType, size, cookingMethod?, sugar, salt }. */
@@ -174,7 +173,7 @@
   }
 
   return {
-    DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS,
+    DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType
   };
 });
