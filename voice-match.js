@@ -97,9 +97,11 @@
   // Page commands (Group A, one field per page), checked before options
   const COMMANDS = [
     [['換一組', '下一組', '其他', '別的', '換別的', '再換'], 'more'],
-    [['上一步', '上一頁', '回上一'], 'back'],
-    [['下一步', '下一頁', '好了', '可以了', '確定', '完成'], 'next']
+    [['上一步', '上一頁', '回上一', '上一個', '前一個'], 'back'],
+    [['下一步', '下一頁', '下一個', '下一道', '好了', '可以了', '確定', '完成'], 'next']
   ];
+  // words with a 一 that is not a count (「再來一個」 is simply ignored)
+  const NOT_A_COUNT = /(下一|上一|前一|再來一|回上一)(個|道|步|頁|組|題)?|換一組|一點|一下/g;
   /** 'more' | 'back' | 'next' | null — 下一組 is checked before 下一步. */
   function command(text){
     const t = normalize(text);
@@ -123,7 +125,7 @@
     return n || null;
   }
   function count(text){
-    const t = normalize(text);
+    const t = normalize(text).replace(NOT_A_COUNT, '·');
     if (/全部|全吃|都吃完|吃光/.test(t)) return 'all';
     const d = /(\d{1,2})/.exec(t);
     if (d) return Number(d[1]) || null;
@@ -207,5 +209,5 @@
     return { text: out, changed: out !== raw };
   }
 
-  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS };
+  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
 });

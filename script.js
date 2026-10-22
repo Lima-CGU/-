@@ -2638,13 +2638,7 @@
     syncDetailSelectionState();
     // only the fields that apply to this dish's food type (same rule as Group
     // A's pages; a saved dish without foodType: guessed from its name)
-    const category = det.category === 'beverage' ? 'beverage' : 'food';
-    const foodType = det.foodType || FIELD_DEFAULTS.guessFoodType(stripConfidenceText(det.name || ''), category);
-    const shown = FIELD_DEFAULTS.applicableFields(foodType, category).concat(det.extraFields || []);
-    [['cookingMethod', detailCookingList], ['sugar', detailSugarList], ['salt', detailSaltList]].forEach(([k, list]) => {
-      const section = list.closest('.detail-section');
-      if (section) section.hidden = !shown.includes(k);
-    });
+    syncDetailSections(det, null);
 
     // Only a Diary dish (identified by having a refreshRow hook) gets the
     // merged name field — the recognize screen's own ⚙ button still edits
@@ -2663,6 +2657,26 @@
     detailAdjustModal.hidden = false;
   }
 
+  // Shows only the sections that apply. typedName: the name in the sheet's
+  // name box — when it differs from the dish's, the food type is guessed
+  // from it (what retypeAfterRename will do on 確認).
+  function syncDetailSections(det, typedName){
+    if (!det) return;
+    const category = det.category === 'beverage' ? 'beverage' : 'food';
+    const current = stripConfidenceText(det.name || '');
+    const renamed = typedName && typedName !== current;
+    const foodType = renamed ? FIELD_DEFAULTS.guessFoodType(typedName, category)
+      : det.foodType || FIELD_DEFAULTS.guessFoodType(current, category);
+    const shown = FIELD_DEFAULTS.applicableFields(foodType, category).concat(renamed ? [] : det.extraFields || []);
+    [['cookingMethod', detailCookingList], ['sugar', detailSugarList], ['salt', detailSaltList]].forEach(([k, list]) => {
+      const section = list.closest('.detail-section');
+      if (section) section.hidden = !shown.includes(k);
+    });
+  }
+  detailNameInput?.addEventListener('input', () => {
+    if (detailAdjustTarget && !detailNameField.hidden) syncDetailSections(detailAdjustTarget, detailNameInput.value.trim());
+  });
+
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     const prevDetail = detailAdjustTarget.detail || {};
@@ -2676,7 +2690,11 @@
     }
     if (!detailNameField.hidden){
       const newName = detailNameInput.value.trim();
+      const renamed = !!newName && newName !== stripConfidenceText(detailAdjustTarget.name || '');
       if (newName) detailAdjustTarget.name = newName;
+      // same rule as Group A Page 4: a new name may be another food type —
+      // its fields (and a count the user didn't set) follow
+      if (renamed) retypeAfterRename(detailAdjustTarget);
     }
     if (detailAdjustTarget.labelEl) {
       renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
@@ -3140,7 +3158,8 @@
       logEvent('step_next', { actor: 'user', target: dishNoOf(det), field, source: source || null, detail: { field, to: 'done' } });
       const first = !det.userReviewed;
       det.userReviewed = true;
-      logEvent('dish_reviewed', { actor: 'user', target: dishNoOf(det), attemptId: nextAttemptId(), source: source || null, detail: { first } });
+      // a confirmation, not a change: no attemptId (README: A's attempts are actual edits only)
+      logEvent('dish_reviewed', { actor: 'user', target: dishNoOf(det), attemptId: null, source: source || null, detail: { first } });
       selectReportDish(null);
       return;
     }
@@ -3533,6 +3552,15 @@
     det.detail = detail;
     det.groupOrder = {};
     det.cardGroup = {};
+    // another food type: a count the user didn't set (the AI's photo count,
+    // a preset) no longer applies — the next calculation decides again
+    // whether the dish is countable. A count the user set is kept.
+    if (foodType !== before && (det.fieldSource.count !== 'user')){
+      det.count = null;
+      det.countable = false;
+      det.countUnit = null;
+      delete det.fieldSource.count;
+    }
     if (FIELD_DEFAULTS.alwaysCounted(foodType, category)){
       det.countable = true;
       det.countUnit = det.countUnit || '個';
