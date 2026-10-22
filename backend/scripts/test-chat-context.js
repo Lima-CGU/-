@@ -80,6 +80,27 @@ for (const [name, list, ctx] of [
   const v = validate({ reply: '好的。' }, r.dishes, 'B', r.selected, { contextNo: r.contextNo, message: r.message });
   assert.ok(v.updates.some(u => u.no === ctx && u.fields.size === 'XS' && u.halfFromText), JSON.stringify(v.updates));
 });
+// (10/23 follow-up) the half goes to the dish the message names, even by part of its name
+const meal3 = [
+  dishes[0],
+  { no: 2, name: '白飯', category: 'food', foodType: 'staple', fields: { size: 'M' }, fieldSource: { size: 'default' } },
+  { no: 3, name: '燙青菜', category: 'food', foodType: 'vegetable', fields: { size: 'M', cookingMethod: '水煮' }, fieldSource: { size: 'default', cookingMethod: 'default' } }
+];
+const halfRun = (list, message, ai = {}, extra = { contextDish: 1 }) => {
+  const r = parseRequest({ group: 'B', dishes: list, history: [], message, ...extra });
+  const v = validate({ reply: '好的。', ...ai }, r.dishes, 'B', r.selected, { contextNo: r.contextNo, message: r.message });
+  return v.updates.filter(u => u.halfFromText).map(u => [u.no, u.fields.size]);
+};
+t('recent 甜不辣, 「飯吃了一半」 -> 白飯 XS, 甜不辣 unchanged', () => assert.deepStrictEqual(halfRun(meal3, '飯吃了一半'), [[2, 'XS']]));
+t('recent 甜不辣, 「我吃了一半」 -> 甜不辣 XS', () => assert.deepStrictEqual(halfRun(meal3, '我吃了一半'), [[1, 'XS']]));
+t('「青菜吃一半」 -> 燙青菜 XS', () => assert.deepStrictEqual(halfRun(meal3, '青菜吃一半'), [[3, 'XS']]));
+t('selected 甜不辣 but 「白飯只吃一半」 -> 白飯 XS', () => assert.deepStrictEqual(halfRun(meal3, '我點選了 甜不辣。白飯只吃一半', {}, { selected: { type: 'dish', no: 1 } }), [[2, 'XS']]));
+t('two dishes match 「飯」 (炒飯, 白飯) -> no change', () => {
+  const two = [dishes[0], meal3[1], { no: 3, name: '炒飯', category: 'food', foodType: 'staple', fields: { size: 'M' }, fieldSource: { size: 'default' } }];
+  assert.deepStrictEqual(halfRun(two, '飯吃了一半'), []);
+});
+t('the AI noted another dish this turn -> no change', () => assert.deepStrictEqual(halfRun(meal3, '我吃了一半', { notes: [{ no: 2, note: '只吃一半' }] }), []));
+t('the AI updated another dish this turn -> no change', () => assert.deepStrictEqual(halfRun(meal3, '我吃了一半', { updates: [{ no: 3, fields: { cookingMethod: '炒' } }] }), []));
 t('the AI is told the recent dish', () => {
   const r = req({ contextDish: 1, message: '是炸的' });
   const ctx = buildMessages(r).find(m => m.role === 'system' && m.content.includes('使用者目前選取'));

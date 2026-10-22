@@ -190,6 +190,36 @@ function cleanSuggestions(list, dish, opts = {}){
 const HALF_WORDS = /半份|一半|半碗|半盤|半杯|吃了半/;
 const NOT_HALF_WORDS = /另一半|一半以上|超過一半|多於一半|大於一半|一半以下|少於一半|不到一半|沒(有)?(吃)?(到)?一半|不是一半|不只一半|糖|甜|鹽|鹹/;
 
+// Dishes the message names: full names first (longest first), then a part
+// of a name — any 2+ character piece (「青菜」 → 燙青菜) or its last character
+// as the head noun right before a verb / at the end (「飯吃了一半」 → 白飯).
+// rest = the message with those names taken out (so 甜不辣 / 鹹酥雞 are not
+// sugar / salt talk).
+const HEAD_FOLLOW = /^(吃|喝|只|都|也|剩|有|還|我|了|的|,|，|。|$)/;
+function namedDishes(text, dishes){
+  let rest = String(text || '');
+  const named = [];
+  const add = d => { if (!named.includes(d)) named.push(d); };
+  const byLen = [...dishes].filter(d => d.name).sort((a, b) => b.name.length - a.name.length);
+  byLen.forEach(d => { if (rest.includes(d.name)){ add(d); rest = rest.split(d.name).join('·'); } });
+  const partial = [];
+  byLen.filter(d => !named.includes(d)).forEach(d => {
+    const n = d.name;
+    for (let len = n.length - 1; len >= 2; len--){
+      for (let k = 0; k + len <= n.length; k++){
+        const piece = n.slice(k, k + len);
+        if (rest.includes(piece)){ partial.push([d, piece]); return; }
+      }
+    }
+    const head = n.slice(-1);
+    for (let k = rest.indexOf(head); k >= 0; k = rest.indexOf(head, k + 1)){
+      if (HEAD_FOLLOW.test(rest.slice(k + 1))){ partial.push([d, head]); return; }
+    }
+  });
+  partial.forEach(([d, piece]) => { add(d); rest = rest.split(piece).join('·'); });
+  return { named, rest };
+}
+
 // opts.contextNo: the dish talked about most recently (no selection);
 // opts.message: what the user said (for the half-portion safety net)
 function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
@@ -238,32 +268,27 @@ function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
   });
 
   // Safety net (10/23, SYSTEM_PROMPT says the same): the user said they ate
-  // half (半份/一半/半碗) of the dish this message is about, the dish is not
-  // countable, and the AI changed neither its size nor its count -> size XS.
-  // A countable dish keeps the old rule (the AI converts the count).
+  // half (半份/一半/半碗) of a dish, the dish is not countable, and the AI
+  // changed neither its size nor its count -> size XS. A countable dish keeps
+  // the old rule (the AI converts the count).
+  // WHICH dish: one named in the message (full name, or part of it — 「飯」 →
+  // 白飯, 「青菜」 → 燙青菜); none named -> the selected / recent dish; more
+  // than one -> nothing (the AI asks).
   const said = String(opts.message || '').replace(/^我點選了[^。]*。|^關於整餐:/, '');
-  const halfNo = selected && selected.type === 'dish' ? selected.no
+  const fallbackNo = selected && selected.type === 'dish' ? selected.no
     : selected && selected.type === 'meal' ? null : opts.contextNo || null;
-  const halfDish = halfNo && byNo.get(halfNo);
+  const { named, rest } = namedDishes(said, dishes);
+  const halfDish = named.length === 1 ? named[0] : named.length ? null : (fallbackNo && byNo.get(fallbackNo)) || null;
   // Skipped when: the AI is asking back; the AI already resized / recounted
-  // ANY dish or added / renamed one (the half may be about that one); the
-  // message names another dish; this answer changed the dish's sugar / salt.
-  // dish names are taken out first (longest first): 甜不辣 / 鹹酥雞 must not
-  // count as sugar / salt talk, and 炒飯 must not count as naming 飯
-  let rest = said;
-  let otherNamed = false;
-  if (halfDish){
-    [...dishes].filter(d => d.name).sort((a, b) => b.name.length - a.name.length).forEach(d => {
-      if (!rest.includes(d.name)) return;
-      if (d.no !== halfDish.no) otherNamed = true;
-      rest = rest.split(d.name).join('·');
-    });
-  }
+  // ANY dish, added / renamed one, or updated / noted a DIFFERENT dish (the
+  // half may be about that one); this answer changed the dish's sugar / salt.
   const aiHandled = updates.some(x => x.fields.size || x.count != null) || list(p.newDishes).length || renameDishes.length;
+  const otherTouched = halfDish && (updates.some(x => x.no !== halfDish.no)
+    || list(p.notes).some(n => Number(n && n.no) !== halfDish.no));
   const ownU = halfDish && updates.find(x => x.no === halfDish.no);
   const tasteChanged = ownU && (ownU.fields.sugar || ownU.fields.salt);
   if (halfDish && HALF_WORDS.test(rest) && !NOT_HALF_WORDS.test(rest) && p.isClarification !== true
-      && !aiHandled && !otherNamed && !tasteChanged
+      && !aiHandled && !otherTouched && !tasteChanged
       && !halfDish.counted && !halfDish.count && halfDish.fields.size !== 'XS'){
     let u = ownU;
     if (!u || (!u.fields.size && u.count == null)){

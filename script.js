@@ -2990,6 +2990,9 @@
     reportDishKcal.setAttribute('aria-expanded', String(reportKcalOpen));
     reportKcalExplain.hidden = !reportKcalOpen;
     if (reportKcalOpen) Calorie.renderExplain(reportKcalExplain, st);
+    // (10/23) the formula takes room on the page: re-fit the photo strip so
+    // no option card hides behind the buttons
+    if (reportActive && !chatMode && reportSelectedId) sizeReportPhotoSlot();
   }
   reportDishKcal.addEventListener('click', () => {
     reportKcalOpen = !reportKcalOpen;
