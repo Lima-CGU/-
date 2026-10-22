@@ -6,6 +6,7 @@
  *     dishes   [{ no, name, category, foodType, onPhoto, fields: {size,cookingMethod,sugar,salt} (containerType no longer used),
  *                fieldSource: {field: 'default'|'user'|'ai'}, notes: [] }]
  *     selected { type: 'dish', no } | { type: 'meal' } | null
+ *     contextDish  no of the dish talked about most recently (used when nothing is selected)
  *     history  [{ role: 'user'|'assistant', content }]   (recent turns, oldest first)
  *     message  what the user just said
  *   -> { reply, updates, notes, newDishes, renameDishes, isClarification, offTopic }
@@ -41,15 +42,15 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 你只整理使用者說的內容:不評論飲食好壞、不給營養或健康建議、絕對不要寫出任何熱量、卡路里或營養素數字(系統會另外顯示)。
 
 每道菜最多有 4 個欄位(沒有容器欄位,不要記錄或詢問用碗、盤、杯或便當盒裝),值只能從下列選項挑,使用者沒說、也判斷不出來就不要填(不要猜)。清單裡每道菜標示了類型和「適用欄位」(例如水果只有份量和數量,飲料沒有烹調方式和鹽),只填適用的欄位:
-- size 份量(相對於一般一人份):XS = 半份/一半/幾口;S = 少一點/小份;M = 一份/一碗/一盤/一杯/一個/一片/一塊/一顆/一根/一條/正常份量(使用者說了這類數量就要填 size);L = 一份半/大碗/多一點;XL = 兩份/兩碗/很多。
+- size 份量(相對於一般一人份):XS = 半份/一半/半碗/半盤/吃了一半/幾口(不可數的菜說「吃了一半」就是把 size 改成 XS,要放進 updates,不是寫備註);S = 少一點/小份;M = 一份/一碗/一盤/一杯/一個/一片/一塊/一顆/一根/一條/正常份量(使用者說了這類數量就要填 size);L = 一份半/大碗/多一點;XL = 兩份/兩碗/很多。
 - cookingMethod 烹調方式:食物用 ${OPTIONS.cookingMethodFood.join('、')};飲料用 ${OPTIONS.cookingMethodBeverage.join('、')}。
 - sugar 糖:${OPTIONS.sugar.join('、')}(多用於飲料)。
 - salt 鹽:${OPTIONS.salt.join('、')}。
-無法放進欄位的描述(例如「含一顆蛋」「只吃一半」「加了辣油」),寫進 notes,掛在那道菜上。
+無法放進欄位的描述(例如「含一顆蛋」「加了辣油」),寫進 notes,掛在那道菜上。
 清單裡每個欄位的目前值都標了來源:(預設)是系統依食物類型先填的,(已修改)是之前對話改過的。使用者這次沒提到的欄位就維持原值,不要放進 updates、不要改;只有使用者明確說了才更新(預設值也一樣)。
 
 規則:
-1. 使用者有選取某道菜時,這句話預設是在描述那道菜;選了「整餐」時,是在說整餐或補充照片上漏掉的菜;都沒選時,依內容判斷是哪一道。
+1. 使用者有選取某道菜時,這句話預設是在描述那道菜;選了「整餐」時,是在說整餐或補充照片上漏掉的菜;沒有選取時,如果下面寫了「最近談到的菜」,這句話預設還是在說那道菜(除非內容明顯是別道菜或新的菜);都沒有時依內容判斷是哪一道。但份量(size)不可以自己猜:只有使用者這句話點選了那道菜、或說出了它的菜名時,才更新那道菜的 size;只靠「最近談到的菜」推測時不要改份量,改成追問一次是哪一道菜(isClarification 設 true)。(例外:規則 9 中使用者說了吃幾個、而這道菜還沒有 size 時填 M,照規則 9 做。)
 2. 使用者提到照片上沒有的菜(例如「還有一碗味噌湯」),放進 newDishes。
 3. 使用者更正菜名(例如「那不是雞腿,是豬排」),放進 renameDishes。
 4. 描述不清楚時要追問,一次只問一個具體問題,isClarification 設 true,不要自己猜:
@@ -73,12 +74,13 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 // same AI call. Group B never sees it (and its answer is stripped anyway).
 const SUGGESTIONS_PROMPT = `另外,在同一個 JSON 裡多回傳 "suggestions":0~${MAX_SUGGESTIONS} 個使用者「下一句可能想說」的短句,會顯示成輸入框上方的按鈕,點了就直接當成使用者的話送出。
 - 用使用者的口吻(第一人稱),每個最多 ${MAX_SUGGESTION_CHARS} 個字,彼此不重複。
-- 依「目前選取的菜」的類型和適用欄位產生(清單裡每道菜都標了類型和適用欄位):只能是份量、數量,或這道菜適用的烹調方式、糖、鹽的說法。不適用的欄位一律不要出現(例如水果沒有鹽、糖、烹調方式,就不能有「鹽多一點」「有點甜」「是用煎的」)。不要出現容器(盤子、碗裝、便當盒)。
-- 不要猜食材或調味料:不要「加了醬汁」「有放蔥」「有加蒜」這類照片和使用者都沒提到的東西。
-- 例:水果 →「一顆」「兩顆」「半顆」「比較大顆」;炒青菜 →「鹽多一點」「比較少」「是用燙的」;飲料 →「半糖」「無糖」「大杯」;你在問數量 →「吃了 2 個」「全部吃完」;沒選菜或都描述完了 →「沒有了」「還有喝飲料」。
+- 按鈕要接著「目前談的菜」:使用者選取的菜;沒有選取時就是下面寫的「最近談到的菜」。依它的類型和適用欄位產生,只能是份量、數量,或這道菜適用的烹調方式、糖、鹽的說法。不適用的欄位一律不要出現(例如水果沒有鹽、糖、烹調方式,就不能有「鹽多一點」「有點甜」「是用煎的」)。不要出現容器(盤子、碗裝、便當盒)。
+- 優先提示這道菜「適用欄位中還是(預設)、使用者還沒提到的欄位」,用使用者的口吻、跟這道菜有關,例如烹調方式 →「是炸的」「是滷的」「用煮的」;鹹淡 →「比較鹹」「不太鹹」;份量 →「吃了一半」「全部吃完」;甜度 →「半糖」「無糖」;數量 →「吃了 2 個」。
+- 只有這道菜的適用欄位都已經談過(都是已修改),或根本沒有目前談的菜時,才可以出現「下一道」「沒有了」「還有喝飲料」這類換菜或結束的按鈕。
+- 不要猜食材或調味料:不要出現具體食材或調味料名稱(例如「加了醬汁」「有放蔥」「有加蒜」)。
 - 不能包含熱量、卡路里或任何營養素、營養數字,也不能是健康建議或評論。
 - offTopic 為 true 時 suggestions 給空陣列。
-例:"suggestions":["一顆","兩顆","比較大顆"]`;
+例(目前談的是炸雞腿,烹調和鹹度還是預設):"suggestions":["是滷的","比較鹹","不太鹹","吃了一半"]`;
 
 const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
 const category = v => (v === 'beverage' ? 'beverage' : 'food');
@@ -166,7 +168,7 @@ const FIELD_WORDS = {
   // the container field no longer exists (10/22): words about the container itself
   containerType: /便當|容器|盤子|碗裝|杯裝|用碗|用盤|用杯/
 };
-function cleanSuggestions(list, dish){
+function cleanSuggestions(list, dish, opts = {}){
   // the container never applies; the other fields depend on the dish
   const offFields = ['containerType', ...(dish ? FIELDS.filter(k => k !== 'containerType' && FIELD_WORDS[k] && !(dish.applicable || FIELDS).includes(k)) : [])];
   const out = [];
@@ -176,13 +178,15 @@ function cleanSuggestions(list, dish){
     if (!t || [...t].length > MAX_SUGGESTION_CHARS) continue;
     if (NUTRITION_WORDS.test(t) || HEALTH_WORDS.test(t) || SAVED_WORDS.test(t) || SEASONING_WORDS.test(t)) continue;
     if (offFields.some(k => FIELD_WORDS[k].test(t))) continue;
+    if (opts.noClosing && CLOSING_WORDS.test(t)) continue;
     if (!out.includes(t)) out.push(t);
     if (out.length === MAX_SUGGESTIONS) break;
   }
   return out;
 }
 
-function validate(parsed, dishes, group = 'B', selected = null){
+// opts.contextNo: the dish talked about most recently (no selection)
+function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
   const byNo = new Map(dishes.map(d => [d.no, d]));
   const p = parsed && typeof parsed === 'object' ? parsed : {};
   const list = v => (Array.isArray(v) ? v : []);
@@ -254,17 +258,31 @@ function validate(parsed, dishes, group = 'B', selected = null){
     askCountFor: byNo.has(Number(p.askCountFor)) ? Number(p.askCountFor) : null,
     offTopic: false,
     // Group B never gets the field, even if the model wrote one
-    ...(group === 'C' ? { suggestions: cleanSuggestions(p.suggestions, suggestionDish(p, byNo, selected, updates)) } : {})
+    ...(group === 'C' ? (() => {
+      const dish = suggestionDish(p, byNo, selected, updates, opts.contextNo);
+      return { suggestions: cleanSuggestions(p.suggestions, dish, { noClosing: dishHasOpenFields(dish, updates) }) };
+    })() : {})
   };
 }
 
 // the dish the buttons are about: the selected one, else the one whose count
 // was just asked, else the only dish this answer changed (else none = no field filter)
-function suggestionDish(p, byNo, selected, updates){
+function suggestionDish(p, byNo, selected, updates, contextNo){
   if (selected && selected.type === 'dish') return byNo.get(selected.no) || null;
   if (selected && selected.type === 'meal') return null;
+  if (updates.length === 1) return byNo.get(updates[0].no);
   if (byNo.has(Number(p.askCountFor))) return byNo.get(Number(p.askCountFor));
-  return updates.length === 1 ? byNo.get(updates[0].no) : null;
+  // (10/23) the dish talked about most recently — not a meal-closing button
+  return contextNo ? byNo.get(contextNo) || null : null;
+}
+// a button that moves on / ends the meal (「下一道」「沒有了」「還有喝飲料」)
+const CLOSING_WORDS = /^(下一道|換下一道|沒有了|沒了|就這些|都說完了|還有(喝|吃|別的|其他).*)$/;
+// (10/23) while the dish talked about still has an applicable field the
+// user hasn't mentioned (source 預設), closing buttons are dropped
+function dishHasOpenFields(dish, updates){
+  if (!dish || !dish.fieldSource) return false;
+  const changed = new Set(Object.keys((updates.find(u => u.no === dish.no) || {}).fields || {}));
+  return (dish.applicable || []).some(k => dish.fieldSource[k] === 'default' && !changed.has(k));
 }
 
 /* ---------- request ---------- */
@@ -304,14 +322,18 @@ function parseRequest(body){
   const sel = b.selected || null;
   const selected = sel && sel.type === 'meal' ? { type: 'meal' }
     : sel && sel.type === 'dish' && dishes.some(d => d.no === Number(sel.no)) ? { type: 'dish', no: Number(sel.no) } : null;
+  // (10/23) the dish talked about most recently (selected before, or updated
+  // by the last answer) — the default subject of an unselected message
+  const contextNo = !selected && dishes.some(d => d.no === Number(b.contextDish)) ? Number(b.contextDish) : null;
   const history = (Array.isArray(b.history) ? b.history : []).slice(-MAX_HISTORY)
     .map(m => ({ role: m && m.role === 'assistant' ? 'assistant' : 'user', content: str(m && m.content, 600) }))
     .filter(m => m.content);
-  return { group, dishes, selected, history, message };
+  return { group, dishes, selected, contextNo, history, message };
 }
 
-function buildMessages({ group, dishes, selected, history, message }){
-  const sel = !selected ? '沒有選取(請依內容判斷是哪一道)'
+function buildMessages({ group, dishes, selected, contextNo, history, message }){
+  const ctx = contextNo && dishes.find(d => d.no === contextNo);
+  const sel = !selected ? (ctx ? `沒有選取;最近談到的菜:第 ${ctx.no} 道:${ctx.name}(使用者沒有指明時,預設還在說這道菜)` : '沒有選取(請依內容判斷是哪一道)')
     : selected.type === 'meal' ? '整餐/其他(整餐的描述,或照片上漏掉的菜)'
     : `第 ${selected.no} 道:${dishes.find(d => d.no === selected.no).name}`;
   const context = `目前的菜色清單:\n${dishes.map(describeDish).join('\n') || '(沒有)'}\n\n使用者目前選取:${sel}`;
@@ -332,7 +354,7 @@ async function chat(body, askAI){
   const req = parseRequest(body);
   if (req.error) return { httpStatus: 400, error: req.error };
   const parsed = await askAI(buildMessages(req));
-  return { httpStatus: 200, ...validate(parsed, req.dishes, req.group, req.selected) };
+  return { httpStatus: 200, ...validate(parsed, req.dishes, req.group, req.selected, { contextNo: req.contextNo }) };
 }
 
 module.exports = { chat, validate, cleanFields, cleanReply, cleanSuggestions, parseRequest, buildMessages, OPTIONS, OFF_TOPIC_REPLY };
