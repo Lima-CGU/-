@@ -4204,18 +4204,12 @@
       const b = beforeSnaps.get(det) || null;
       const a = snap(det);
       const autoSize = chatAutoSized.has(det) && !(b && b.size) && a.size === 'M';
-      // the size the SERVER set from 「半份/一半」 (the AI left it out): its own event
-      const halfSize = (data.updates || []).some(u => u.halfFromText && u.no === chatDishNo(det)) && a.size === 'XS' && (!b || b.size !== 'XS');
       const keys = [...new Set([...Object.keys(b || {}), ...Object.keys(a)])]
-        .filter(k => k !== 'notes' && !(autoSize && k === 'size') && !(halfSize && k === 'size') && (b ? b[k] ?? null : null) !== (a[k] ?? null));
+        .filter(k => k !== 'notes' && !(autoSize && k === 'size') && (b ? b[k] ?? null : null) !== (a[k] ?? null));
       // the size the system filled in from a count: its own event
       if (autoSize) logEvent('record_updated', {
         actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: null, after: 'M',
         detail: { auto: 'size-from-count', newDish: !b }
-      });
-      if (halfSize) logEvent('record_updated', {
-        actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: b ? b.size ?? null : null, after: 'XS',
-        detail: { auto: 'size-from-half', halfFromText: true }
       });
       const notesAdded = a.notes - (b ? b.notes : 0);
       if (!keys.length && !notesAdded && b) return; // touched, but nothing changed

@@ -50,7 +50,7 @@ const SYSTEM_PROMPT = `你是「飲食記錄助手」,幫使用者把一餐吃�
 清單裡每個欄位的目前值都標了來源:(預設)是系統依食物類型先填的,(已修改)是之前對話改過的。使用者這次沒提到的欄位就維持原值,不要放進 updates、不要改;只有使用者明確說了才更新(預設值也一樣)。
 
 規則:
-1. 使用者有選取某道菜時,這句話預設是在描述那道菜;選了「整餐」時,是在說整餐或補充照片上漏掉的菜;沒有選取時,如果下面寫了「最近談到的菜」,這句話預設還是在說那道菜(除非內容明顯是別道菜或新的菜);都沒有時依內容判斷是哪一道。
+1. 使用者有選取某道菜時,這句話預設是在描述那道菜;選了「整餐」時,是在說整餐或補充照片上漏掉的菜;沒有選取時,如果下面寫了「最近談到的菜」,這句話預設還是在說那道菜(除非內容明顯是別道菜或新的菜);都沒有時依內容判斷是哪一道。但份量(size)不可以自己猜:只有使用者這句話點選了那道菜、或說出了它的菜名時,才更新那道菜的 size;只靠「最近談到的菜」推測時不要改份量,改成追問一次是哪一道菜(isClarification 設 true)。
 2. 使用者提到照片上沒有的菜(例如「還有一碗味噌湯」),放進 newDishes。
 3. 使用者更正菜名(例如「那不是雞腿,是豬排」),放進 renameDishes。
 4. 描述不清楚時要追問,一次只問一個具體問題,isClarification 設 true,不要自己猜:
@@ -185,43 +185,7 @@ function cleanSuggestions(list, dish, opts = {}){
   return out;
 }
 
-// 「吃了半份/一半/半碗」 (10/23) — but not 「另一半」「一半以上」「不到一半」…,
-// and not about sugar / salt (「糖減一半」「鹽只有一半」)
-const HALF_WORDS = /半份|一半|半碗|半盤|半杯|吃了半/;
-const NOT_HALF_WORDS = /另一半|一半以上|超過一半|多於一半|大於一半|一半以下|少於一半|不到一半|沒(有)?(吃)?(到)?一半|不是一半|不只一半|糖|甜|鹽|鹹/;
-
-// Dishes the message names: full names first (longest first), then a part
-// of a name — any 2+ character piece (「青菜」 → 燙青菜) or its last character
-// as the head noun right before a verb / at the end (「飯吃了一半」 → 白飯).
-// rest = the message with those names taken out (so 甜不辣 / 鹹酥雞 are not
-// sugar / salt talk).
-const HEAD_FOLLOW = /^(吃|喝|只|都|也|剩|有|還|我|了|的|,|，|。|$)/;
-function namedDishes(text, dishes){
-  let rest = String(text || '');
-  const named = [];
-  const add = d => { if (!named.includes(d)) named.push(d); };
-  const byLen = [...dishes].filter(d => d.name).sort((a, b) => b.name.length - a.name.length);
-  byLen.forEach(d => { if (rest.includes(d.name)){ add(d); rest = rest.split(d.name).join('·'); } });
-  const partial = [];
-  byLen.filter(d => !named.includes(d)).forEach(d => {
-    const n = d.name;
-    for (let len = n.length - 1; len >= 2; len--){
-      for (let k = 0; k + len <= n.length; k++){
-        const piece = n.slice(k, k + len);
-        if (rest.includes(piece)){ partial.push([d, piece]); return; }
-      }
-    }
-    const head = n.slice(-1);
-    for (let k = rest.indexOf(head); k >= 0; k = rest.indexOf(head, k + 1)){
-      if (HEAD_FOLLOW.test(rest.slice(k + 1))){ partial.push([d, head]); return; }
-    }
-  });
-  partial.forEach(([d, piece]) => { add(d); rest = rest.split(piece).join('·'); });
-  return { named, rest };
-}
-
-// opts.contextNo: the dish talked about most recently (no selection);
-// opts.message: what the user said (for the half-portion safety net)
+// opts.contextNo: the dish talked about most recently (no selection)
 function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
   const byNo = new Map(dishes.map(d => [d.no, d]));
   const p = parsed && typeof parsed === 'object' ? parsed : {};
@@ -266,37 +230,6 @@ function validate(parsed, dishes, group = 'B', selected = null, opts = {}){
     if (autoSize) fields.size = 'M';
     return { no, fields, ...(counts.has(no) ? { count: counts.get(no) } : {}), ...(autoSize ? { autoSize: true } : {}) };
   });
-
-  // Safety net (10/23, SYSTEM_PROMPT says the same): the user said they ate
-  // half (半份/一半/半碗) of a dish, the dish is not countable, and the AI
-  // changed neither its size nor its count -> size XS. A countable dish keeps
-  // the old rule (the AI converts the count).
-  // WHICH dish: one named in the message (full name, or part of it — 「飯」 →
-  // 白飯, 「青菜」 → 燙青菜); none named -> the selected / recent dish; more
-  // than one -> nothing (the AI asks).
-  const said = String(opts.message || '').replace(/^我點選了[^。]*。|^關於整餐:/, '');
-  const fallbackNo = selected && selected.type === 'dish' ? selected.no
-    : selected && selected.type === 'meal' ? null : opts.contextNo || null;
-  const { named, rest } = namedDishes(said, dishes);
-  const halfDish = named.length === 1 ? named[0] : named.length ? null : (fallbackNo && byNo.get(fallbackNo)) || null;
-  // Skipped when: the AI is asking back; the AI already resized / recounted
-  // ANY dish, added / renamed one, or updated / noted a DIFFERENT dish (the
-  // half may be about that one); this answer changed the dish's sugar / salt.
-  const aiHandled = updates.some(x => x.fields.size || x.count != null) || list(p.newDishes).length || renameDishes.length;
-  const otherTouched = halfDish && (updates.some(x => x.no !== halfDish.no)
-    || list(p.notes).some(n => Number(n && n.no) !== halfDish.no));
-  const ownU = halfDish && updates.find(x => x.no === halfDish.no);
-  const tasteChanged = ownU && (ownU.fields.sugar || ownU.fields.salt);
-  if (halfDish && HALF_WORDS.test(rest) && !NOT_HALF_WORDS.test(rest) && p.isClarification !== true
-      && !aiHandled && !otherTouched && !tasteChanged
-      && !halfDish.counted && !halfDish.count && halfDish.fields.size !== 'XS'){
-    let u = ownU;
-    if (!u || (!u.fields.size && u.count == null)){
-      if (!u){ u = { no: halfDish.no, fields: {} }; updates.push(u); }
-      u.fields.size = 'XS';
-      u.halfFromText = true;
-    }
-  }
 
   const notes = [];
   for (const n of list(p.notes)){
@@ -421,7 +354,7 @@ async function chat(body, askAI){
   const req = parseRequest(body);
   if (req.error) return { httpStatus: 400, error: req.error };
   const parsed = await askAI(buildMessages(req));
-  return { httpStatus: 200, ...validate(parsed, req.dishes, req.group, req.selected, { contextNo: req.contextNo, message: req.message }) };
+  return { httpStatus: 200, ...validate(parsed, req.dishes, req.group, req.selected, { contextNo: req.contextNo }) };
 }
 
 module.exports = { chat, validate, cleanFields, cleanReply, cleanSuggestions, parseRequest, buildMessages, OPTIONS, OFF_TOPIC_REPLY };
