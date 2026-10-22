@@ -176,7 +176,9 @@
   ];
   function guessFoodType(name, category){
     if (category === 'beverage') return 'beverage';
-    const n = String(name || '');
+    // tea leaves (茶葉 / 桑葉茶) are not a vegetable — no regex lookbehind
+    // (older iPhone Safari can't parse it)
+    const n = String(name || '').replace(/茶葉|葉茶/g, '茶');
     const hit = TYPE_WORDS.find(([, re]) => re.test(n));
     return hit ? hit[0] : 'other';
   }
