@@ -2516,6 +2516,8 @@
     if (!detailCountShown) return;
     detailCountDraft = stepCount(detailCountDraft, delta);
     renderCountStepper('detailCount', detailCountDraft, detailAdjustTarget && detailAdjustTarget.countUnit);
+    // the row's visibility depends on whether the draft differs (a user count is kept on rename)
+    if (detailAdjustTarget && !detailNameField.hidden) syncDetailSections(detailAdjustTarget, detailNameInput.value.trim());
   };
   document.getElementById('detailCountMinus')?.addEventListener('click', () => stepDetailCount(-1));
   document.getElementById('detailCountPlus')?.addEventListener('click', () => stepDetailCount(1));
@@ -2672,6 +2674,13 @@
       const section = list.closest('.detail-section');
       if (section) section.hidden = !shown.includes(k);
     });
+    // the 數量 row: hidden while the typed name means a type whose count
+    // retypeAfterRename would drop (a count the user set stays)
+    if (detailCountRow && detailCountShown){
+      const userCount = (det.fieldSource || {}).count === 'user' || det.countEdits > 0 || detailCountDraft !== (det.count || null);
+      const typeChanges = renamed && foodType !== (det.foodType || FIELD_DEFAULTS.guessFoodType(current, category));
+      detailCountRow.hidden = typeChanges && !userCount && !FIELD_DEFAULTS.alwaysCounted(foodType, category);
+    }
   }
   detailNameInput?.addEventListener('input', () => {
     if (detailAdjustTarget && !detailNameField.hidden) syncDetailSections(detailAdjustTarget, detailNameInput.value.trim());
@@ -2687,14 +2696,17 @@
     if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
       detailAdjustTarget.count = detailCountDraft;
       detailAdjustTarget.countEdits = (detailAdjustTarget.countEdits || 0) + 1;
+      setFieldSource(detailAdjustTarget, 'count', 'user'); // (before the rename below, which keeps user counts)
     }
     if (!detailNameField.hidden){
       const newName = detailNameInput.value.trim();
-      const renamed = !!newName && newName !== stripConfidenceText(detailAdjustTarget.name || '');
+      const oldName = stripConfidenceText(detailAdjustTarget.name || '');
+      const renamed = !!newName && newName !== oldName;
       if (newName) detailAdjustTarget.name = newName;
       // same rule as Group A Page 4: a new name may be another food type —
-      // its fields (and a count the user didn't set) follow
-      if (renamed) retypeAfterRename(detailAdjustTarget);
+      // its fields (and a count the user didn't set) follow. A Diary dish
+      // belongs to no running meal: no event, no Page-4 page state.
+      if (renamed) retypeAfterRename(detailAdjustTarget, { oldName, diary: true });
     }
     if (detailAdjustTarget.labelEl) {
       renderDetLabel(detailAdjustTarget.labelEl, detailAdjustTarget);
@@ -3504,7 +3516,7 @@
         });
         if (target.name !== nameBefore && !target.count) target.countable = false; // re-learned from the next calculation
         // a new name may mean another food type (蘋果 → 炒飯): its fields follow
-        if (target.name !== nameBefore) retypeAfterRename(target);
+        if (target.name !== nameBefore) retypeAfterRename(target, { oldName: splitNameConfidence(nameBefore || '').name });
         // a category switch (food <-> beverage) swaps the cooking options;
         // drop a cooking method the new list doesn't have
         if (target.category !== prevCategory && target.detail && target.detail.cookingMethod){
@@ -3528,13 +3540,16 @@
      still hold an untouched preset — get the new type's preset (source
      'default'); fields that no longer apply become null / 'na'. Values the
      user set are kept. The page list follows (det.step is a field name). */
-  function retypeAfterRename(det){
+  // opts.oldName: the name before (an old record without foodType: its type
+  // is guessed from it); opts.diary: a saved Diary dish (no event, no
+  // Page-4 page state on it)
+  function retypeAfterRename(det, opts = {}){
     const name = splitNameConfidence(det.name || '').name;
     const category = det.category === 'beverage' ? 'beverage' : 'food';
-    const before = det.foodType || 'other';
+    const before = det.foodType || FIELD_DEFAULTS.normalizeFoodType(FIELD_DEFAULTS.guessFoodType(opts.oldName || '', category), category);
     const foodType = FIELD_DEFAULTS.normalizeFoodType(FIELD_DEFAULTS.guessFoodType(name, category), category);
     det.foodType = foodType;
-    det.extraFields = [];
+    if (opts.diary) delete det.extraFields; else det.extraFields = [];
     const presets = FIELD_DEFAULTS.defaultsFor(name, foodType, category);
     const applicable = FIELD_DEFAULTS.applicableFields(foodType, category);
     const detail = { ...(det.detail || {}) };
@@ -3550,12 +3565,14 @@
       }
     });
     det.detail = detail;
-    det.groupOrder = {};
-    det.cardGroup = {};
+    if (opts.diary){ delete det.groupOrder; delete det.cardGroup; }
+    else { det.groupOrder = {}; det.cardGroup = {}; }
     // another food type: a count the user didn't set (the AI's photo count,
     // a preset) no longer applies — the next calculation decides again
     // whether the dish is countable. A count the user set is kept.
-    if (foodType !== before && (det.fieldSource.count !== 'user')){
+    // (a Diary count edit before 10/22 fix3 left no 'user' source: countEdits says so)
+    const userCount = det.fieldSource.count === 'user' || det.countEdits > 0;
+    if (foodType !== before && !userCount){
       det.count = null;
       det.countable = false;
       det.countUnit = null;
@@ -3574,7 +3591,7 @@
       det.countable = false;
       delete det.fieldSource.count;
     }
-    logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: presets, notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
+    if (!opts.diary) logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: presets, notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
     if (det.labelEl) renderDetLabel(det.labelEl, det);
   }
 
