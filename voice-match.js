@@ -97,15 +97,22 @@
   // Page commands (Group A, one field per page), checked before options
   const COMMANDS = [
     [['換一組', '下一組', '其他', '別的', '換別的', '再換'], 'more'],
-    [['上一步', '上一頁', '回上一', '上一個', '前一個'], 'back'],
-    [['下一步', '下一頁', '下一個', '下一道', '好了', '可以了', '確定', '完成'], 'next']
+    [['上一步', '上一頁', '回上一'], 'back'],
+    [['下一步', '下一頁', '好了', '可以了', '確定', '完成'], 'next']
+  ];
+  // these only at the START of what was said (「下一個」 = next), never
+  // inside a sentence: 「桌上一個」「剩下一個」 are counts, not commands
+  const START_COMMANDS = [
+    [new RegExp(`^${'(嗯|欸|呃|啊|那|好|請|再|我要|回到|回)*'}(上一個|前一個)`), 'back'],
+    [new RegExp(`^${'(嗯|欸|呃|啊|那|好|請|再|我要|回到|回)*'}(下一個|下一道)`), 'next']
   ];
   // words with a 一 that is not a count (「再來一個」 is simply ignored)
-  const NOT_A_COUNT = /(下一|上一|前一|再來一|回上一)(個|道|步|頁|組|題)?|換一組|一點|一下/g;
+  const NOT_A_COUNT = /^(嗯|欸|呃|啊|那|好|請|再|我要|回到|回)*(下一|上一|前一)(個|道)|(下一|上一|回上一)(步|頁|組|題)|再來一個|換一組|一點|一下/g;
   /** 'more' | 'back' | 'next' | null — 下一組 is checked before 下一步. */
   function command(text){
     const t = normalize(text);
     for (const [words, cmd] of COMMANDS) if (words.some(w => t.includes(w))) return cmd;
+    for (const [re, cmd] of START_COMMANDS) if (re.test(t)) return cmd;
     return null;
   }
 
