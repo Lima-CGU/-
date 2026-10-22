@@ -3780,6 +3780,7 @@
   }
 
   function resetChatState(){
+    chatContextDet = null;
     chatMessages = [];
     chatExtraDets = [];
     chatRenames = [];
@@ -4025,6 +4026,17 @@
   }
 
   // source: 'typed' (text box, incl. 🎤 dictation) or 'suggestion' (a Group C button)
+  /* (10/23) the dish talked about most recently: the one the user selected,
+     or the one the AI's last answer updated. A message sent without a
+     selection is about this dish by default (the AI is told so), and Group
+     C's buttons follow it. 整餐/其他 clears it. */
+  let chatContextDet = null;
+  // the dish a message is about: the selected one, else the recent one
+  function chatContextNo(sel){
+    if (sel) return sel.type === 'dish' ? sel.no : null;
+    return chatContextDet && chatAllDets().includes(chatContextDet) ? chatDishNo(chatContextDet) : null;
+  }
+
   async function sendChat(text, source = 'typed'){
     if (chatBusy) return;
     const sel = chatSelection();
@@ -4041,7 +4053,8 @@
     logEvent('message_submitted', {
       actor: 'user', target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, attemptId,
       source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed'),
-      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed }
+      // contextDish: the dish this message is about (selected, or the recent one; 'meal' for 整餐)
+      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel) }
     });
     if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
@@ -4066,6 +4079,9 @@
     typing.querySelector('.chat-time').textContent = '';
     scrollChatToEnd();
 
+    // what this message is about; a selected dish becomes the recent one
+    const contextNo = chatContextNo(sel);
+    if (sel) chatContextDet = sel.type === 'dish' ? sel.det : null;
     const started = performance.now();
     let data = null;
     const ctrl = new AbortController();
@@ -4074,7 +4090,7 @@
       const res = await fetch(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group: STUDY_GROUP === 'C' ? 'C' : 'B', dishes: chatDishesPayload(), selected: sel ? { type: sel.type, no: sel.no } : null, history, message: content }),
+        body: JSON.stringify({ group: STUDY_GROUP === 'C' ? 'C' : 'B', dishes: chatDishesPayload(), selected: sel ? { type: sel.type, no: sel.no } : null, contextDish: contextNo, history, message: content }),
         signal: ctrl.signal
       });
       data = await res.json().catch(() => null);
@@ -4107,6 +4123,9 @@
     });
     const beforeSnaps = new Map(chatAllDets().map(d => [d, snap(d)]));
     const touched = applyChatResult(data);
+    // the answer touched exactly one dish (updated, renamed, a note, or a
+    // dish just added in the chat): that is now the dish being talked about
+    if (touched.length === 1) chatContextDet = touched[0];
     addChatMessage('assistant', data.reply, {
       dishIds: touched.map(d => d.id),
       meta: {
@@ -4130,12 +4149,18 @@
       const b = beforeSnaps.get(det) || null;
       const a = snap(det);
       const autoSize = chatAutoSized.has(det) && !(b && b.size) && a.size === 'M';
+      // the size the SERVER set from 「半份/一半」 (the AI left it out): its own event
+      const halfSize = (data.updates || []).some(u => u.halfFromText && u.no === chatDishNo(det)) && a.size === 'XS' && (!b || b.size !== 'XS');
       const keys = [...new Set([...Object.keys(b || {}), ...Object.keys(a)])]
-        .filter(k => k !== 'notes' && !(autoSize && k === 'size') && (b ? b[k] ?? null : null) !== (a[k] ?? null));
+        .filter(k => k !== 'notes' && !(autoSize && k === 'size') && !(halfSize && k === 'size') && (b ? b[k] ?? null : null) !== (a[k] ?? null));
       // the size the system filled in from a count: its own event
       if (autoSize) logEvent('record_updated', {
         actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: null, after: 'M',
         detail: { auto: 'size-from-count', newDish: !b }
+      });
+      if (halfSize) logEvent('record_updated', {
+        actor: 'system', target: chatDishNo(det), attemptId, field: 'size', before: { size: b ? b.size ?? null : null }, after: { size: 'XS' },
+        detail: { auto: 'size-from-half', halfFromText: true }
       });
       const notesAdded = a.notes - (b ? b.notes : 0);
       if (!keys.length && !notesAdded && b) return; // touched, but nothing changed
