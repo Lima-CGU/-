@@ -91,6 +91,19 @@ t('C buttons never name 醬油 / 米酒', () => {
   assert.deepStrictEqual(v.suggestions, ['比較鹹']);
 });
 
+t('scenario questions 1–2: a new food is a scenario dish; question 3 is not', () => {
+  for (const [no, want] of [[1, 1], [2, 2], [3, undefined], [null, undefined]]){
+    const r = parseRequest({ group: 'B', dishes, history: [], message: '還有一顆滷蛋', ...(no ? { scenario: no } : {}) });
+    const v = validate({ reply: '好的。', newDishes: [{ name: '滷蛋', category: 'food', fields: { size: 'M' } }] }, r.dishes, 'B', r.selected, { contextNo: r.contextNo, scenario: r.scenario });
+    assert.strictEqual(v.newDishes.length, 1);
+    assert.strictEqual(v.newDishes[0].scenario, want, `question ${no}`);
+  }
+});
+t('the prompt: during questions 1–2 every new food goes into newDishes, not notes', () => {
+  const r = parseRequest({ group: 'B', dishes, history: [], message: 'x' });
+  assert.ok(buildMessages(r)[0].content.includes('第 1、2 題:使用者說出的每一樣清單上沒有的食物或食材,一律放進 newDishes'));
+});
+
 let failed = 0;
 for (const [name, fn] of tests){
   try { fn(); console.log(`ok   ${name}`); } catch (e){ failed += 1; console.log(`FAIL ${name}: ${e.message}`); }

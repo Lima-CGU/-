@@ -248,10 +248,12 @@
     logEvent('scenario_prompt_shown', { actor: 'system', detail: { no, group: STUDY_GROUP } });
   }
   // events never carry the typed words; the record keeps A's added food names
-  function recordScenarioAnswer(no, answer, extra){
+  // input: 'button' (沒有,下一題 / 有,回去修改), 'typed' (A: a food typed
+  // and sent) or 'message' (B/C: a chat message) — decides how it is counted
+  function recordScenarioAnswer(no, answer, extra, input){
     const st = scenarioState();
-    if (st) st.answers.push({ no, answer, at: new Date().toISOString(), ...(extra || {}) });
-    logEvent('scenario_answered', { actor: 'user', detail: { no, answer } });
+    if (st) st.answers.push({ no, answer, input, at: new Date().toISOString(), ...(extra || {}) });
+    logEvent('scenario_answered', { actor: 'user', detail: { no, answer, input } });
   }
   function scenarioRecord(){
     const st = scenarioState();
@@ -269,6 +271,13 @@
   function userActionWeight(e){
     if (e.event === 'message_submitted') return e.source === 'suggestion' ? 1 : 2;
     if (e.event === 'dish_renamed') return e.detail && e.detail.inputType === 'typed' ? 2 : 1;
+    // (11/01 fix) a scenario answer: a button = 1; text typed and sent = 2
+    // (input + send, like a typed rename); a chat message = 0 here, because
+    // its message_submitted already counts the 2
+    if (e.event === 'scenario_answered'){
+      const input = e.detail && e.detail.input;
+      return input === 'message' ? 0 : input === 'typed' ? 2 : 1;
+    }
     return 1;
   }
   // (step_next / step_back / photo_expanded / photo_collapsed are logged but not counted — 待老師確認)
@@ -321,7 +330,10 @@
   function dishNoOf(det){
     try { if (chatMode) return chatAllDets().indexOf(det) + 1 || null; } catch (err){ /* not set up yet */ }
     const i = currentDetections.indexOf(det);
-    return i >= 0 ? i + 1 : null;
+    if (i >= 0) return i + 1;
+    // (A: a food added through the scenario questions, numbered after the photo's)
+    const j = typeof reportExtraDets !== 'undefined' ? reportExtraDets.indexOf(det) : -1;
+    return j >= 0 ? currentDetections.length + j + 1 : null;
   }
   document.addEventListener('pictameal:api-error', e => {
     if (reportActive) logApiError(e.detail.api, e.detail.message);
@@ -2910,6 +2922,7 @@
   const reportScenarioYes      = document.getElementById('reportScenarioYes');
   const reportScenarioNone     = document.getElementById('reportScenarioNo2');
   // (11/01) Group A scenario questions — see showReportScenario()
+  const reportExtraChips = document.getElementById('reportExtraChips');
   let reportScenarioOn = false;
   const REPORT_EMPTY_HINT = document.getElementById('reportEmptyHint').textContent;
   let reportExtraDets = []; // foods added through questions 1–2 (no box on the photo)
@@ -2999,7 +3012,8 @@
   }
 
   function selectedReportDet(){
-    return currentDetections.find(d => d.id === reportSelectedId) || null;
+    return currentDetections.find(d => d.id === reportSelectedId)
+      || reportExtraDets.find(d => d.id === reportSelectedId) || null;
   }
 
   // White hollow = not filled, green ring = selected, solid green = filled.
@@ -3465,6 +3479,7 @@
 
   // Thumbnail = the dish's own (padded) box, cropped once and cached.
   function ensureReportThumb(det){
+    if (det.onPhoto === false) return Promise.resolve(''); // (no box on the photo)
     if (!det.reportThumb){
       const p = padBoxForThumbnail(det.x, det.y, det.w, det.h);
       det.reportThumb = cropRegionToDataUrl(currentPhotoData, p.x, p.y, p.w, p.h).catch(() => '');
@@ -3480,7 +3495,7 @@
     if (!det) return;
 
     const { name, confidence } = splitNameConfidence(det.loading ? '辨識中…' : (det.name || ''));
-    reportDishNum.textContent = String(currentDetections.indexOf(det) + 1);
+    reportDishNum.textContent = det.onPhoto === false ? '＋' : String(currentDetections.indexOf(det) + 1);
     reportDishName.textContent = name;
     reportDishConf.textContent = confidence;
     reportRenameBtn.disabled = !!det.loading || reportRenaming;
@@ -3504,6 +3519,7 @@
     }
     reportSelectedId = id;
     if (id) lastReportDishId = id;
+    renderReportExtraChips();
     reportScreenEl.classList.toggle('report-stepping', !!id && !chatMode);
     reportKcalOpen = false;
     reportDeleteConfirm.hidden = true;
@@ -3596,7 +3612,8 @@
       if (room > 0){
         // the hint line under the photo while picking
         // (the scenario question block sits under the photo instead of the hint)
-        const hintH = reportSelectedId ? 0 : reportScenarioOn ? reportScenario.offsetHeight + 20 : reportEmptyHint.offsetHeight + 16;
+        const chipsH = reportExtraChips && !reportExtraChips.hidden ? reportExtraChips.offsetHeight + 8 : 0;
+        const hintH = reportSelectedId ? 0 : (reportScenarioOn ? reportScenario.offsetHeight + 20 : reportEmptyHint.offsetHeight + 16) + chipsH;
         h = !reportSelectedId ? Math.min(fit, room - hintH)
           : compact ? Math.max(PHOTO_COMPACT_MIN_PX, Math.min(fit, room * A_STRIP_SHARE))
           : Math.min(fit, room * A_PEEK_SHARE);
@@ -3883,14 +3900,16 @@
     if (!det) return;
     logEvent('dish_deleted', { actor: 'user', target: dishNoOf(det), before: splitNameConfidence(det.name || '').name, after: null, attemptId: nextAttemptId() });
     currentDetections = currentDetections.filter(d => d !== det);
+    reportExtraDets = reportExtraDets.filter(d => d !== det);
     if (det.boxEl) det.boxEl.remove();
     if (currentMealMeta) currentMealMeta.editLog.deletedDishes.push({
       name: splitNameConfidence(det.name || '').name,
-      source: det.addedByUser ? 'user' : 'ai',
+      source: det.source === 'scenario' ? 'scenario' : det.addedByUser ? 'user' : 'ai',
       aiName: det.aiOriginal ? det.aiOriginal.name : null
     });
     Calorie.forget(det.id);
-    reportSelectedId = null;
+    // back to picking a dish (selectReportDish also restores the footer / photo size)
+    selectReportDish(null);
     renumberMarkers();
     renderReportPanel();
     resolveLabelOverlaps();
@@ -3988,6 +4007,8 @@
     reportScreenEl.classList.add('report-scenario-on');
     reportScenario.hidden = false;
     reportScenarioNoEl.textContent = `第 ${no} / ${SCENARIO_PROMPTS.length} 題`;
+    // questions 1–2 add a food; 3–4 go back to the dishes
+    reportScenarioYes.textContent = no <= 2 ? '有，補充食物' : '有，回去修改';
     reportScenarioQ.textContent = SCENARIO_PROMPTS[no - 1];
     reportScenarioInputRow.hidden = true;
     reportScenarioInput.value = '';
@@ -3996,18 +4017,49 @@
     reportScenarioAdded.textContent = added.length ? `已補充:${added.join('、')}` : '';
     reportScenarioYes.disabled = reportScenarioNone.disabled = isSavingMeal;
     if (!again) logScenarioShown(no);
+    renderReportExtraChips();
     sizeReportPhotoSlot();
   }
+  /* 「＋香蕉」 chips under the photo for the foods added through questions
+     1–2: a tap opens that dish's pages (edit / delete, 數量 too). During the
+     questions it leaves them like 「有，回去修改」 does (no answer recorded);
+     the next 「完成」 goes on with the same question. */
+  function renderReportExtraChips(){
+    if (!reportExtraChips) return;
+    const show = reportActive && !chatMode && reportExtraDets.length > 0 && !reportSelectedId;
+    reportExtraChips.hidden = !show;
+    reportExtraChips.textContent = '';
+    if (!show) return;
+    reportExtraDets.forEach(det => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'report-extra-chip';
+      chip.classList.toggle('is-done', isDishReviewed(det));
+      chip.dataset.id = det.id;
+      chip.textContent = `＋${splitNameConfidence(det.name || '').name}`;
+      chip.setAttribute('aria-label', `補充的菜:${splitNameConfidence(det.name || '').name}(點一下修改)`);
+      reportExtraChips.appendChild(chip);
+    });
+  }
+  reportExtraChips?.addEventListener('click', e => {
+    const chip = e.target.closest('.report-extra-chip');
+    const det = chip && reportExtraDets.find(d => d.id === chip.dataset.id);
+    if (!det || isSavingMeal) return;
+    if (reportScenarioOn) hideReportScenario();
+    logReportSelect(det, 'user', 'extra-chip');
+    selectReportDish(det.id);
+  });
   function hideReportScenario(){
     reportScenarioOn = false;
     reportScreenEl.classList.remove('report-scenario-on');
     if (reportScenario) reportScenario.hidden = true;
+    renderReportExtraChips();
     if (reportActive) sizeReportPhotoSlot();
   }
   reportScenarioNone?.addEventListener('click', () => {
     const st = scenarioState();
     if (!st || isSavingMeal || scenarioTapTooSoon()) return;
-    recordScenarioAnswer(st.next, 'none');
+    recordScenarioAnswer(st.next, 'none', null, 'button');
     st.next += 1;
     if (st.next > SCENARIO_PROMPTS.length) finishReportMeal();
     else showReportScenario();
@@ -4023,7 +4075,7 @@
       return;
     }
     // questions 3–4: back to the dishes (seasonings / cooking); asked again after 「完成」
-    recordScenarioAnswer(st.next, 'edit');
+    recordScenarioAnswer(st.next, 'edit', null, 'button');
     hideReportScenario();
     // the hint under the photo (a toast would cover the 完成 button)
     reportEmptyHint.textContent = '修改完請再按下方的「完成」';
@@ -4051,7 +4103,7 @@
     // the dish itself (system — the user's action is the scenario_answered below)
     logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, detail: { via: 'scenario', scenarioNo: no } });
     st.added.push({ no, name });
-    recordScenarioAnswer(no, 'text', { added: name });
+    recordScenarioAnswer(no, 'text', { added: name }, 'typed');
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
     showReportScenario(true);
@@ -4568,14 +4620,16 @@
     });
     // (11/01) an answer to a scenario question: the next question — unless the
     // reply is off-topic or the AI asks back (then the user answers that first)
-    const answered = askedScenario && chatScenarioNo === askedScenario && !data.offTopic && !data.isClarification;
+    // Every on-topic message about the question is kept as a 'text' answer
+    // (also when the AI asks back — the user then answers again, or taps
+    // 「沒有，下一題」, which is then recorded as 'text' too).
+    const onQuestion = askedScenario && chatScenarioNo === askedScenario && !data.offTopic;
+    if (onQuestion) recordScenarioAnswer(askedScenario, 'text', data.isClarification ? { askedBack: true } : null, 'message');
+    const answered = onQuestion && !data.isClarification;
     // (buttons that would be cleared by the next question at once are not
     // shown, so they are not counted as shown either)
     if (!answered) renderChatSuggestions(data.suggestions);
-    if (answered){
-      recordScenarioAnswer(askedScenario, 'text');
-      advanceChatScenario();
-    }
+    if (answered) advanceChatScenario();
   }
 
   function updateChatBusy(){
@@ -4688,8 +4742,15 @@
         notes: nd.note ? [nd.note] : [],
         ...(Number.isInteger(nd.count) ? { count: nd.count, countUnit: COUNT_UNITS[2], countEdits: 0 } : {}),
         onPhoto: false,
-        chatDescribed: true
+        chatDescribed: true,
+        // (11/01 fix) added while answering scenario question 1 or 2: saved as
+        // source 'scenario', like Group A's added foods (otherwise 'chat')
+        ...(nd.scenario === 1 || nd.scenario === 2 ? { source: 'scenario', scenarioNo: nd.scenario } : {})
       };
+      if (det.source === 'scenario'){
+        const st = scenarioState();
+        if (st) st.added.push({ no: det.scenarioNo, name: det.name });
+      }
       // presets by food type (guessed from the name), then what the AI recorded
       det.foodType = FIELD_DEFAULTS.guessFoodType(det.name, det.category);
       const said = det.detail;
@@ -4848,7 +4909,10 @@
   }
   chatScenarioNextBtn?.addEventListener('click', () => {
     if (!chatScenarioNo || chatBusy || isSavingMeal || scenarioTapTooSoon()) return;
-    recordScenarioAnswer(chatScenarioNo, 'none');
+    // already answered in a message (e.g. the AI asked back): still a 'text' answer
+    const st = scenarioState();
+    const hadText = !!st && st.answers.some(a => a.no === chatScenarioNo && a.answer === 'text');
+    recordScenarioAnswer(chatScenarioNo, hadText ? 'text' : 'none', hadText ? { closedBy: 'button' } : null, 'button');
     advanceChatScenario();
   });
 
