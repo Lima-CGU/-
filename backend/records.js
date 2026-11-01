@@ -109,7 +109,7 @@ function validateRecord(r){
   need(r.chat == null || (isObj(r.chat) && Array.isArray(r.chat.messages)), 'record.chat must be an object with messages');
   need(r.mealId == null || (typeof r.mealId === 'string' && MEAL_ID_RE.test(r.mealId)), 'record.mealId: up to 20 letters, digits, - or _');
   for (const k of ['taskStartAt', 'photoConfirmedAt', 'aiDraftAt', 'firstEditAt', 'finalConfirmedAt']) need(r.times[k] == null || isIso(r.times[k]), `record.times.${k} must be an ISO date`);
-  for (const k of ['totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec']) need(r.times[k] == null || (typeof r.times[k] === 'number' && Number.isFinite(r.times[k]) && r.times[k] >= 0), `record.times.${k} must be a number >= 0`);
+  for (const k of ['totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'scenarioSec']) need(r.times[k] == null || (typeof r.times[k] === 'number' && Number.isFinite(r.times[k]) && r.times[k] >= 0), `record.times.${k} must be a number >= 0`);
   need(r.userActionCount == null || (Number.isInteger(r.userActionCount) && r.userActionCount >= 0), 'record.userActionCount must be an integer >= 0');
   need(r.events == null || (Array.isArray(r.events) && r.events.length <= MAX_EVENTS), `record.events must be an array (max ${MAX_EVENTS})`);
   (r.events || []).forEach((e, i) => validateEvent(e, `record.events[${i}]`));
@@ -203,11 +203,16 @@ async function loadRecords(db, { pid, group, mealId } = {}){
 const CSV_COLUMNS = [
   'recordId', 'pid', 'group', 'mealId', 'appVersion', 'startedAt', 'nextAt', 'doneAt', 'durationSec',
   'totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'userActionCount',
+  // (11/01) the scenario questions: question 1 shown -> question 4 answered (part of
+  // correctionSec), and each question's answers in order (none / edit / text, joined by +)
+  'scenarioSec', 'scenario1', 'scenario2', 'scenario3', 'scenario4',
   'dishNo', 'dishSource', 'aiName', 'aiConfidence', 'finalName', 'renamedFrom',
   'containerType', 'size', 'cookingMethod', 'sugar', 'salt',
+  // (11/01) 調味, joined by 、 (empty = nothing picked; NA = fruit / beverage)
+  'seasonings',
   // where each field's value came from: default (system preset, never changed) / user / ai
   // (a field that doesn't apply to the food type: value NA, source na)
-  'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource', 'countSource',
+  'foodType', 'containerTypeSource', 'sizeSource', 'cookingMethodSource', 'sugarSource', 'saltSource', 'seasoningsSource', 'countSource',
   'aiCount', 'finalCount', 'countUnit', 'countEdits',
   // Group A: the user walked through this dish's pages and tapped 完成這道菜
   'userReviewed',
@@ -228,6 +233,17 @@ function csvCell(v){
 const names = list => (Array.isArray(list) ? list.map(x => (isObj(x) ? x.name : x)).filter(Boolean).join('; ') : '');
 const stripPct = s => String(s || '').replace(/\(\d+%\)$/, '');
 
+// (11/01) scenario1..4: that question's answers in order, e.g. 'text+none' / 'edit+none'
+function scenarioColumns(sc){
+  const answers = sc && Array.isArray(sc.answers) ? sc.answers : [];
+  const out = {};
+  for (let no = 1; no <= 4; no++){
+    const list = answers.filter(a => isObj(a) && a.no === no).map(a => a.answer);
+    out[`scenario${no}`] = list.length ? list.join('+') : null;
+  }
+  return out;
+}
+
 function toCsv(records){
   const rows = [CSV_COLUMNS.join(',')];
   for (const r of records){
@@ -238,6 +254,8 @@ function toCsv(records){
       startedAt: t.startedAt, nextAt: t.nextAt, doneAt: t.doneAt, durationSec: t.durationSec,
       totalSec: t.totalSec, correctionSec: t.correctionSec, aiProcessingSec: t.aiProcessingSec,
       preEditDelaySec: t.preEditDelaySec, userActionCount: r.userActionCount,
+      scenarioSec: t.scenarioSec ?? null,
+      ...scenarioColumns(r.scenario),
       mealTotalKcal: r.nutrition ? r.nutrition.totalKcal : null,
       messageCount: chat ? c.messageCount : null,
       userMessageCount: chat ? c.userMessageCount : null,
@@ -263,8 +281,9 @@ function toCsv(records){
         ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt']
           // (the container field was removed 10/22: an empty cell, an old record's value as saved)
           .map(k => [k, d.fieldSource && d.fieldSource[k] === 'na' && !x[k] ? (k === 'containerType' ? null : 'NA') : x[k]])),
+        seasonings: Array.isArray(x.seasonings) ? x.seasonings.join('、') : d.fieldSource && d.fieldSource.seasonings === 'na' ? 'NA' : null,
         foodType: d.foodType || null,
-        ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt', 'count']
+        ...Object.fromEntries(['containerType', 'size', 'cookingMethod', 'sugar', 'salt', 'seasonings', 'count']
           .map(k => [`${k}Source`, (d.fieldSource && d.fieldSource[k]) || ((k === 'count' ? d.count : x[k]) ? 'unknown' : null)])),
         aiCount: ai.count ?? null, finalCount: d.count ?? null, countUnit: d.countUnit || ai.countUnit || null,
         countEdits: d.countEdits ?? (d.count != null || ai.count != null ? 0 : null),

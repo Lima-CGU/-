@@ -2568,3 +2568,29 @@ body.candidate-sheet-open .toast{
 .report-photo-slot.is-compact > .report-add-dish-btn{ position: absolute; left: 8px; right: auto; bottom: 6px; top: auto; z-index: 6; font-size: 12px; padding: 5px 10px; }
 .screen-report .report-cards .detail-choice-sub{ display: block; font-size: 12px; font-weight: 600; line-height: 1.1; color: var(--ink-soft); }
 .screen-report .report-cards .detail-choice-label:has(.detail-choice-sub){ white-space: normal; text-align: center; line-height: 1.15; }
+
+/* 調味 (11/01): 「其他」 opens a one-line box for a seasoning of one's own */
+.report-season-other{ display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.report-season-other[hidden]{ display: none; }
+.report-season-input{ flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 12px; font-family: var(--font-body); font-size: 15px; color: var(--ink); background: #fff; }
+.report-season-input:focus{ outline: none; border-color: var(--purple); }
+.report-season-add{ flex: 0 0 auto; height: 40px; padding: 0 16px; }
+
+/* (11/01) Group A: the scenario questions after 「完成」 replace the dish
+   panel and the footer, one question per page, under the photo */
+.report-scenario{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; padding: 16px; border: 1.5px solid var(--line); border-radius: 16px; background: #fff; }
+.report-scenario[hidden]{ display: none; }
+.report-scenario-no{ margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.report-scenario-q{ margin: 0; font-family: var(--font-body); font-size: 18px; font-weight: 800; line-height: 1.45; color: var(--ink); }
+.report-scenario-added{ margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 600; color: #0b6b4f; }
+.report-scenario-added[hidden]{ display: none; }
+.report-scenario-input{ display: flex; gap: 8px; align-items: center; }
+.report-scenario-input[hidden]{ display: none; }
+.report-scenario-input .btn{ flex: 0 0 auto; height: 40px; padding: 0 16px; }
+.report-scenario-actions{ display: flex; gap: 10px; }
+.report-scenario-actions .btn{ flex: 1; padding: 12px 8px; font-size: 15px; }
+.screen-report.report-scenario-on .report-panel,
+.screen-report.report-scenario-on .report-foot{ display: none; }
+#chatScenarioNextBtn[hidden], #chatDoneBtn[hidden]{ display: none; }
+/* the 「第 n / 4 題」 tag on a scenario question in the chat */
+.chat-scenario-tag{ display: block; margin-bottom: 2px; font-size: 12px; font-weight: 700; color: var(--purple-deep); }
