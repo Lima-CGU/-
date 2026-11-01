@@ -251,13 +251,18 @@ photo-upload-site/
   - 第 3、4 題按「有」:回到選菜畫面讓使用者修改(調味欄、烹調方式);改完再按「完成」,從第 3 題(或第 4 題)接著問,已答完的題不重問。
 - **B/C 組**:按「完成」(資訊不完整時照舊先確認)後,系統把題目以固定文字貼成一則 AI 訊息(不經過 AI 產生、不改寫,上方小字「第 n / 4 題」);使用者照常用語音或打字回答,AI 依規則更新(漏掉的食物 → 新增的菜、補充的食材 → 備註、調味料 → 調味欄、烹調方式 → 烹調欄位),AI 回覆後貼出下一題。也可以按「沒有，下一題」(這時「完成」按鈕換成它)。C 組的提示按鈕維持原規則;題目貼出時先清空,等 AI 回覆後才有新的按鈕。後端知道正在問第幾題(`/api/chat` 的 `scenario`),AI 不會在這時叫使用者按「完成」,也不會自己問下一題。
 - 四題都答完才存檔,中途不能跳過(A 組的面板、B/C 組的「完成」在提問時都不出現)。
+- 一題出現後 0.4 秒內的點擊不算,避免連點「沒有，下一題」時把下一題也答掉。
+- B/C 組:AI 對回答的回覆如果是反問(`isClarification`)或無關的話,不會跳到下一題,等使用者回答後才問下一題;直接被下一題蓋掉的提示按鈕不顯示、也不計入 C 組的 `suggestionShownCount`。
+- A 組第 1、2 題補充的菜:另記一筆 `dish_added`(actor `system`、`detail.via = 'scenario'`,不算使用者操作;使用者的操作是那筆 `scenario_answered`);水果補充時數量預設 1;熱量照常計算並計入整餐熱量。
+- `firstEditAt`(第一次修改)只看第一次按「完成」之前的操作,情境提示的回答在任何一組都不算第一次修改。
 - **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,例如 `text+none`、`edit+none`)。
 - **計時**:`final_confirmed` 改在第 4 題答完、真正存檔時記錄(仍是「最終確認」);按「完成」另記 `finish_pressed`。所以 `correctionSec`、`totalSec` 都包含情境提示的時間;`times.scenarioSec`(第 1 題出現 → 第 4 題答完)可以讓分析時分開。
 
 **調味欄 `seasonings`**(【待老師確認】,寫在 `field-defaults.js`):
 - 可複選:醬油、米酒、其他(自己輸入文字,最多 10 字)、沒有特別調味(選它時清掉其他選項;選其他選項時清掉它)。
 - 適用水果、飲料以外的所有食物類型;**不預先選任何選項**,使用者可以不選直接下一步,這時存成 `[]`、`fieldSource: 'default'`;不適用的類型存 `null`、`'na'`。
-- A 組一頁一題:在「烹調方式」之後一頁;語音說「醬油」「米酒」會加入,說「沒有」= 沒有特別調味。
+- A 組一頁一題:在「烹調方式」之後一頁;語音說「醬油」「米酒」會加入,說「沒有」= 沒有特別調味;「沒有醬油」「不加米酒」這種否定的說法不會加入。
+- 事件:A 組改調味記 `field_set`/`field_changed`(`field = 'seasonings'`,`before`/`after` 是清單)。使用者在「其他」自己輸入的調味料文字會出現在這些事件裡(和改菜名的事件記菜名一樣)。
 - B/C 組:同一個 `seasonings` 欄位;AI 只在使用者明確說了調味料時才填,不可依菜名自行加入醬油、米酒(SYSTEM_PROMPT);這次說到的會合併到原本的(「沒有特別調味」除外)。
 - 調味不影響熱量。存在每道菜的 `detail.seasonings`;CSV 加 `seasonings`(以「、」連接;不適用 `NA`)和 `seasoningsSource`;管理後台「AI 初稿 ↔ 最後結果」顯示「調味:…」(沒選顯示「未選」)。
 - 日記的編輯畫面也有調味區塊(只在適用的食物類型)。
@@ -391,7 +396,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `correctionSec` | ai_draft_displayed → final_confirmed(11/01 起包含情境提示的時間) |
 | `aiProcessingSec` | photo_confirmed → ai_draft_displayed |
 | `preEditDelaySec` | ai_draft_displayed → firstEdit;沒有修改就是 `null` |
-| `scenarioSec` | (11/01)第 1 題情境提示出現 → 第 4 題答完;分析時可以從 `correctionSec` 扣掉。A 組回去修改的時間也包含在內 |
+| `scenarioSec` | (11/01)第 1 題情境提示出現 → 第 4 題答完;分析時可以從 `correctionSec` 扣掉。A 組回去修改(第 3、4 題按「有」到再按「完成」)的時間也包含在內;B/C 組包含等 AI 回覆的時間 |
 
 秒數由 `elapsedMs` 相減,取到小數一位。
 

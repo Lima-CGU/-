@@ -75,6 +75,20 @@ t('CSV: seasonings, seasoningsSource, scenarioSec, scenario1..4', () => {
   assert.deepStrictEqual(['scenario1', 'scenario2', 'scenario3', 'scenario4'].map(k => cell(1, k)), ['text+none', 'none', 'edit+none', 'none']);
 });
 
+t('voice: a negated seasoning is not added', () => {
+  const v = require('../../voice-match');
+  assert.deepStrictEqual(v.seasonings('沒有醬油'), []);
+  assert.deepStrictEqual(v.seasonings('不加米酒'), []);
+  assert.deepStrictEqual(v.seasonings('醬油但沒有米酒'), ['醬油']);
+  assert.deepStrictEqual(v.seasonings('有醬油跟米酒'), ['醬油', '米酒']);
+  assert.deepStrictEqual(v.seasonings('沒有'), ['沒有特別調味']);
+});
+t('C buttons never name 醬油 / 米酒', () => {
+  const r = parseRequest({ group: 'C', dishes, history: [], message: 'x', selected: { type: 'dish', no: 1 } });
+  const v = validate({ reply: '好的。', suggestions: ['有加醬油', '有放米酒', '比較鹹'] }, r.dishes, 'C', r.selected, { contextNo: r.contextNo });
+  assert.deepStrictEqual(v.suggestions, ['比較鹹']);
+});
+
 let failed = 0;
 for (const [name, fn] of tests){
   try { fn(); console.log(`ok   ${name}`); } catch (e){ failed += 1; console.log(`FAIL ${name}: ${e.message}`); }

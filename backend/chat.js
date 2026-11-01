@@ -171,7 +171,7 @@ function clipReply(text){
 // health / "saved" wording, no duplicates, at most 4.
 const HEALTH_WORDS = /營養|健康|熱量|減肥|瘦身|建議/;
 // ...nor guess ingredients / seasonings nobody mentioned
-const SEASONING_WORDS = /醬|醋|蔥|蒜|薑|辣椒|辣油|胡椒|芝麻|味噌|咖哩|起司|美乃滋|沙茶|香菜|九層塔|麻油|香油|奶油|蜂蜜|檸檬|加了|有放|放了|淋/;
+const SEASONING_WORDS = /醬|米酒|酒|醋|蔥|蒜|薑|辣椒|辣油|胡椒|芝麻|味噌|咖哩|起司|美乃滋|沙茶|香菜|九層塔|麻油|香油|奶油|蜂蜜|檸檬|加了|有放|放了|淋/;
 // ...nor be about a field that doesn't apply to the dish (fruit: no salt …)
 const FIELD_WORDS = {
   salt: /鹽|鹹|淡/,

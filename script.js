@@ -238,7 +238,13 @@
     if (!currentMealMeta.scenario) currentMealMeta.scenario = { next: 1, answers: [], added: [] };
     return currentMealMeta.scenario;
   }
+  // a question that just appeared ignores taps for a moment, so a quick
+  // double tap on 「沒有，下一題」 can't also answer the next question
+  const SCENARIO_TAP_GUARD_MS = 400;
+  let scenarioShownAt = 0;
+  const scenarioTapTooSoon = () => performance.now() - scenarioShownAt < SCENARIO_TAP_GUARD_MS;
   function logScenarioShown(no){
+    scenarioShownAt = performance.now();
     logEvent('scenario_prompt_shown', { actor: 'system', detail: { no, group: STUDY_GROUP } });
   }
   // events never carry the typed words; the record keeps A's added food names
@@ -280,7 +286,10 @@
     const seqOf = name => (task.events.find(e => e.event === name) || {}).seq || null;
     const draftSeq = seqOf('ai_draft_displayed');
     const finSeq = seqOf('final_confirmed');
-    const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
+    // (11/01) only changes made before the first 「完成」 — answers to the scenario
+    // questions after it never count as the first edit, in any group
+    const finishSeq = seqOf('finish_pressed') || Infinity;
+    const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.seq < finishSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
     const userActionCount = draftSeq && finSeq ? task.events.filter(e => e.seq >= draftSeq && e.seq <= finSeq
       && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).reduce((n, e) => n + userActionWeight(e), 0) : null;
     return {
@@ -2343,7 +2352,7 @@
           box: null, displayBox: null, source: d.source || 'chat', tapPoint: null,
           foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
           notes: [...(d.notes || [])],
-          ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, countConfirmed: !!d.countConfirmed } : {}),
+          ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, ...(chatMode ? { countConfirmed: !!d.countConfirmed } : {}) } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
           thumbUrl
         };
@@ -2741,7 +2750,8 @@
     if (!detailSeasonList) return;
     detailSeasonList.innerHTML = seasoningCardsHtml(draftSeasonings());
     detailSeasonList.querySelectorAll('.detail-choice').forEach(btn => {
-      btn.classList.toggle('selected', btn.dataset.kind === 'seasonings' ? draftSeasonings().includes(btn.dataset.value) : detailSeasonOtherOpen);
+      btn.classList.toggle('selected', btn.dataset.kind === 'seasonings' && draftSeasonings().includes(btn.dataset.value));
+      btn.classList.toggle('is-open', btn.dataset.kind === 'seasonings-other' && detailSeasonOtherOpen);
     });
     if (detailSeasonOther) detailSeasonOther.hidden = !detailSeasonOtherOpen;
   }
@@ -2900,6 +2910,7 @@
   const reportScenarioNone     = document.getElementById('reportScenarioNo2');
   // (11/01) Group A scenario questions — see showReportScenario()
   let reportScenarioOn = false;
+  const REPORT_EMPTY_HINT = document.getElementById('reportEmptyHint').textContent;
   let reportExtraDets = []; // foods added through questions 1–2 (no box on the photo)
   let reportActive = false;      // Page 4 is showing (and owns the photo stage)
   let chatMode = false;          // ...as Group B's chat page (see "Group B chat" below)
@@ -3094,7 +3105,8 @@
 
   // Whole-meal estimate beside the progress / 完成 button.
   function renderReportTotal(){
-    const ids = currentDetections.filter(d => !d.loading && isDishComplete(d)).map(d => d.id);
+    // (11/01: foods added through the scenario questions count too)
+    const ids = currentDetections.concat(reportExtraDets).filter(d => !d.loading && isDishComplete(d)).map(d => d.id);
     const sum = Calorie.summary(ids);
     reportTotal.hidden = !(sum.estimated || sum.pending);
     reportTotalNum.textContent = sum.estimated ? String(sum.kcal) : '…';
@@ -3125,7 +3137,7 @@
 
   // Any dish's calculation started / finished / was dropped.
   document.addEventListener('pictameal:calorie-update', e => {
-    const det = (chatMode ? chatAllDets() : currentDetections).find(d => d.id === e.detail.dishId);
+    const det = (chatMode ? chatAllDets() : currentDetections.concat(reportExtraDets)).find(d => d.id === e.detail.dishId);
     // the matched item is counted per 隻/顆/個 …: the dish needs a 數量
     const st = Calorie.getState(e.detail.dishId);
     const r = st && st.result;
@@ -3261,7 +3273,8 @@
     reportStepCards.querySelectorAll('.detail-choice').forEach(btn => {
       const kind = btn.dataset.kind;
       btn.classList.toggle('selected', kind === 'seasonings' ? seasoningsOf(det).includes(btn.dataset.value)
-        : kind === 'seasonings-other' ? !!det.seasonOtherOpen : btn.dataset.value === d[kind]);
+        : kind === 'seasonings-other' ? false : btn.dataset.value === d[kind]);
+      if (kind === 'seasonings-other') btn.classList.toggle('is-open', !!det.seasonOtherOpen); // (open box, not a pick)
     });
   }
 
@@ -3291,7 +3304,7 @@
   // Group A: one committed change = one attempt (like a card tap)
   function setReportSeasonings(det, next, source){
     const prev = seasoningsOf(det);
-    if (sameList(prev, next)) return;
+    if (sameList(prev, next)){ renderReportStep(det); return; } // (e.g. a dropped 其他 text: close its box)
     if (currentMealMeta){
       currentMealMeta.editLog.fieldSetCount += 1;
       if (prev.length) currentMealMeta.editLog.fieldChangeCount += 1;
@@ -3342,6 +3355,12 @@
     setReportField(btn.dataset.kind, btn.dataset.value);
   });
   reportSeasonAdd?.addEventListener('click', addReportSeasoningText);
+  // a phone keyboard would cover these low input rows: bring them into view
+  ['reportSeasonInput', 'reportScenarioInput', 'detailSeasonInput'].forEach(id => {
+    document.getElementById(id)?.addEventListener('focus', e => {
+      setTimeout(() => { try { e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (err){ /* old browsers */ } }, 300);
+    });
+  });
   reportSeasonInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); addReportSeasoningText(); }
   });
@@ -3508,6 +3527,7 @@
   function enterReportMode(){
     reportActive = true;
     reportExtraDets = [];
+    reportEmptyHint.textContent = REPORT_EMPTY_HINT;
     hideReportScenario();
     reportSelectedId = null; // nothing selected until the user taps a dish
     lastReportDishId = null;
@@ -3963,6 +3983,7 @@
     if (!st || !reportScenario) return;
     const no = st.next;
     reportScenarioOn = true;
+    reportEmptyHint.textContent = REPORT_EMPTY_HINT;
     reportScreenEl.classList.add('report-scenario-on');
     reportScenario.hidden = false;
     reportScenarioNoEl.textContent = `第 ${no} / ${SCENARIO_PROMPTS.length} 題`;
@@ -3984,7 +4005,7 @@
   }
   reportScenarioNone?.addEventListener('click', () => {
     const st = scenarioState();
-    if (!st || isSavingMeal) return;
+    if (!st || isSavingMeal || scenarioTapTooSoon()) return;
     recordScenarioAnswer(st.next, 'none');
     st.next += 1;
     if (st.next > SCENARIO_PROMPTS.length) finishReportMeal();
@@ -3992,7 +4013,7 @@
   });
   reportScenarioYes?.addEventListener('click', () => {
     const st = scenarioState();
-    if (!st || isSavingMeal) return;
+    if (!st || isSavingMeal || scenarioTapTooSoon()) return;
     if (st.next <= 2){
       // questions 1–2: type the food to add (not an answer until it is sent)
       reportScenarioInputRow.hidden = false;
@@ -4003,8 +4024,9 @@
     // questions 3–4: back to the dishes (seasonings / cooking); asked again after 「完成」
     recordScenarioAnswer(st.next, 'edit');
     hideReportScenario();
+    // the hint under the photo (a toast would cover the 完成 button)
+    reportEmptyHint.textContent = '修改完請再按下方的「完成」';
     updateReportDone();
-    showToast('修改完請再按「完成」');
   });
   function submitScenarioFood(){
     const st = scenarioState();
@@ -4019,7 +4041,14 @@
     det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
     reportExtraDets.push(det);
     applyFieldDefaults(det, currentDetections.length + reportExtraDets.length, 'scenario');
+    // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
+    if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
+      det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+      setFieldSource(det, 'count', 'default');
+    }
     if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
+    // the dish itself (system — the user's action is the scenario_answered below)
+    logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, detail: { via: 'scenario', scenarioNo: no } });
     st.added.push({ no, name });
     recordScenarioAnswer(no, 'text', { added: name });
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
@@ -4536,9 +4565,13 @@
         detail: { newDish: !b, notesAdded }
       });
     });
-    renderChatSuggestions(data.suggestions);
-    // (11/01) an answer to a scenario question (not an off-topic one): next question
-    if (askedScenario && chatScenarioNo === askedScenario && !data.offTopic){
+    // (11/01) an answer to a scenario question: the next question — unless the
+    // reply is off-topic or the AI asks back (then the user answers that first)
+    const answered = askedScenario && chatScenarioNo === askedScenario && !data.offTopic && !data.isClarification;
+    // (buttons that would be cleared by the next question at once are not
+    // shown, so they are not counted as shown either)
+    if (!answered) renderChatSuggestions(data.suggestions);
+    if (answered){
       recordScenarioAnswer(askedScenario, 'text');
       advanceChatScenario();
     }
@@ -4610,6 +4643,8 @@
           if ((det.detail || {}).size !== v) setFieldSource(det, k, 'default');
           return;
         }
+        // (調味: only when the AI's list adds something)
+        if (k === 'seasonings' && Array.isArray(v) && v.every(x => seasoningsOf(det).includes(x))) return;
         setFieldSource(det, k, 'ai');
       });
       // 調味 (11/01): what the user said now is ADDED to the list
@@ -4811,7 +4846,7 @@
     } else askChatScenario(st.next);
   }
   chatScenarioNextBtn?.addEventListener('click', () => {
-    if (!chatScenarioNo || chatBusy || isSavingMeal) return;
+    if (!chatScenarioNo || chatBusy || isSavingMeal || scenarioTapTooSoon()) return;
     recordScenarioAnswer(chatScenarioNo, 'none');
     advanceChatScenario();
   });

@@ -2594,3 +2594,7 @@ body.candidate-sheet-open .toast{
 #chatScenarioNextBtn[hidden], #chatDoneBtn[hidden]{ display: none; }
 /* the 「第 n / 4 題」 tag on a scenario question in the chat */
 .chat-scenario-tag{ display: block; margin-bottom: 2px; font-size: 12px; font-weight: 700; color: var(--purple-deep); }
+/* 「其他…」 while its box is open: dashed, not the look of a picked seasoning */
+.detail-seasoning-choice.is-open{ border-style: dashed; border-color: var(--purple); color: var(--purple-deep); background: #fff; }
+/* the 調味 page with the 其他 box open: cards at the top, no big gaps */
+.screen-report.report-stepping .report-step:has(#reportSeasonOther:not([hidden])) .report-cards{ margin-block: 0; }
