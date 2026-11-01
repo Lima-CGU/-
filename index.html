@@ -218,6 +218,11 @@
               </div>
               <p class="report-step-current" id="reportStepCurrent" hidden></p>
               <div class="detail-option-list report-cards" id="reportStepCards"></div>
+              <!-- 調味 page: 「其他」 opens this box for a seasoning of one's own -->
+              <div class="report-season-other" id="reportSeasonOther" hidden>
+                <input type="text" class="report-season-input" id="reportSeasonInput" maxlength="10" placeholder="輸入其他調味料" aria-label="輸入其他調味料">
+                <button type="button" class="btn btn-primary report-season-add" id="reportSeasonAdd">加入</button>
+              </div>
               <div class="report-step-tools">
                 <button type="button" class="report-other-btn" id="reportOtherBtn">其他 ↻</button>
                 <button type="button" class="report-reveal-btn" id="reportRevealBtn" hidden>還要補充其他欄位</button>
@@ -227,6 +232,20 @@
                 <button type="button" class="btn btn-primary" id="reportStepNext">下一步</button>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- Group A (11/01): the four scenario questions after 「完成」, one per page -->
+        <div class="report-scenario" id="reportScenario" hidden>
+          <p class="report-scenario-no" id="reportScenarioNo"></p>
+          <p class="report-scenario-q" id="reportScenarioQ"></p>
+          <p class="report-scenario-added" id="reportScenarioAdded" hidden></p>
+          <div class="report-scenario-input" id="reportScenarioInputRow" hidden>
+            <input type="text" class="report-season-input" id="reportScenarioInput" maxlength="30" placeholder="請輸入要補充的食物" aria-label="請輸入要補充的食物">
+            <button type="button" class="btn btn-primary" id="reportScenarioSubmit">送出</button>
+          </div>
+          <div class="report-scenario-actions">
+            <button type="button" class="btn btn-outline" id="reportScenarioYes">有，回去修改</button>
+            <button type="button" class="btn btn-primary" id="reportScenarioNo2">沒有，下一題</button>
           </div>
         </div>
         <!-- Group B (chat) only: the conversation, under the photo -->
@@ -253,6 +272,8 @@
             <span class="report-total-value"><b class="report-total-num" id="chatTotalNum">0</b><span class="report-total-unit">kcal</span><small>估算值</small></span>
           </div>
           <button class="btn btn-primary chat-done-btn" id="chatDoneBtn" type="button">完成</button>
+          <!-- (11/01) while the scenario questions are asked: instead of 完成 -->
+          <button class="btn btn-primary chat-done-btn" id="chatScenarioNextBtn" type="button" hidden>沒有，下一題</button>
         </div>
         <div class="chat-total-note" id="chatTotalNote" hidden></div>
         <div class="chat-sel-chip" id="chatSelChip" hidden></div>
@@ -388,6 +409,16 @@
           <div class="detail-scroll-wrap">
             <div class="detail-option-list detail-cooking-list" id="detailCookingList"></div>
             <div class="detail-scroll-hint" aria-hidden="true">›</div>
+          </div>
+        </div>
+
+        <!-- 調味 (11/01): several can be picked; only for food types it applies to -->
+        <div class="detail-section" id="detailSeasonSection">
+          <div class="detail-section-head">調味</div>
+          <div class="detail-option-list detail-season-list" id="detailSeasonList"></div>
+          <div class="report-season-other" id="detailSeasonOther" hidden>
+            <input type="text" class="report-season-input" id="detailSeasonInput" maxlength="10" placeholder="輸入其他調味料" aria-label="輸入其他調味料">
+            <button type="button" class="btn btn-primary report-season-add" id="detailSeasonAdd">加入</button>
           </div>
         </div>
 

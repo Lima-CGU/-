@@ -282,6 +282,8 @@
     const x = d.detail || {};
     const parts = FIELDS.filter(k => x[k]).map(k => `${FIELD_LABEL[k]}:${k === 'containerType' ? CONTAINER_LABEL[x[k]] || x[k] : x[k]}`);
     if (d.count) parts.push(`數量:${d.count}${d.countUnit ? ` ${d.countUnit}` : ''}`);
+    // (11/01) 調味: the list, or 未選 when nothing was picked (fruit / beverage: none)
+    if (Array.isArray(x.seasonings)) parts.push(`調味:${x.seasonings.length ? x.seasonings.join('、') : '未選'}`);
     return parts.length ? parts.join('、') : '(沒有填欄位)';
   }
   // One row per final dish (left: what the AI said; right: the final name + fields),

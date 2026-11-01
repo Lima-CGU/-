@@ -26,6 +26,46 @@
     salt: ['無鹽', '1/4 茶匙', '1/2 茶匙', '3/4 茶匙', '1 茶匙']
   };
   const FIELDS = ['containerType', 'size', 'cookingMethod', 'sugar', 'salt'];
+
+  /* ---------- seasonings 調味 (teacher 11/01) 【待老師確認】 ----------
+     A list (several can be picked): 醬油, 米酒, anything typed under 其他,
+     or 沒有特別調味 (which clears the others). Applies to every food type
+     except fruit and beverage. NO preset: an untouched dish is saved as []
+     with fieldSource 'default'; a type it doesn't apply to as null / 'na'.
+     It never changes the calories. Group B/C's AI fills it only with what
+     the user said (never guessed from the dish name). */
+  const SEASONING_OPTIONS = ['醬油', '米酒'];                 // 【待老師確認】
+  const SEASONING_NONE = '沒有特別調味';                       // 【待老師確認】
+  const SEASONING_OTHER = '其他';                             // + the typed text 【待老師確認】
+  const SEASONING_MAX_CHARS = 10;
+  const SEASONING_MAX_ITEMS = 6;
+  const NO_SEASONING_TYPES = ['fruit', 'beverage'];           // 【待老師確認】
+  function seasoningsApply(foodType, category){
+    return !NO_SEASONING_TYPES.includes(normalizeFoodType(foodType, category));
+  }
+  /** A clean seasonings list: strings ≤ 10 chars, deduped, ≤ 6;
+   *  沒有特別調味 alone when present. */
+  function cleanSeasonings(list){
+    const out = [];
+    for (const v of Array.isArray(list) ? list : []){
+      const t = typeof v === 'string' ? v.trim().replace(/^其他[::]?/, '') : '';
+      if (!t || [...t].length > SEASONING_MAX_CHARS || out.includes(t)) continue;
+      out.push(t);
+    }
+    if (out.includes(SEASONING_NONE)) return [SEASONING_NONE];
+    return out.slice(0, SEASONING_MAX_ITEMS);
+  }
+
+  /* ---------- scenario questions (teacher 11/01) ----------
+     Asked after 「完成」 and before saving, in this order, one per page /
+     message, in ALL groups with exactly these words (研究助理工作單「對話組
+     AI 提問」 — the traditional group asks the same). Do not reword. */
+  const SCENARIO_PROMPTS = [
+    '主菜下方是否還有其他食物？',
+    '除了目前辨識出的食材，還有其他需要補充的食材嗎？',
+    '除了目前辨識出的食材，還有使用其他調味料嗎？',
+    '這道料理是用什麼方式烹調的？'
+  ];
   // labels only for old records (plate / bowl / cup / lunchbox / none)
   const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒', none: '直接拿' };
 
@@ -185,6 +225,8 @@
 
   return {
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
-    normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType
+    normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
+    SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings,
+    SCENARIO_PROMPTS
   };
 });

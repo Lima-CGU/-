@@ -216,5 +216,26 @@
     return { text: out, changed: out !== raw };
   }
 
-  return { match, command, count, normalize, fixHomophones, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
+  /** 調味 page (11/01): 「醬油」「米酒」, or 「沒有 / 沒加 / 不加」 = 沒有特別調味.
+   *  -> the values heard (never both a seasoning and 沒有特別調味). */
+  const SEASONING_WORDS = [[['醬油', '豆油', '醬由'], '醬油'], [['米酒'], '米酒']];
+  // 「沒有醬油」「不加米酒」 name a seasoning that was NOT used: it is skipped
+  // (and does not mean 沒有特別調味 either — other seasonings may be used)
+  const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|沒|不)[加放用]?$/;
+  function seasonings(text){
+    // a comma / space ends a phrase: 「沒有，醬油有」 is not 「沒有醬油」
+    const t = String(text || '').replace(/[\s，,。、;；!！?？]+/g, '|');
+    const out = [];
+    let named = false;
+    SEASONING_WORDS.forEach(([words, value]) => words.forEach(w => {
+      for (let k = t.indexOf(w); k >= 0; k = t.indexOf(w, k + 1)){
+        named = true;
+        if (!NEGATED_BEFORE.test(t.slice(Math.max(0, k - 3), k)) && !out.includes(value)) out.push(value);
+      }
+    }));
+    if (out.length || named) return out;
+    return /沒有|沒加|不加|沒放|都沒|無調味/.test(t) ? ['沒有特別調味'] : [];
+  }
+
+  return { match, command, count, normalize, fixHomophones, seasonings, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
 });
