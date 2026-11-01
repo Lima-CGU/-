@@ -254,7 +254,7 @@ photo-upload-site/
 - 一題出現後 0.4 秒內的點擊不算,避免連點「沒有，下一題」時把下一題也答掉。
 - B/C 組:AI 對回答的回覆如果是反問(`isClarification`)或無關的話,不會跳到下一題,等使用者回答後才問下一題;直接被下一題蓋掉的提示按鈕不顯示、也不計入 C 組的 `suggestionShownCount`。
 - A 組第 1、2 題補充的菜:另記一筆 `dish_added`(actor `system`、`detail.via = 'scenario'`,不算使用者操作;使用者的操作是那筆 `scenario_answered`);水果補充時數量預設 1;熱量照常計算並計入整餐熱量。
-- `firstEditAt`(第一次修改)只看第一次按「完成」之前的操作,情境提示的回答在任何一組都不算第一次修改。
+- `firstEditAt`(第一次修改)只看第一題情境提示出現之前的操作,情境提示的回答在任何一組都不算第一次修改(在「資訊不完整」確認框按取消後繼續修改的,仍然算)。
 - **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,例如 `text+none`、`edit+none`)。
 - **計時**:`final_confirmed` 改在第 4 題答完、真正存檔時記錄(仍是「最終確認」);按「完成」另記 `finish_pressed`。所以 `correctionSec`、`totalSec` 都包含情境提示的時間;`times.scenarioSec`(第 1 題出現 → 第 4 題答完)可以讓分析時分開。
 

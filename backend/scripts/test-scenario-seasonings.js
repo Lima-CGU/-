@@ -82,6 +82,8 @@ t('voice: a negated seasoning is not added', () => {
   assert.deepStrictEqual(v.seasonings('醬油但沒有米酒'), ['醬油']);
   assert.deepStrictEqual(v.seasonings('有醬油跟米酒'), ['醬油', '米酒']);
   assert.deepStrictEqual(v.seasonings('沒有'), ['沒有特別調味']);
+  assert.deepStrictEqual(v.seasonings('沒有，醬油有'), ['醬油']);
+  assert.deepStrictEqual(v.seasonings('沒有米酒，有醬油'), ['醬油']);
 });
 t('C buttons never name 醬油 / 米酒', () => {
   const r = parseRequest({ group: 'C', dishes, history: [], message: 'x', selected: { type: 'dish', no: 1 } });

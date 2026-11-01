@@ -223,7 +223,8 @@
   // (and does not mean 沒有特別調味 either — other seasonings may be used)
   const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|沒|不)[加放用]?$/;
   function seasonings(text){
-    const t = normalize(text);
+    // a comma / space ends a phrase: 「沒有，醬油有」 is not 「沒有醬油」
+    const t = String(text || '').replace(/[\s，,。、;；!！?？]+/g, '|');
     const out = [];
     let named = false;
     SEASONING_WORDS.forEach(([words, value]) => words.forEach(w => {

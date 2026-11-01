@@ -286,9 +286,10 @@
     const seqOf = name => (task.events.find(e => e.event === name) || {}).seq || null;
     const draftSeq = seqOf('ai_draft_displayed');
     const finSeq = seqOf('final_confirmed');
-    // (11/01) only changes made before the first 「完成」 — answers to the scenario
-    // questions after it never count as the first edit, in any group
-    const finishSeq = seqOf('finish_pressed') || Infinity;
+    // (11/01) only changes made before the first scenario question — answers to
+    // the questions never count as the first edit, in any group (a 完成 that was
+    // cancelled at the 資訊不完整 prompt doesn't cut it off)
+    const finishSeq = seqOf('scenario_prompt_shown') || Infinity;
     const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.seq < finishSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
     const userActionCount = draftSeq && finSeq ? task.events.filter(e => e.seq >= draftSeq && e.seq <= finSeq
       && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).reduce((n, e) => n + userActionWeight(e), 0) : null;
