@@ -4126,9 +4126,11 @@
     }
     if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
     // the dish itself (system — the user's action is the scenario_answered below)
-    logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, detail: { via: 'scenario', scenarioNo: no } });
+    // one attempt for this send: the answer and the dish it added
+    const aid = nextAttemptId();
+    logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, attemptId: aid, detail: { via: 'scenario', scenarioNo: no } });
     st.added.push({ no, name, dishId: det.id });
-    recordScenarioAnswer(no, 'text', { added: name }, 'typed');
+    recordScenarioAnswer(no, 'text', { added: name }, 'typed', aid);
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
     showReportScenario(true);

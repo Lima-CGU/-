@@ -250,7 +250,7 @@ photo-upload-site/
   - 第 1、2 題的按鈕是「有，補充食物」,第 3、4 題是「有，回去修改」(11/01 fix)。
   - 補充的菜在照片下方列成一排小標籤(例如「＋香蕉」,確認過的變綠),點一下就進入那道菜的一頁一題(份量、數量…照常出現),可以修改、改名或刪除;如果正在回答情境提示,會先離開提示(不記任何回答),改完再按「完成」從同一題接著問(11/01 fix)。
   - 第 1、2 題按「有」:出現「請輸入要補充的食物」欄位,送出後存成一道照片上沒有的補充菜(`onPhoto` 沒有框、`source: 'scenario'`,格式和 B/C 對話新增的菜相同,依菜名猜食物類型、套用該類型的預設值,熱量照常估算),然後回到同一題(畫面顯示「已補充:…」),可以再補或按「沒有」。
-  - 補充的菜沒有照片可裁,所以打開時不顯示縮圖,照片縮到最小(點照片仍可放大);照片下方有小標籤時,題目區不再另外顯示「已補充:…」。補充的菜也要按「完成這道菜」確認過(`userReviewed`),才算填完;只有補充菜、照片上沒有菜時也能按「完成」(11/01 fix)。
+  - 補充的菜沒有照片可裁,所以打開時不顯示縮圖,照片縮到最小(點照片仍可放大);照片下方有小標籤時,題目區不再另外顯示「已補充:…」。補充的菜也記錄 `userReviewed`(按過「完成這道菜」才是 true),但「完成」不等它(避免 A 組多出步驟;要不要改由研究助理決定);只有補充菜、照片上沒有菜時也能按「完成」(11/01 fix)。
   - 第 1、2 題已經送出補充食物後,再按「沒有，下一題」,這題記成 `text`(input `button`),不是 `none`(11/01 fix)。
   - 第 3、4 題按「有」:回到選菜畫面讓使用者修改(調味欄、烹調方式);改完再按「完成」,從第 3 題(或第 4 題)接著問,已答完的題不重問。
 - **B/C 組**:按「完成」(資訊不完整時照舊先確認)後,系統把題目以固定文字貼成一則 AI 訊息(不經過 AI 產生、不改寫,上方小字「第 n / 4 題」);使用者照常用語音或打字回答,AI 依規則更新(第 1、2 題時使用者說出的每一樣清單上沒有的食物或食材,一律變成一道新增的菜,和 A 組的補充菜同樣是照片上沒有、`source: 'scenario'`、照常算熱量;調味料 → 調味欄、烹調方式 → 烹調欄位),AI 回覆後貼出下一題。同一題已經用訊息回答過(包括被 AI 反問之後),再按「沒有，下一題」時,這題記成 `text`(不是 `none`),兩次回答的紀錄都保留(11/01 fix)。也可以按「沒有，下一題」(這時「完成」按鈕換成它)。C 組的提示按鈕維持原規則;題目貼出時先清空,等 AI 回覆後才有新的按鈕。後端知道正在問第幾題(`/api/chat` 的 `scenario`),AI 不會在這時叫使用者按「完成」,也不會自己問下一題。
@@ -259,7 +259,7 @@ photo-upload-site/
 - B/C 組:AI 對回答的回覆如果是反問(`isClarification`)或無關的話,不會跳到下一題,等使用者回答後才問下一題;直接被下一題蓋掉的提示按鈕不顯示、也不計入 C 組的 `suggestionShownCount`。
 - A 組第 1、2 題補充的菜:另記一筆 `dish_added`(actor `system`、`detail.via = 'scenario'`,不算使用者操作;使用者的操作是那筆 `scenario_answered`);水果補充時數量預設 1;熱量照常計算並計入整餐熱量。
 - `firstEditAt`(第一次修改)只看第一題情境提示出現之前的操作,情境提示的回答在任何一組都不算第一次修改(在「資訊不完整」確認框按取消後繼續修改的,仍然算)。
-- **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,每個回答後面括號是輸入方式,例如 `text(typed)+text(button)`、`edit(button)+none(button)`、`text(message)`;C 組點提示按鈕回答是 `text(suggestion)`)。11/01 fix:`scenario_answered` 帶回答那則訊息/那次送出的 `attemptId`;`scenario.added` 每筆有 `dishId`,補充菜被刪除時標 `deleted: true`(保留紀錄),存檔時加上 `finalName`(改名後的名稱);存檔的補充菜帶 `scenarioNo`,`editLog.addedDishes` 的 source 是 `scenario`。
+- **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,每個回答後面括號是輸入方式,例如 `text(typed)+text(button)`、`edit(button)+none(button)`、`text(message)`;C 組點提示按鈕回答是 `text(suggestion)`;這次修改之前存的紀錄沒有括號,例如 `text+none`,分析時兩種都要接受)。11/01 fix:`scenario_answered` 帶回答那則訊息/那次送出的 `attemptId`;`scenario.added` 每筆有 `dishId`,補充菜被刪除時標 `deleted: true`(保留紀錄),存檔時加上 `finalName`(改名後的名稱);存檔的補充菜帶 `scenarioNo`,`editLog.addedDishes` 的 source 是 `scenario`。
 - **計時**:`final_confirmed` 改在第 4 題答完、真正存檔時記錄(仍是「最終確認」);按「完成」另記 `finish_pressed`。所以 `correctionSec`、`totalSec` 都包含情境提示的時間;`times.scenarioSec`(第 1 題出現 → 第 4 題答完)可以讓分析時分開。
 
 **調味欄 `seasonings`**(【待老師確認】,寫在 `field-defaults.js`):
