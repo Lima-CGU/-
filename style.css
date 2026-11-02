@@ -2598,3 +2598,15 @@ body.candidate-sheet-open .toast{
 .detail-seasoning-choice.is-open{ border-style: dashed; border-color: var(--purple); color: var(--purple-deep); background: #fff; }
 /* the 調味 page with the 其他 box open: cards at the top, no big gaps */
 .screen-report.report-stepping .report-step:has(#reportSeasonOther:not([hidden])) .report-cards{ margin-block: 0; }
+
+/* (11/01 fix) Group A: the foods added through the scenario questions, as
+   small chips under the photo — tap to edit */
+.report-extra-chips{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.report-extra-chips[hidden]{ display: none; }
+.report-extra-chip{ padding: 5px 12px; border: 1.5px solid var(--purple); border-radius: 999px; background: #fff; color: var(--purple-deep); font-family: var(--font-body); font-size: 13px; font-weight: 700; cursor: pointer; }
+.report-extra-chip.is-done{ border-color: var(--teal); background: var(--teal); color: #fff; }
+/* 「有，補充食物」 stays neutral while the input is open (a touch leaves :hover on;
+   teal reads as "done / chosen" in this app) */
+@media (hover: none){
+  .report-scenario-actions .btn-outline:hover:not(:disabled){ border-color: var(--line); color: var(--ink); }
+}

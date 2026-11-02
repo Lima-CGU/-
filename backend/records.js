@@ -233,12 +233,14 @@ function csvCell(v){
 const names = list => (Array.isArray(list) ? list.map(x => (isObj(x) ? x.name : x)).filter(Boolean).join('; ') : '');
 const stripPct = s => String(s || '').replace(/\(\d+%\)$/, '');
 
-// (11/01) scenario1..4: that question's answers in order, e.g. 'text+none' / 'edit+none'
+// (11/01) scenario1..4: that question's answers in order, each with how it was
+// given when known, e.g. 'text(typed)+text(button)' / 'none(button)' /
+// 'text(message)+text(button)' (button / typed / message / suggestion)
 function scenarioColumns(sc){
   const answers = sc && Array.isArray(sc.answers) ? sc.answers : [];
   const out = {};
   for (let no = 1; no <= 4; no++){
-    const list = answers.filter(a => isObj(a) && a.no === no).map(a => a.answer);
+    const list = answers.filter(a => isObj(a) && a.no === no).map(a => (a.input ? `${a.answer}(${a.input})` : a.answer));
     out[`scenario${no}`] = list.length ? list.join('+') : null;
   }
   return out;

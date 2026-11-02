@@ -247,15 +247,19 @@ photo-upload-site/
 4. 這道料理是用什麼方式烹調的？
 
 - **A 組**:每題一頁(照片下方),顯示「第 n / 4 題」、題目、「有，回去修改」「沒有，下一題」。
+  - 第 1、2 題的按鈕是「有，補充食物」,第 3、4 題是「有，回去修改」(11/01 fix)。
+  - 補充的菜在照片下方列成一排小標籤(例如「＋香蕉」,確認過的變綠),點一下就進入那道菜的一頁一題(份量、數量…照常出現),可以修改、改名或刪除;如果正在回答情境提示,會先離開提示(不記任何回答),改完再按「完成」從同一題接著問(11/01 fix)。
   - 第 1、2 題按「有」:出現「請輸入要補充的食物」欄位,送出後存成一道照片上沒有的補充菜(`onPhoto` 沒有框、`source: 'scenario'`,格式和 B/C 對話新增的菜相同,依菜名猜食物類型、套用該類型的預設值,熱量照常估算),然後回到同一題(畫面顯示「已補充:…」),可以再補或按「沒有」。
+  - 補充的菜沒有照片可裁,所以打開時不顯示縮圖,照片縮到最小(點照片仍可放大);照片下方有小標籤時,題目區不再另外顯示「已補充:…」。補充的菜也記錄 `userReviewed`(按過「完成這道菜」才是 true),但「完成」不等它(避免 A 組多出步驟;要不要改由研究助理決定);只有補充菜、照片上沒有菜時也能按「完成」(11/01 fix)。
+  - 第 1、2 題已經送出補充食物後,再按「沒有，下一題」,這題記成 `text`(input `button`),不是 `none`(11/01 fix)。
   - 第 3、4 題按「有」:回到選菜畫面讓使用者修改(調味欄、烹調方式);改完再按「完成」,從第 3 題(或第 4 題)接著問,已答完的題不重問。
-- **B/C 組**:按「完成」(資訊不完整時照舊先確認)後,系統把題目以固定文字貼成一則 AI 訊息(不經過 AI 產生、不改寫,上方小字「第 n / 4 題」);使用者照常用語音或打字回答,AI 依規則更新(漏掉的食物 → 新增的菜、補充的食材 → 備註、調味料 → 調味欄、烹調方式 → 烹調欄位),AI 回覆後貼出下一題。也可以按「沒有，下一題」(這時「完成」按鈕換成它)。C 組的提示按鈕維持原規則;題目貼出時先清空,等 AI 回覆後才有新的按鈕。後端知道正在問第幾題(`/api/chat` 的 `scenario`),AI 不會在這時叫使用者按「完成」,也不會自己問下一題。
+- **B/C 組**:按「完成」(資訊不完整時照舊先確認)後,系統把題目以固定文字貼成一則 AI 訊息(不經過 AI 產生、不改寫,上方小字「第 n / 4 題」);使用者照常用語音或打字回答,AI 依規則更新(第 1、2 題時使用者說出的每一樣清單上沒有的食物或食材,一律變成一道新增的菜,和 A 組的補充菜同樣是照片上沒有、`source: 'scenario'`、照常算熱量;調味料 → 調味欄、烹調方式 → 烹調欄位),AI 回覆後貼出下一題。同一題已經用訊息回答過(包括被 AI 反問之後),再按「沒有，下一題」時,這題記成 `text`(不是 `none`),兩次回答的紀錄都保留(11/01 fix)。也可以按「沒有，下一題」(這時「完成」按鈕換成它)。C 組的提示按鈕維持原規則;題目貼出時先清空,等 AI 回覆後才有新的按鈕。後端知道正在問第幾題(`/api/chat` 的 `scenario`),AI 不會在這時叫使用者按「完成」,也不會自己問下一題。
 - 四題都答完才存檔,中途不能跳過(A 組的面板、B/C 組的「完成」在提問時都不出現)。
 - 一題出現後 0.4 秒內的點擊不算,避免連點「沒有，下一題」時把下一題也答掉。
 - B/C 組:AI 對回答的回覆如果是反問(`isClarification`)或無關的話,不會跳到下一題,等使用者回答後才問下一題;直接被下一題蓋掉的提示按鈕不顯示、也不計入 C 組的 `suggestionShownCount`。
 - A 組第 1、2 題補充的菜:另記一筆 `dish_added`(actor `system`、`detail.via = 'scenario'`,不算使用者操作;使用者的操作是那筆 `scenario_answered`);水果補充時數量預設 1;熱量照常計算並計入整餐熱量。
 - `firstEditAt`(第一次修改)只看第一題情境提示出現之前的操作,情境提示的回答在任何一組都不算第一次修改(在「資訊不完整」確認框按取消後繼續修改的,仍然算)。
-- **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,例如 `text+none`、`edit+none`)。
+- **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,每個回答後面括號是輸入方式,例如 `text(typed)+text(button)`、`edit(button)+none(button)`、`text(message)`;C 組點提示按鈕回答是 `text(suggestion)`;這次修改之前存的紀錄沒有括號,例如 `text+none`,分析時兩種都要接受)。11/01 fix:`scenario_answered` 帶回答那則訊息/那次送出的 `attemptId`;`scenario.added` 每筆有 `dishId`,補充菜被刪除時標 `deleted: true`(保留紀錄),存檔時加上 `finalName`(改名後的名稱);存檔的補充菜帶 `scenarioNo`,`editLog.addedDishes` 的 source 是 `scenario`。
 - **計時**:`final_confirmed` 改在第 4 題答完、真正存檔時記錄(仍是「最終確認」);按「完成」另記 `finish_pressed`。所以 `correctionSec`、`totalSec` 都包含情境提示的時間;`times.scenarioSec`(第 1 題出現 → 第 4 題答完)可以讓分析時分開。
 
 **調味欄 `seasonings`**(【待老師確認】,寫在 `field-defaults.js`):
@@ -374,7 +378,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `suggestion_shown` | system | C 組:顯示一組提示按鈕(`detail.texts`) |
 | `finish_pressed` | user | (11/01)每次按「完成」(B/C 組 `detail.incomplete` = 當時資訊不完整的菜數);算 1 次操作 |
 | `scenario_prompt_shown` | system | (11/01)顯示一題情境提示(`detail.no` 1–4、`detail.group`) |
-| `scenario_answered` | user | (11/01)回答一題情境提示(`detail.no`、`detail.answer`:`none` 沒有/`edit` A 組回去修改/`text` A 組輸入補充食物或 B/C 組用對話回答);算 1 次操作 |
+| `scenario_answered` | user | (11/01)回答一題情境提示(`detail.no`、`detail.answer`:`none` 沒有/`edit` A 組回去修改/`text` A 組輸入補充食物或 B/C 組用對話回答;`detail.input`:`button` 按鈕/`typed` A 組打字送出/`message` B/C 組的訊息);操作次數見下表 |
 | `final_confirmed` | user | 最終確認:第 4 題情境提示答完、真正存檔時(11/01 起;以前是按「完成」時)。只記一次;不再計入操作次數(不是一次獨立的點擊) |
 | `step_next` / `step_back` | user | A 組一頁一題:下一步/上一步(`detail.field`、`detail.to`) |
 | `dish_reviewed` | user | A 組:按「完成這道菜」確認這道菜(`detail.first`);算 1 次操作 |
@@ -402,6 +406,8 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 **`userActionCount`(暫定規則,之後分析可能調整)**:三組用同一套計數原則——**點選食物 = 1、完成一次文字輸入 = 1、按送出/確認 = 1**。計算範圍是 `ai_draft_displayed` 到 `final_confirmed`(含)之間 `actor = user` 的事件:
 
+(11/01 fix,依 Interaction Effort 規範)情境提示三組一致:用一則訊息(B/C)或一段文字(A 的補充食物)回答,只算「輸入 1+送出 1=2」;只有按「沒有，下一題」這類按鈕時,`scenario_answered` 才算 1。C 組點提示按鈕回答時,那則訊息的 `message_submitted`(suggestion)已算 1,`scenario_answered`(input `suggestion`)算 0。
+
 | 事件 | 計數 |
 |---|---|
 | `item_selected`(A 組點圓圈/「下一道」;B/C 組點圓圈或「+ 整餐/其他」,取消選取也算) | 1 |
@@ -414,7 +420,9 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | `options_next`(「其他 ↻」) | 1 |
 | `dish_reviewed`(A 組「完成這道菜」) | 1 |
 | `finish_pressed`(每次按「完成」) | 1 |
-| `scenario_answered`(每次回答情境提示:沒有/回去修改/輸入補充食物/對話回答) | 1 |
+| `scenario_answered`,按按鈕回答(「沒有，下一題」「有，回去修改」;`input = 'button'`) | 1 |
+| `scenario_answered`,A 組打字補充食物後送出(`input = 'typed'`,輸入 1+送出 1,和打字改菜名相同) | 2 |
+| `scenario_answered`,B/C 組用訊息回答(`input = 'message'`;這則訊息的 `message_submitted` 已經算 2,這裡不再加) | 0 |
 
 `page_view`、`back`、`cancel`、`step_next` / `step_back`(**是否計入待老師確認**)、`photo_expanded` / `photo_collapsed`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
 
