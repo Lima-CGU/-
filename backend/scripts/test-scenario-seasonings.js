@@ -62,7 +62,7 @@ t('chat: the scenario question reaches the AI context', () => {
 });
 t('CSV: seasonings, seasoningsSource, scenarioSec, scenario1..4', () => {
   const rec = { id: 'm-test12345', pid: 'DEVTEST', group: 'A', times: { scenarioSec: 8.5 },
-    scenario: { answers: [{ no: 1, answer: 'text' }, { no: 1, answer: 'none' }, { no: 2, answer: 'none' }, { no: 3, answer: 'edit' }, { no: 3, answer: 'none' }, { no: 4, answer: 'none' }] },
+    scenario: { answers: [{ no: 1, answer: 'text', input: 'typed' }, { no: 1, answer: 'text', input: 'button' }, { no: 2, answer: 'none' }, { no: 3, answer: 'edit', input: 'button' }, { no: 3, answer: 'none', input: 'button' }, { no: 4, answer: 'text', input: 'message' }] },
     dishes: [{ name: '炒青菜', detail: { seasonings: ['醬油', '米酒'] }, fieldSource: { seasonings: 'user' } },
       { name: '蘋果', detail: { seasonings: null }, fieldSource: { seasonings: 'na' } }] };
   const rows = records.toCsv([rec]).replace(/^\uFEFF/, '').split(/\r?\n/);
@@ -72,7 +72,7 @@ t('CSV: seasonings, seasoningsSource, scenarioSec, scenario1..4', () => {
   assert.strictEqual(cell(1, 'seasoningsSource'), 'user');
   assert.strictEqual(cell(2, 'seasonings'), 'NA');
   assert.strictEqual(cell(1, 'scenarioSec'), '8.5');
-  assert.deepStrictEqual(['scenario1', 'scenario2', 'scenario3', 'scenario4'].map(k => cell(1, k)), ['text+none', 'none', 'edit+none', 'none']);
+  assert.deepStrictEqual(['scenario1', 'scenario2', 'scenario3', 'scenario4'].map(k => cell(1, k)), ['text(typed)+text(button)', 'none', 'edit(button)+none(button)', 'text(message)']);
 });
 
 t('voice: a negated seasoning is not added', () => {

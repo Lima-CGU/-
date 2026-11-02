@@ -250,14 +250,19 @@
   // events never carry the typed words; the record keeps A's added food names
   // input: 'button' (沒有,下一題 / 有,回去修改), 'typed' (A: a food typed
   // and sent) or 'message' (B/C: a chat message) — decides how it is counted
-  function recordScenarioAnswer(no, answer, extra, input){
+  function recordScenarioAnswer(no, answer, extra, input, attemptId){
     const st = scenarioState();
     if (st) st.answers.push({ no, answer, input, at: new Date().toISOString(), ...(extra || {}) });
-    logEvent('scenario_answered', { actor: 'user', detail: { no, answer, input } });
+    // (B/C: the message's attemptId links it to its message_submitted)
+    logEvent('scenario_answered', { actor: 'user', attemptId: attemptId || null, detail: { no, answer, input } });
   }
   function scenarioRecord(){
     const st = scenarioState();
-    return st ? { prompts: SCENARIO_PROMPTS.slice(), answers: st.answers.slice(), added: st.added.slice() } : null;
+    if (!st) return null;
+    // each added food with its name now (renamed later?) — deleted ones stay, marked
+    const now = id => (reportExtraDets.concat(typeof chatExtraDets !== 'undefined' ? chatExtraDets : [])).find(d => d.id === id);
+    const added = st.added.map(a => { const d = now(a.dishId); return { ...a, ...(d ? { finalName: splitNameConfidence(d.name || '').name } : {}) }; });
+    return { prompts: SCENARIO_PROMPTS.slice(), answers: st.answers.slice(), added };
   }
 
   // The first user change / message after the AI draft (firstEditAt)
@@ -276,7 +281,7 @@
     // its message_submitted already counts the 2
     if (e.event === 'scenario_answered'){
       const input = e.detail && e.detail.input;
-      return input === 'message' ? 0 : input === 'typed' ? 2 : 1;
+      return input === 'message' || input === 'suggestion' ? 0 : input === 'typed' ? 2 : 1;
     }
     return 1;
   }
@@ -2364,6 +2369,9 @@
           category: d.category === 'beverage' ? 'beverage' : 'food',
           box: null, displayBox: null, source: d.source || 'chat', tapPoint: null,
           foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
+          ...(d.scenarioNo ? { scenarioNo: d.scenarioNo } : {}),
+          // (A: an added food can be walked through to 完成這道菜 too)
+          ...(chatMode ? {} : { userReviewed: !!d.userReviewed }),
           notes: [...(d.notes || [])],
           ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, ...(chatMode ? { countConfirmed: !!d.countConfirmed } : {}) } : {}),
           nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
@@ -2411,7 +2419,7 @@
     const meta = currentMealMeta || newMealMeta();
     const doneAt = new Date().toISOString();
     meta.editLog.addedDishes = allDets.filter(d => d.addedByUser || d.onPhoto === false)
-      .map(d => ({ name: splitNameConfidence(d.name || '').name, source: d.onPhoto === false ? 'chat' : 'user' }));
+      .map(d => ({ name: splitNameConfidence(d.name || '').name, source: d.source === 'scenario' ? 'scenario' : d.onPhoto === false ? 'chat' : 'user' }));
     let photoUpload = null;
     let photoInfo = { saved: false, reason: 'disabled' };
     if (SAVE_PHOTOS){
@@ -3054,7 +3062,8 @@
   function updateReportDone(){
     const all = currentDetections;
     const filled = all.filter(d => !d.loading && isDishReviewed(d)).length;
-    const allDone = all.length > 0 && filled === all.length;
+    // (an empty photo is fine once foods were added through the questions)
+    const allDone = (all.length > 0 || reportExtraDets.length > 0) && filled === all.length;
     const sel = selectedReportDet();
     reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
     reportProgress.hidden = allDone;
@@ -3168,6 +3177,7 @@
     }
     if (det && det.labelEl) renderDetLabel(det.labelEl, det);
     if (!reportActive) return;
+    if (!chatMode) renderReportExtraChips(); // (an added food may have become filled)
     resolveLabelOverlaps(); // label width changed
     if (chatMode){
       renderChatKcalRows(e.detail.dishId);
@@ -3504,6 +3514,8 @@
     renderReportKcal();
 
     reportDishThumb.removeAttribute('src');
+    // an added (not on the photo) dish has no crop: no empty image box
+    reportDishThumb.hidden = det.onPhoto === false;
     ensureReportThumb(det).then(url => {
       if (reportSelectedId === det.id && url) reportDishThumb.src = url;
     });
@@ -3513,7 +3525,7 @@
     if (id !== reportSelectedId){
       stopReportListening();
       setReportVoiceMsg('');
-      const det = currentDetections.find(d => d.id === id);
+      const det = currentDetections.concat(reportExtraDets).find(d => d.id === id);
       if (det) det.step = null; // -> the first page
       photoPeek = false;
     }
@@ -3604,6 +3616,8 @@
     const screenH = reportScreenEl.clientHeight;
     if (!nw || !nh || !width || !screenH) return;
     const normal = Math.min(width * nh / nw, screenH * REPORT_PHOTO_MAX_SCREEN_SHARE);
+    // an added dish (not on the photo) gets the smallest strip (a tap still enlarges it)
+    const selDet = reportSelectedId && !chatMode ? reportExtraDets.find(d => d.id === reportSelectedId) : null;
     const compact = photoCompactMode() && !photoPeek;
     let h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
     if (!chatMode){
@@ -3615,6 +3629,7 @@
         const chipsH = reportExtraChips && !reportExtraChips.hidden ? reportExtraChips.offsetHeight + 8 : 0;
         const hintH = reportSelectedId ? 0 : (reportScenarioOn ? reportScenario.offsetHeight + 20 : reportEmptyHint.offsetHeight + 16) + chipsH;
         h = !reportSelectedId ? Math.min(fit, room - hintH)
+          : compact && selDet ? Math.min(fit, PHOTO_COMPACT_MIN_PX)
           : compact ? Math.max(PHOTO_COMPACT_MIN_PX, Math.min(fit, room * A_STRIP_SHARE))
           : Math.min(fit, room * A_PEEK_SHARE);
       }
@@ -3901,6 +3916,8 @@
     logEvent('dish_deleted', { actor: 'user', target: dishNoOf(det), before: splitNameConfidence(det.name || '').name, after: null, attemptId: nextAttemptId() });
     currentDetections = currentDetections.filter(d => d !== det);
     reportExtraDets = reportExtraDets.filter(d => d !== det);
+    // the scenario record keeps the history, marked deleted
+    (scenarioState() || { added: [] }).added.forEach(a => { if (a.dishId === det.id) a.deleted = true; });
     if (det.boxEl) det.boxEl.remove();
     if (currentMealMeta) currentMealMeta.editLog.deletedDishes.push({
       name: splitNameConfidence(det.name || '').name,
@@ -4012,8 +4029,11 @@
     reportScenarioQ.textContent = SCENARIO_PROMPTS[no - 1];
     reportScenarioInputRow.hidden = true;
     reportScenarioInput.value = '';
-    const added = st.added.filter(a => a.no === no).map(a => a.name);
-    reportScenarioAdded.hidden = !added.length;
+    // (still on the meal, with its current name; deleted ones are left out)
+    const added = st.added.filter(a => a.no === no && !a.deleted)
+      .map(a => { const d = reportExtraDets.find(x => x.id === a.dishId); return d ? splitNameConfidence(d.name || '').name : a.name; });
+    // the 「＋name」 chips under the photo already list them
+    reportScenarioAdded.hidden = !added.length || reportExtraDets.length > 0;
     reportScenarioAdded.textContent = added.length ? `已補充:${added.join('、')}` : '';
     reportScenarioYes.disabled = reportScenarioNone.disabled = isSavingMeal;
     if (!again) logScenarioShown(no);
@@ -4045,7 +4065,10 @@
     const chip = e.target.closest('.report-extra-chip');
     const det = chip && reportExtraDets.find(d => d.id === chip.dataset.id);
     if (!det || isSavingMeal) return;
-    if (reportScenarioOn) hideReportScenario();
+    if (reportScenarioOn){
+      hideReportScenario();
+      reportEmptyHint.textContent = '修改完請再按下方的「完成」';
+    }
     logReportSelect(det, 'user', 'extra-chip');
     selectReportDish(det.id);
   });
@@ -4059,7 +4082,9 @@
   reportScenarioNone?.addEventListener('click', () => {
     const st = scenarioState();
     if (!st || isSavingMeal || scenarioTapTooSoon()) return;
-    recordScenarioAnswer(st.next, 'none', null, 'button');
+    // a food was already added on this question: still a 'text' answer (as in B/C)
+    const hadText = st.answers.some(a => a.no === st.next && a.answer === 'text');
+    recordScenarioAnswer(st.next, hadText ? 'text' : 'none', hadText ? { closedBy: 'button' } : null, 'button');
     st.next += 1;
     if (st.next > SCENARIO_PROMPTS.length) finishReportMeal();
     else showReportScenario();
@@ -4102,7 +4127,7 @@
     if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
     // the dish itself (system — the user's action is the scenario_answered below)
     logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, detail: { via: 'scenario', scenarioNo: no } });
-    st.added.push({ no, name });
+    st.added.push({ no, name, dishId: det.id });
     recordScenarioAnswer(no, 'text', { added: name }, 'typed');
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
@@ -4624,7 +4649,8 @@
     // (also when the AI asks back — the user then answers again, or taps
     // 「沒有，下一題」, which is then recorded as 'text' too).
     const onQuestion = askedScenario && chatScenarioNo === askedScenario && !data.offTopic;
-    if (onQuestion) recordScenarioAnswer(askedScenario, 'text', data.isClarification ? { askedBack: true } : null, 'message');
+    if (onQuestion) recordScenarioAnswer(askedScenario, 'text', data.isClarification ? { askedBack: true } : null,
+      source === 'suggestion' ? 'suggestion' : 'message', attemptId); // (a C button answer: 'suggestion', 0 here — its message_submitted counts 1)
     const answered = onQuestion && !data.isClarification;
     // (buttons that would be cleared by the next question at once are not
     // shown, so they are not counted as shown either)
@@ -4749,7 +4775,7 @@
       };
       if (det.source === 'scenario'){
         const st = scenarioState();
-        if (st) st.added.push({ no: det.scenarioNo, name: det.name });
+        if (st) st.added.push({ no: det.scenarioNo, name: det.name, dishId: det.id });
       }
       // presets by food type (guessed from the name), then what the AI recorded
       det.foodType = FIELD_DEFAULTS.guessFoodType(det.name, det.category);
