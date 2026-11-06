@@ -212,7 +212,7 @@
       ['菜數', String(r.dishCount)],
       ['修正時間(秒)', num2(r.correctionSec)],
       ['操作次數', r.userActionCount == null ? '—' : String(r.userActionCount)],
-      ['整餐熱量', r.totalKcal == null ? '—' : `${r.totalKcal} kcal`],
+      ['整餐熱量', `${r.totalKcal == null ? '—' : `${r.totalKcal} kcal`}${r.unestimatedDishes ? ` <span class="tag warn">有 ${esc(r.unestimatedDishes)} 道未估算</span>` : ''}`],
       ['上傳狀態', `<span class="tag ok">已上傳${r.uploadCount > 1 ? `(${r.uploadCount} 次)` : ''}</span>${r.photoStored ? '' : ' <span class="tag">無照片</span>'}${r.deletedFromDiary ? ' <span class="tag warn">受試者已從日記刪除</span>' : ''}`],
       ['排除', r.excluded ? `<span class="tag warn">已排除</span><span class="reason">${esc(r.excludeReason)}</span>` : '<span class="tag">否</span>']
     ];
@@ -288,6 +288,15 @@
   }
   // One row per final dish (left: what the AI said; right: the final name + fields),
   // plus the AI dishes the participant deleted.
+  // A dish's calories: the number, or why there is none
+  // (incomplete / 待補份量 / 待補數量 = a field was missing, nothing was guessed)
+  function kcalHtml(d){
+    const n = d && d.nutrition;
+    if (!n || !n.status) return '';
+    if (n.status === 'ok') return `<div class="fields">${esc(n.kcal)} kcal</div>`;
+    const missing = ['incomplete', 'needs-portion', 'needs-count'].includes(n.status);
+    return `<div class="fields kcal-missing">${missing ? '資料不足，未估算' : '無法估算'}</div>`;
+  }
   function compareTable(record){
     const dishes = Array.isArray(record.dishes) ? record.dishes : [];
     const out = dishes.map((d, i) => {
@@ -295,7 +304,7 @@
       const aiName = ai && ai.name ? `${esc(ai.name)}${ai.confidence != null ? `(${esc(ai.confidence)}%)` : ''}${ai.count ? ` ×${esc(ai.count)}` : ''}` : (d.source === 'chat' ? '(對話中新增)' : d.source === 'user' ? '(受試者新增)' : '—');
       const finalName = plain(d.name);
       const changed = ai && ai.name && ai.name !== finalName;
-      return `<tr><td>${i + 1}</td><td>${aiName}</td><td><span class="${changed ? 'changed' : ''}">${esc(finalName)}</span>${changed ? '(改過菜名)' : ''}<div class="fields">${esc(fieldsText(d))}</div>${Array.isArray(d.notes) && d.notes.length ? `<div class="fields">備註:${esc(d.notes.join(';'))}</div>` : ''}${d.nutrition && d.nutrition.status === 'ok' ? `<div class="fields">${esc(d.nutrition.kcal)} kcal</div>` : ''}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td>${aiName}</td><td><span class="${changed ? 'changed' : ''}">${esc(finalName)}</span>${changed ? '(改過菜名)' : ''}<div class="fields">${esc(fieldsText(d))}</div>${Array.isArray(d.notes) && d.notes.length ? `<div class="fields">備註:${esc(d.notes.join(';'))}</div>` : ''}${kcalHtml(d)}</td></tr>`;
     });
     const deleted = ((record.editLog && record.editLog.deletedDishes) || []).filter(x => x && (x.aiName || x.name));
     deleted.forEach(x => out.push(`<tr><td>—</td><td>${esc(x.aiName || x.name)}</td><td><span class="changed">(受試者刪除)</span></td></tr>`));

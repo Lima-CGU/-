@@ -335,6 +335,8 @@ function summarize(r){
     correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
     aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
     totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
+    // dishes saved with a calorie status but no number (資料不足 / 待補 / 無法估算)
+    unestimatedDishes: Array.isArray(r.dishes) ? r.dishes.filter(d => isObj(d) && isObj(d.nutrition) && d.nutrition.status !== 'ok').length : 0,
     uploadCount: r.uploadCount || 0, receivedAt: r.receivedAt || null, photoStored: !!r.photoStored,
     deletedFromDiary: !!r.deletedFromDiary,
     excluded: !!r.excluded, excludeReason: r.excluded ? r.excludeReason || '' : '', excludedAt: r.excludedAt || null

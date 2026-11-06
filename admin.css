@@ -138,3 +138,4 @@ thead th{ font-size: 13px; color: var(--ink-soft); font-weight: 700; white-space
   .records > tbody > tr.detail > td{ border: 1px solid var(--line); border-top: none; border-radius: 0 0 12px 12px; }
   .reason{ max-width: none; text-align: right; }
 }
+.compare .kcal-missing{ color: #b23a28; }
