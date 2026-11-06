@@ -19,6 +19,8 @@
   const OUT_EVENT = 'pictameal:calorie-update';
   const DEBOUNCE_MS = { completed: 150, changed: 700 };
   const REQUEST_TIMEOUT_MS = 30000;
+  // shown for a dish still missing a field it needs (Diary, admin, labels)
+  const INCOMPLETE_TEXT = '資料不足，未估算';
 
   let backendUrl = '';
   const states = new Map(); // dishId -> { status, result, payload, seq, timer, promise }
@@ -129,6 +131,7 @@
   document.addEventListener(IN_EVENT, e => schedule(e.detail));
 
   const API = {
+    INCOMPLETE_TEXT,
     init(opts){ backendUrl = String((opts && opts.backendUrl) || '').replace(/\/$/, ''); },
 
     getState(id){ const s = states.get(id); return s ? { status: s.status, result: s.result } : null; },
@@ -167,7 +170,9 @@
     summary(ids){
       // needsPortion: Group B dishes still missing a portion (待補份量)
       // needsCount: countable dishes whose count isn't known yet (待補數量)
-      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, needsPortion: 0, needsCount: 0, total: 0 };
+      // incomplete: a dish still missing a field it needs (資料不足，未估算) —
+      // no request is made for it; the system never guesses the missing value
+      const out = { kcal: 0, estimated: 0, unavailable: 0, pending: 0, needsPortion: 0, needsCount: 0, incomplete: 0, total: 0 };
       (ids || []).forEach(id => {
         const s = states.get(id);
         if (!s) return;
@@ -176,6 +181,7 @@
         else if (s.status === 'ok'){ out.kcal += s.result.kcal; out.estimated += 1; }
         else if (s.status === 'needs-portion') out.needsPortion += 1;
         else if (s.status === 'needs-count') out.needsCount += 1;
+        else if (s.status === 'incomplete') out.incomplete += 1;
         else out.unavailable += 1;
       });
       return out;
@@ -192,6 +198,7 @@
       if (st.status === 'loading'){ el.classList.add('is-loading'); el.textContent = '計算中…'; return; }
       if (st.status === 'needs-portion'){ el.classList.add('is-none'); el.textContent = '待補份量'; return; }
       if (st.status === 'needs-count'){ el.classList.add('is-none'); el.textContent = '待補數量'; return; }
+      if (st.status === 'incomplete'){ el.classList.add('is-none'); el.textContent = INCOMPLETE_TEXT; return; }
       if (st.status !== 'ok'){ el.classList.add('is-none'); el.textContent = '無法估算'; return; }
       el.classList.add(st.result.match === 'approx' ? 'is-approx' : 'is-ok');
       el.append(`${st.result.kcal} kcal`);
@@ -209,6 +216,7 @@
       if (st.status === 'loading') return '計算中…';
       if (st.status === 'needs-portion') return '待補份量';
       if (st.status === 'needs-count') return '待補數量';
+      if (st.status === 'incomplete') return INCOMPLETE_TEXT;
       return st.status === 'ok' ? `${st.result.kcal} kcal` : '無法估算';
     },
 
@@ -235,6 +243,10 @@
       }
       if (st.status === 'needs-count'){
         line((r && r.explanation) || '還不知道吃了幾個,補上數量後就能估算熱量。');
+        return;
+      }
+      if (st.status === 'incomplete'){
+        line('這道菜還有欄位沒填,所以沒有估算熱量。');
         return;
       }
       if (st.status !== 'ok'){
@@ -267,6 +279,7 @@
       if (s.status === 'ok' || s.status === 'none' || s.status === 'anomaly') return { ...s.result };
       if (s.status === 'needs-portion') return s.result ? { ...s.result } : { status: 'needs-portion' };
       if (s.status === 'needs-count') return s.result ? { ...s.result } : { status: 'needs-count' };
+      if (s.status === 'incomplete') return { status: 'incomplete' };
       return { status: 'error', calculatedAt: new Date().toISOString() };
     },
 
@@ -287,13 +300,13 @@
     mealFromSaved(dishes){
       const list = (dishes || []).filter(d => d && d.nutrition);
       const ok = list.filter(d => d.nutrition.status === 'ok');
-      return { totalKcal: ok.reduce((s, d) => s + d.nutrition.kcal, 0), estimatedDishes: ok.length, unavailableDishes: list.length - ok.length, note: '估算值' };
+      return { totalKcal: ok.reduce((s, d) => s + d.nutrition.kcal, 0), estimatedDishes: ok.length, unavailableDishes: list.length - ok.length, incompleteDishes: list.filter(d => d.nutrition.status === 'incomplete').length, note: '估算值' };
     },
 
     // What gets saved with the meal record for the whole meal.
     mealSnapshot(ids){
       const sum = API.summary(ids);
-      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending + sum.needsPortion + sum.needsCount, note: '估算值' };
+      return { totalKcal: sum.kcal, estimatedDishes: sum.estimated, unavailableDishes: sum.unavailable + sum.pending + sum.needsPortion + sum.needsCount + sum.incomplete, incompleteDishes: sum.incomplete, note: '估算值' };
     },
 
     // Group B: a countable dish whose count the user hasn't confirmed: 待補數量
@@ -304,6 +317,18 @@
       s.seq += 1;
       s.status = 'needs-count';
       s.result = { status: 'needs-count', countUnit: countUnit || null };
+      emit(id);
+    },
+
+    // A dish still missing a field it needs: 資料不足，未估算 (no request,
+    // no guessed value); any reply still in flight for it is ignored.
+    markIncomplete(id){
+      let s = states.get(id);
+      if (!s){ s = { seq: 0 }; states.set(id, s); }
+      clearTimeout(s.timer);
+      s.seq += 1;
+      s.status = 'incomplete';
+      s.result = { status: 'incomplete' };
       emit(id);
     },
 

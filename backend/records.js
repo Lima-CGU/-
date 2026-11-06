@@ -325,6 +325,7 @@ function toEventsCsv(records){
 /* ---------- admin page ---------- */
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const kcalStatusCount = (r, test) => (Array.isArray(r.dishes) ? r.dishes.filter(d => isObj(d) && isObj(d.nutrition) && d.nutrition.status && test(d.nutrition.status)).length : 0);
 // One row of the admin page's list / overview: no photo, no conversation.
 function summarize(r){
   const t = r.times || {};
@@ -335,6 +336,11 @@ function summarize(r){
     correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
     aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
     totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
+    // dishes saved without a number, as in the participant's Diary:
+    // unestimated = a value was missing (資料不足 / 待補數量 / 待補份量),
+    // failed = no match / anomaly / error
+    unestimatedDishes: kcalStatusCount(r, s => ['incomplete', 'needs-count', 'needs-portion'].includes(s)),
+    failedKcalDishes: kcalStatusCount(r, s => s !== 'ok' && !['incomplete', 'needs-count', 'needs-portion'].includes(s)),
     uploadCount: r.uploadCount || 0, receivedAt: r.receivedAt || null, photoStored: !!r.photoStored,
     deletedFromDiary: !!r.deletedFromDiary,
     excluded: !!r.excluded, excludeReason: r.excluded ? r.excludeReason || '' : '', excludedAt: r.excludedAt || null

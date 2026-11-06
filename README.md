@@ -259,6 +259,13 @@ photo-upload-site/
 - B/C 組:AI 對回答的回覆如果是反問(`isClarification`)或無關的話,不會跳到下一題,等使用者回答後才問下一題;直接被下一題蓋掉的提示按鈕不顯示、也不計入 C 組的 `suggestionShownCount`。
 - A 組第 1、2 題補充的菜:另記一筆 `dish_added`(actor `system`、`detail.via = 'scenario'`,不算使用者操作;使用者的操作是那筆 `scenario_answered`);水果補充時數量預設 1;熱量照常計算並計入整餐熱量。
 - `firstEditAt`(第一次修改)只看第一題情境提示出現之前的操作,情境提示的回答在任何一組都不算第一次修改(在「資訊不完整」確認框按取消後繼續修改的,仍然算)。
+- **補充菜沒有熱量時要看得見(11/06 bug 修正)**:A 組補充的菜依菜名套用預設值,但有些欄位沒有預設(例如「荷包蛋」是蛋白質類,烹調方式沒有預設),系統不會替使用者猜,所以這道菜不送熱量計算。以前這種菜在畫面、日記和後台都是一片空白;現在:
+  - 這道菜的熱量顯示「資料不足，未估算」(A 組選菜頁、日記卡片、後台展開的那道菜),存成 `dish.nutrition = { status: 'incomplete' }`,CSV `nutritionStatus` = `incomplete`。
+  - 整餐熱量旁邊顯示「有 N 道未估算」(日記卡片、後台紀錄列表、A 組頁尾,三處算法相同):N = 缺資料所以沒估算的菜(資料不足、待補數量、待補份量);資料庫找不到或計算失敗的菜照舊是「另有 N 道無法估算」,兩者分開顯示。沒有任何一道有數字時不顯示「0 kcal」,只顯示這兩行說明。後台展開的那道菜用和日記一樣的字(資料不足，未估算 / 待補數量 / 待補份量 / 無法估算)。`record.nutrition.incompleteDishes` 是「資料不足」的道數。
+  - 補充的菜如果只差數量(例如煎餃還不知道幾個),維持「待補數量」,不會變成「資料不足」。
+  - 照片下方的補充菜標籤和照片上的圓圈用同一套狀態:白色空心圈 = 還沒完成(可能還有欄位沒填,點進去補),綠色 + ✓ = 已按「完成這道菜」。
+  - 補完欄位後照常計算;在日記用 ✏️ 補時,欄位齊了才重新計算。操作次數、計時、事件的算法都沒有改。
+  - B/C 組:對話新增的菜有份量就照常計算(沒有烹調方式時不加用油),沒有份量是「待補份量」,所以沒有同樣的空白問題;這和 A 組「烹調方式沒填就不算」不同,是否要一致由研究助理決定。
 - **紀錄**:`record.scenario` = `{ prompts, answers: [{no, answer, at, added?}], added: [{no, name}] }`(A 組輸入的補充食物名稱只存在這裡和菜色裡,事件不放文字);B/C 組的題目也在 `chat.messages`(`scenario: n`)。CSV 新增 `scenarioSec`、`scenario1`~`scenario4`(該題的回答依序以 `+` 連接,每個回答後面括號是輸入方式,例如 `text(typed)+text(button)`、`edit(button)+none(button)`、`text(message)`;C 組點提示按鈕回答是 `text(suggestion)`;這次修改之前存的紀錄沒有括號,例如 `text+none`,分析時兩種都要接受)。11/01 fix:`scenario_answered` 帶回答那則訊息/那次送出的 `attemptId`;`scenario.added` 每筆有 `dishId`,補充菜被刪除時標 `deleted: true`(保留紀錄),存檔時加上 `finalName`(改名後的名稱);存檔的補充菜帶 `scenarioNo`,`editLog.addedDishes` 的 source 是 `scenario`。
 - **計時**:`final_confirmed` 改在第 4 題答完、真正存檔時記錄(仍是「最終確認」);按「完成」另記 `finish_pressed`。所以 `correctionSec`、`totalSec` 都包含情境提示的時間;`times.scenarioSec`(第 1 題出現 → 第 4 題答完)可以讓分析時分開。
 

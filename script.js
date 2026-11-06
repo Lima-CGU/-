@@ -721,7 +721,9 @@
       const seq = ++kcalSeq;
       kcalLoading = true;
       renderKcal();
-      const result = await window.PictaCalorie.calculate(dish);
+      // a dish saved as 資料不足，未估算 is only calculated once every field
+      // it needs has a value (no request, nothing guessed, until then)
+      const result = savedDishMissingField(dish) ? { status: 'incomplete' } : await window.PictaCalorie.calculate(dish);
       if (seq !== kcalSeq) return;
       kcalLoading = false;
       dish.nutrition = result;
@@ -868,14 +870,25 @@
     const totalNumEl = document.createElement('span');
     const totalNoteEl = document.createElement('small');
     totalNoteEl.textContent = '估算值';
-    totalKcalEl.append(totalNumEl, totalNoteEl);
+    // 「有 N 道未估算」: saved dishes without a number (資料不足 / 待補 / 無法估算)
+    const totalMissEl = document.createElement('small');
+    totalMissEl.className = 'meal-total-miss';
+    totalKcalEl.append(totalNumEl, totalNoteEl, totalMissEl);
     const refreshTotal = () => {
       const saved = record && record.dishes ? record.dishes : [];
       const hasCalories = saved.some(d => d && d.nutrition);
       if (record) record.nutrition = hasCalories ? window.PictaCalorie.mealFromSaved(saved) : null;
       const ok = hasCalories && record.nutrition.estimatedDishes > 0;
-      totalKcalEl.hidden = !ok;
+      // same split as Page 4: 未估算 = a value is missing, 無法估算 = no match / failed
+      const counts = savedKcalGaps(saved);
+      totalKcalEl.hidden = !ok && !counts.missing && !counts.failed;
       totalNumEl.textContent = ok ? `整餐 ${record.nutrition.totalKcal} kcal` : '';
+      totalNoteEl.hidden = !ok;
+      const parts = [];
+      if (counts.failed) parts.push(`另有 ${counts.failed} 道無法估算`);
+      if (counts.missing) parts.push(`有 ${counts.missing} 道未估算`);
+      totalMissEl.hidden = !parts.length;
+      totalMissEl.textContent = parts.join('・');
     };
     refreshTotal();
 
@@ -2374,7 +2387,7 @@
           ...(chatMode ? {} : { userReviewed: !!d.userReviewed }),
           notes: [...(d.notes || [])],
           ...(d.count || d.countable ? { count: d.count || null, countUnit: d.countUnit || null, countEdits: d.countEdits || 0, countable: true, ...(chatMode ? { countConfirmed: !!d.countConfirmed } : {}) } : {}),
-          nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
+          nutrition: savedNutrition(d),
           thumbUrl
         };
       }
@@ -2402,7 +2415,7 @@
         } : {}),
         // calorie result for this dish (match level, matched item, source,
         // numbers, explanation); null when never calculated (Group B for now)
-        nutrition: window.PictaCalorie ? window.PictaCalorie.snapshot(d.id) : null,
+        nutrition: savedNutrition(d),
         // Group B only: notes from the chat, the AI's original recognition,
         // and the name before a rename made in the chat
         ...(d.notes ? { notes: [...d.notes] } : {}),
@@ -3000,6 +3013,47 @@
   // becomes complete, 'changed' on any later edit (a field or its name) to
   // a dish that is still complete. Listen with
   //   document.addEventListener('pictameal:dish-detail-complete', e => ...)
+  // Group A, a food added through the scenario questions (not on the photo):
+  // while a field it needs is empty its calories show 「資料不足，未估算」
+  // (it can be saved that way — 完成 doesn't wait for it). Photo dishes are
+  // never saved incomplete in Group A, so they keep showing nothing meanwhile.
+  function markExtraIncomplete(det){
+    if (chatMode || !det || det.onPhoto !== false || isDishComplete(det) || !window.PictaCalorie) return;
+    // only the 數量 is missing: keep the calculation's own 「待補數量」
+    const d = det.detail || {};
+    if (dishFields(det).every(k => !!d[k])) return;
+    window.PictaCalorie.markIncomplete(det.id);
+  }
+  // Saved calorie result; a dish never calculated because a field it needs
+  // is still empty is saved as { status: 'incomplete' } (資料不足，未估算),
+  // so the gap is visible in the Diary, the admin page and the CSV
+  // Saved dishes without a number: missing = a value was missing (資料不足 /
+  // 待補數量 / 待補份量), failed = no match / anomaly / error
+  // (a function declaration, no outer const: the Diary calls it while
+  // restoring at page load, before this part of the file has run)
+  function savedKcalGaps(dishes){
+    const KCAL_MISSING = ['incomplete', 'needs-count', 'needs-portion'];
+    const out = { missing: 0, failed: 0 };
+    (dishes || []).forEach(d => {
+      const st = d && d.nutrition && d.nutrition.status;
+      if (!st || st === 'ok') return;
+      if (KCAL_MISSING.includes(st)) out.missing += 1; else out.failed += 1;
+    });
+    return out;
+  }
+  // A saved (Diary) dish still missing a field it needs
+  function savedDishMissingField(dish){
+    const d = dish.detail || {};
+    const type = dish.foodType || FIELD_DEFAULTS.guessFoodType(dish.name || '');
+    return FIELD_DEFAULTS.applicableFields(type, dish.category).some(k => !d[k]);
+  }
+  function savedNutrition(d){
+    if (!window.PictaCalorie) return null;
+    const snap = window.PictaCalorie.snapshot(d.id);
+    if (snap) return snap;
+    return !chatMode && !d.loading && !isDishComplete(d) ? { status: 'incomplete' } : null;
+  }
+
   function notifyDishDetailComplete(det, reason){
     document.dispatchEvent(new CustomEvent('pictameal:dish-detail-complete', {
       detail: {
@@ -3118,6 +3172,7 @@
     updateReportDone();
     // only a filled dish is (re)calculated
     if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
+    else markExtraIncomplete(det);
   }
   document.getElementById('reportCountMinus')?.addEventListener('click', () => changeReportCount(-1));
   document.getElementById('reportCountPlus')?.addEventListener('click', () => changeReportCount(1));
@@ -3130,12 +3185,19 @@
   // Whole-meal estimate beside the progress / 完成 button.
   function renderReportTotal(){
     // (11/01: foods added through the scenario questions count too)
-    const ids = currentDetections.concat(reportExtraDets).filter(d => !d.loading && isDishComplete(d)).map(d => d.id);
+    // (an added food that is still missing a field counts as 未估算)
+    const ids = currentDetections.concat(reportExtraDets).filter(d => !d.loading && (isDishComplete(d) || d.onPhoto === false)).map(d => d.id);
     const sum = Calorie.summary(ids);
+    // 未估算 = a value is missing (資料不足 / 待補數量 / 待補份量); 無法估算 = none / anomaly / error
+    const missing = sum.incomplete + sum.needsCount + sum.needsPortion;
+    // the total box only when there is (or soon will be) a number — never 「0 kcal 估算值」
     reportTotal.hidden = !(sum.estimated || sum.pending);
     reportTotalNum.textContent = sum.estimated ? String(sum.kcal) : '…';
-    reportTotalNote.hidden = !sum.unavailable;
-    reportTotalNote.textContent = sum.unavailable ? `另有 ${sum.unavailable} 道無法估算` : '';
+    const notes = [];
+    if (sum.unavailable) notes.push(`另有 ${sum.unavailable} 道無法估算`);
+    if (missing) notes.push(`有 ${missing} 道未估算`);
+    reportTotalNote.hidden = !notes.length;
+    reportTotalNote.textContent = notes.join('・');
   }
 
   // Calories beside the selected dish's name, and its expandable explanation.
@@ -3485,6 +3547,7 @@
     refreshMarkerStates();
     updateReportDone();
     if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
+    else markExtraIncomplete(det);
   }
 
   // Thumbnail = the dish's own (padded) box, cropped once and cached.
@@ -3834,7 +3897,10 @@
         refreshMarkerStates();
         renderReportPanel();
         if (isDishComplete(target)) notifyDishDetailComplete(target, wasComplete ? 'changed' : 'completed');
-        else Calorie.forget(target.id); // lost its cooking method: the old figure no longer applies
+        else {
+          Calorie.forget(target.id); // lost its cooking method: the old figure no longer applies
+          markExtraIncomplete(target); // (an added food: 資料不足，未估算)
+        }
       }
     });
     requestAnimationFrame(() => { if (candidateTargetDet === det) candidateCustomInput.focus(); });
@@ -4057,7 +4123,9 @@
       chip.classList.toggle('is-done', isDishReviewed(det));
       chip.dataset.id = det.id;
       chip.textContent = `＋${splitNameConfidence(det.name || '').name}`;
-      chip.setAttribute('aria-label', `補充的菜:${splitNameConfidence(det.name || '').name}(點一下修改)`);
+      // same states as the photo markers: hollow = not finished (a field may
+      // still be empty → 資料不足，未估算), green + ✓ = 完成這道菜
+      chip.setAttribute('aria-label', `補充的菜:${splitNameConfidence(det.name || '').name}(${isDishReviewed(det) ? '已完成' : '還沒填完'},點一下修改)`);
       reportExtraChips.appendChild(chip);
     });
   }
@@ -4133,6 +4201,9 @@
     recordScenarioAnswer(no, 'text', { added: name }, 'typed', aid);
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
+    // still missing a field (e.g. 烹調方式 has no preset): 資料不足，未估算 —
+    // nothing is guessed; the user can open its chip and fill it in
+    else markExtraIncomplete(det);
     showReportScenario(true);
   }
   document.getElementById('reportScenarioSubmit')?.addEventListener('click', submitScenarioFood);
