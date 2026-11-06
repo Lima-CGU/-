@@ -3029,8 +3029,10 @@
   // so the gap is visible in the Diary, the admin page and the CSV
   // Saved dishes without a number: missing = a value was missing (資料不足 /
   // 待補數量 / 待補份量), failed = no match / anomaly / error
-  const KCAL_MISSING = ['incomplete', 'needs-count', 'needs-portion'];
+  // (a function declaration, no outer const: the Diary calls it while
+  // restoring at page load, before this part of the file has run)
   function savedKcalGaps(dishes){
+    const KCAL_MISSING = ['incomplete', 'needs-count', 'needs-portion'];
     const out = { missing: 0, failed: 0 };
     (dishes || []).forEach(d => {
       const st = d && d.nutrition && d.nutrition.status;
