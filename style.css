@@ -2613,13 +2613,12 @@ body.candidate-sheet-open .toast{
 /* Diary: 「有 N 道未估算」 beside the meal total (saved dishes without a number) */
 .meal-total-kcal small.meal-total-miss{ color: #b4532a; }
 .meal-total-kcal small[hidden]{ display: none; }
-/* Added-food chips show the photo markers' states: a white hollow ring =
+/* Added-food chips show the photo markers' states: a hollow ring (purple on the white chip) =
    not finished (fields may still be empty), green + ✓ = 完成這道菜 */
 .report-extra-chip{ display: inline-flex; align-items: center; gap: 6px; }
 .report-extra-chip::before{
   content: ''; flex: 0 0 auto; width: 12px; height: 12px; box-sizing: border-box;
-  border-radius: 50%; border: 2px solid #fff; background: rgba(28, 22, 35, 0.35);
-  box-shadow: 0 0 0 1px rgba(28, 22, 35, 0.25);
+  border-radius: 50%; border: 2px solid currentColor; background: transparent;
 }
 .report-extra-chip.is-done::before{
   content: '✓'; border: 0; background: #fff; color: var(--teal); box-shadow: none;

@@ -212,7 +212,7 @@
       ['菜數', String(r.dishCount)],
       ['修正時間(秒)', num2(r.correctionSec)],
       ['操作次數', r.userActionCount == null ? '—' : String(r.userActionCount)],
-      ['整餐熱量', `${r.totalKcal == null ? '—' : `${r.totalKcal} kcal`}${r.unestimatedDishes ? ` <span class="tag warn">有 ${esc(r.unestimatedDishes)} 道未估算</span>` : ''}`],
+      ['整餐熱量', `${r.totalKcal == null ? '—' : `${r.totalKcal} kcal`}${r.failedKcalDishes ? ` <span class="tag warn">另有 ${esc(r.failedKcalDishes)} 道無法估算</span>` : ''}${r.unestimatedDishes ? ` <span class="tag warn">有 ${esc(r.unestimatedDishes)} 道未估算</span>` : ''}`],
       ['上傳狀態', `<span class="tag ok">已上傳${r.uploadCount > 1 ? `(${r.uploadCount} 次)` : ''}</span>${r.photoStored ? '' : ' <span class="tag">無照片</span>'}${r.deletedFromDiary ? ' <span class="tag warn">受試者已從日記刪除</span>' : ''}`],
       ['排除', r.excluded ? `<span class="tag warn">已排除</span><span class="reason">${esc(r.excludeReason)}</span>` : '<span class="tag">否</span>']
     ];
@@ -294,8 +294,9 @@
     const n = d && d.nutrition;
     if (!n || !n.status) return '';
     if (n.status === 'ok') return `<div class="fields">${esc(n.kcal)} kcal</div>`;
-    const missing = ['incomplete', 'needs-portion', 'needs-count'].includes(n.status);
-    return `<div class="fields kcal-missing">${missing ? '資料不足，未估算' : '無法估算'}</div>`;
+    // the same words as the participant's Diary
+    const text = { incomplete: '資料不足，未估算', 'needs-portion': '待補份量', 'needs-count': '待補數量' }[n.status] || '無法估算';
+    return `<div class="fields kcal-missing">${text}</div>`;
   }
   function compareTable(record){
     const dishes = Array.isArray(record.dishes) ? record.dishes : [];

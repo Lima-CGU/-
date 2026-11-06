@@ -879,12 +879,16 @@
       const hasCalories = saved.some(d => d && d.nutrition);
       if (record) record.nutrition = hasCalories ? window.PictaCalorie.mealFromSaved(saved) : null;
       const ok = hasCalories && record.nutrition.estimatedDishes > 0;
-      const miss = hasCalories ? record.nutrition.unavailableDishes : 0;
-      totalKcalEl.hidden = !ok && !miss;
+      // same split as Page 4: 未估算 = a value is missing, 無法估算 = no match / failed
+      const counts = savedKcalGaps(saved);
+      totalKcalEl.hidden = !ok && !counts.missing && !counts.failed;
       totalNumEl.textContent = ok ? `整餐 ${record.nutrition.totalKcal} kcal` : '';
       totalNoteEl.hidden = !ok;
-      totalMissEl.hidden = !miss;
-      totalMissEl.textContent = miss ? `有 ${miss} 道未估算` : '';
+      const parts = [];
+      if (counts.failed) parts.push(`另有 ${counts.failed} 道無法估算`);
+      if (counts.missing) parts.push(`有 ${counts.missing} 道未估算`);
+      totalMissEl.hidden = !parts.length;
+      totalMissEl.textContent = parts.join('・');
     };
     refreshTotal();
 
@@ -3015,11 +3019,26 @@
   // never saved incomplete in Group A, so they keep showing nothing meanwhile.
   function markExtraIncomplete(det){
     if (chatMode || !det || det.onPhoto !== false || isDishComplete(det) || !window.PictaCalorie) return;
+    // only the 數量 is missing: keep the calculation's own 「待補數量」
+    const d = det.detail || {};
+    if (dishFields(det).every(k => !!d[k])) return;
     window.PictaCalorie.markIncomplete(det.id);
   }
   // Saved calorie result; a dish never calculated because a field it needs
   // is still empty is saved as { status: 'incomplete' } (資料不足，未估算),
   // so the gap is visible in the Diary, the admin page and the CSV
+  // Saved dishes without a number: missing = a value was missing (資料不足 /
+  // 待補數量 / 待補份量), failed = no match / anomaly / error
+  const KCAL_MISSING = ['incomplete', 'needs-count', 'needs-portion'];
+  function savedKcalGaps(dishes){
+    const out = { missing: 0, failed: 0 };
+    (dishes || []).forEach(d => {
+      const st = d && d.nutrition && d.nutrition.status;
+      if (!st || st === 'ok') return;
+      if (KCAL_MISSING.includes(st)) out.missing += 1; else out.failed += 1;
+    });
+    return out;
+  }
   // A saved (Diary) dish still missing a field it needs
   function savedDishMissingField(dish){
     const d = dish.detail || {};
@@ -3167,11 +3186,14 @@
     // (an added food that is still missing a field counts as 未估算)
     const ids = currentDetections.concat(reportExtraDets).filter(d => !d.loading && (isDishComplete(d) || d.onPhoto === false)).map(d => d.id);
     const sum = Calorie.summary(ids);
-    reportTotal.hidden = !(sum.estimated || sum.pending || sum.incomplete);
-    reportTotalNum.textContent = sum.estimated ? String(sum.kcal) : (sum.pending ? '…' : '0');
+    // 未估算 = a value is missing (資料不足 / 待補數量 / 待補份量); 無法估算 = none / anomaly / error
+    const missing = sum.incomplete + sum.needsCount + sum.needsPortion;
+    // the total box only when there is (or soon will be) a number — never 「0 kcal 估算值」
+    reportTotal.hidden = !(sum.estimated || sum.pending);
+    reportTotalNum.textContent = sum.estimated ? String(sum.kcal) : '…';
     const notes = [];
     if (sum.unavailable) notes.push(`另有 ${sum.unavailable} 道無法估算`);
-    if (sum.incomplete) notes.push(`有 ${sum.incomplete} 道未估算`);
+    if (missing) notes.push(`有 ${missing} 道未估算`);
     reportTotalNote.hidden = !notes.length;
     reportTotalNote.textContent = notes.join('・');
   }
