@@ -2673,3 +2673,8 @@ body.candidate-sheet-open .toast{
 .det-marker{ width: max(24px, 2em); height: max(24px, 2em); line-height: calc(max(24px, 2em) - 4px); }
 .report-dish-num{ width: max(20px, 1.82em); height: max(20px, 1.82em); line-height: max(20px, 1.82em); }
 .report-extra-chip::before{ width: max(12px, 0.92em); height: max(12px, 0.92em); }
+/* (11/07) large text, enlarged photo kept bigger than the page fits: the
+   panel scrolls — show its scrollbar so the cards under the nav are findable */
+.screen-report.report-stepping.report-peek-scroll .report-panel{ scrollbar-width: thin; -ms-overflow-style: auto; }
+.screen-report.report-stepping.report-peek-scroll .report-panel::-webkit-scrollbar{ display: block; width: 6px; }
+.screen-report.report-stepping.report-peek-scroll .report-panel::-webkit-scrollbar-thumb{ background: rgba(109,79,224,0.45); border-radius: 999px; }

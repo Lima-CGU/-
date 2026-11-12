@@ -1547,7 +1547,7 @@
       .map(d => (RECOGNIZE_PREVIEW_ONLY && d.markerEl ? d.markerEl : d.dotEl).getBoundingClientRect());
     // controls that sit on the photo itself — a label under them is unreadable
     // (CSS-hidden ones measure 0x0 and are skipped)
-    const controlRects = [recognizeZoomToggle, manualBoxSpawner, reportAddDishBtn]
+    const controlRects = [recognizeZoomToggle, manualBoxSpawner, reportAddDishBtn, photoPeekHint]
       .filter(el => !el.hidden)
       .map(el => el.getBoundingClientRect())
       .filter(r => r.width && r.height);
@@ -3428,8 +3428,8 @@
       // (11/07) choosing the preset itself (a spoken 「沒有」 while 沒有特別調味
       // is preset) confirms it — like a tap on any other field's preset
       // (setReportField): field_set, before = after, detail.confirmedDefault
+      // (no editLog.fieldSetCount: setReportField doesn't count a confirmed preset either)
       if (next.length && (det.fieldSource || {}).seasonings === 'default'){
-        if (currentMealMeta) currentMealMeta.editLog.fieldSetCount += 1;
         logEvent('field_set', {
           actor: 'user', target: dishNoOf(det), field: 'seasonings', before: prev.slice(), after: next.slice(),
           attemptId: nextAttemptId(), source: source || null, detail: { confirmedDefault: true }
@@ -3724,6 +3724,7 @@
   }
   let photoPeek = false;
   let lastReportStripH = 0; // (A) the strip's height with a dish open, last computed
+  let peekOverflow = false;  // (A) the enlarged photo was kept larger than the page fits
   const photoCompactMode = () => reportActive && (chatMode || !!reportSelectedId);
   function sizeReportPhotoSlot(){
     if (!reportActive) return;
@@ -3779,17 +3780,22 @@
       const slotNow = reportPhotoSlot.getBoundingClientRect().height;
       const panelAtTarget = reportPanel.clientHeight + slotNow - h;
       const over = natural - panelAtTarget;
+      peekOverflow = false;
       if (over > 0){
-        // (11/07) an enlarged photo stays at least 1.5× the strip: with large
-        // system text the page then scrolls (.screen) instead of 「點照片放大」
-        // doing nothing visible
-        const floor = compact ? PHOTO_COMPACT_MIN_PX
-          : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over, Math.round(lastReportStripH * 1.5)));
+        let floor = compact ? PHOTO_COMPACT_MIN_PX : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over));
+        // (11/07) with large system text the fitted 「enlarged」 photo can end
+        // up no bigger than the strip, so 「點照片放大」 seems to do nothing:
+        // then it is 1.5× the strip and the panel scrolls (scrollbar shown,
+        // .report-peek-scroll). (Normal text: 390×700 數量 page is the tightest, 236 vs 226 px — not hit.)
+        peekOverflow = !compact && lastReportStripH > 0 && h - over <= lastReportStripH * 1.02;
+        if (peekOverflow) floor = Math.min(h, Math.round(lastReportStripH * 1.5));
         h = Math.max(floor, h - Math.ceil(over));
         reportPhotoSlot.style.height = `${Math.round(h)}px`;
       }
     }
     if (!chatMode && compact && reportSelectedId) lastReportStripH = h;
+    if (compact || chatMode || !reportSelectedId) peekOverflow = false;
+    reportScreenEl.classList.toggle('report-peek-scroll', peekOverflow);
     reportPhotoSlot.classList.toggle('is-compact', compact);
     // on the small photo the 「+ 整餐/其他」 button would cover it: beside it
     // instead (placePhotoTools, below; under the photo when there's no room)
