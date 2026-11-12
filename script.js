@@ -2803,7 +2803,7 @@
       if (detailSeasonOtherOpen) detailSeasonInput?.focus();
       return;
     }
-    detailDraft.seasonings = toggledSeasonings(draftSeasonings(), btn.dataset.value);
+    detailDraft.seasonings = toggledSeasoningsFor(detailAdjustTarget && detailAdjustTarget.fieldSource, draftSeasonings(), btn.dataset.value);
     renderDetailSeasonings();
   });
   function addDetailSeasoningText(){
@@ -3414,10 +3414,30 @@
     return FIELD_DEFAULTS.cleanSeasonings(list.filter(v => v !== NONE).concat(value));
   }
   const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  // (11/07) a tap on the still-preset 沒有特別調味 confirms it (the list
+  // stays) — tapping it again after the user chose it still clears it
+  function toggledSeasoningsFor(fieldSource, list, value){
+    const NONE = FIELD_DEFAULTS.SEASONING_NONE;
+    if (value === NONE && sameList(list, [NONE]) && (fieldSource || {}).seasonings === 'default') return list.slice();
+    return toggledSeasonings(list, value);
+  }
   // Group A: one committed change = one attempt (like a card tap)
   function setReportSeasonings(det, next, source){
     const prev = seasoningsOf(det);
-    if (sameList(prev, next)){ renderReportStep(det); return; } // (e.g. a dropped 其他 text: close its box)
+    if (sameList(prev, next)){
+      // (11/07) choosing the preset itself (a spoken 「沒有」 while 沒有特別調味
+      // is preset) confirms it — like a tap on any other field's preset
+      // (setReportField): field_set, before = after, detail.confirmedDefault
+      if (next.length && (det.fieldSource || {}).seasonings === 'default'){
+        if (currentMealMeta) currentMealMeta.editLog.fieldSetCount += 1;
+        logEvent('field_set', {
+          actor: 'user', target: dishNoOf(det), field: 'seasonings', before: prev.slice(), after: next.slice(),
+          attemptId: nextAttemptId(), source: source || null, detail: { confirmedDefault: true }
+        });
+        setFieldSource(det, 'seasonings', 'user');
+      }
+      renderReportStep(det); return; // (e.g. a dropped 其他 text: close its box)
+    }
     // (11/07) replacing the preset 沒有特別調味 is not a changed answer — the
     // same rule as the other fields (setReportField)
     const fromDefault = prev.length > 0 && (det.fieldSource || {}).seasonings === 'default';
@@ -3458,7 +3478,7 @@
     if (performance.now() - cardsSwappedAt < CARD_SWAP_GUARD_MS) return;
     const det = selectedReportDet();
     if (btn.dataset.kind === 'seasonings'){
-      if (det && !det.loading) setReportSeasonings(det, toggledSeasonings(seasoningsOf(det), btn.dataset.value));
+      if (det && !det.loading) setReportSeasonings(det, toggledSeasoningsFor(det.fieldSource, seasoningsOf(det), btn.dataset.value));
       return;
     }
     if (btn.dataset.kind === 'seasonings-other'){
@@ -3703,6 +3723,7 @@
     return body.clientHeight - headH;
   }
   let photoPeek = false;
+  let lastReportStripH = 0; // (A) the strip's height with a dish open, last computed
   const photoCompactMode = () => reportActive && (chatMode || !!reportSelectedId);
   function sizeReportPhotoSlot(){
     if (!reportActive) return;
@@ -3759,11 +3780,16 @@
       const panelAtTarget = reportPanel.clientHeight + slotNow - h;
       const over = natural - panelAtTarget;
       if (over > 0){
-        const floor = compact ? PHOTO_COMPACT_MIN_PX : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over));
+        // (11/07) an enlarged photo stays at least 1.5× the strip: with large
+        // system text the page then scrolls (.screen) instead of 「點照片放大」
+        // doing nothing visible
+        const floor = compact ? PHOTO_COMPACT_MIN_PX
+          : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over, Math.round(lastReportStripH * 1.5)));
         h = Math.max(floor, h - Math.ceil(over));
         reportPhotoSlot.style.height = `${Math.round(h)}px`;
       }
     }
+    if (!chatMode && compact && reportSelectedId) lastReportStripH = h;
     reportPhotoSlot.classList.toggle('is-compact', compact);
     // on the small photo the 「+ 整餐/其他」 button would cover it: beside it
     // instead (placePhotoTools, below; under the photo when there's no room)
@@ -3795,10 +3821,13 @@
     return reportScreenEl.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - footH - reportHeadingHeight();
   }
   // (11/07, large system text) On the small photo strip 「+ 整餐/其他」 sits
-  // left of the photo and 「點照片放大」 right of it. When either doesn't fit
-  // in the blank space beside the photo (it would cover the photo and its
-  // markers), both move into the row under the photo (#reportPhotoTools).
-  // Normal text sizes always fit — nothing changes there.
+  // at the slot's bottom-left and 「點照片放大」 at its bottom-right. When the
+  // two would run into each other (very large text / a very narrow screen;
+  // they also cover the markers then), both move into the row under the
+  // photo (#reportPhotoTools). Normal text sizes never get there, so the
+  // layout there is unchanged. On the enlarged photo the tag sits at the
+  // photo's own top-left (inside #recognizeWrap), the add button at its
+  // bottom-right.
   const reportPhotoTools = document.getElementById('reportPhotoTools');
   function naturalWidth(el){
     const ws = el.style.whiteSpace, mw = el.style.maxWidth;
@@ -3810,14 +3839,13 @@
   function placePhotoTools(compact, h, width, nw, nh){
     if (!reportPhotoTools) return;
     // back in their usual places first (measured there)
-    if (photoPeekHint && photoPeekHint.parentElement !== reportPhotoSlot) reportPhotoSlot.appendChild(photoPeekHint);
     const btnHome = compact ? reportPhotoSlot : recognizeWrap;
+    if (photoPeekHint && photoPeekHint.parentElement !== btnHome) btnHome.appendChild(photoPeekHint);
     if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
     let below = false;
     if (compact){
-      const photoW = Math.min(width, h * nw / nh);
-      const room = (width - photoW) / 2 - 12; // blank space on each side of the photo
-      below = [reportAddDishBtn, photoPeekHint].some(el => el && el.getClientRects().length && naturalWidth(el) > room);
+      const shown = [reportAddDishBtn, photoPeekHint].filter(el => el && el.getClientRects().length);
+      below = shown.reduce((sum, el) => sum + naturalWidth(el), 0) + 16 + 8 * shown.length > width;
     }
     reportPhotoTools.hidden = !below;
     if (below){
