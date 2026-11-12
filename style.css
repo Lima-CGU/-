@@ -2626,3 +2626,46 @@ body.candidate-sheet-open .toast{
   content: '✓'; border: 0; background: #fff; color: var(--teal); box-shadow: none;
   font-size: 9px; font-weight: 900; line-height: 12px; text-align: center;
 }
+
+/* ===== 11/07: large system text (Android font size / display size 150–200 %) =====
+   Nothing may be cut off or covered: text wraps instead of being clipped,
+   rows wrap instead of squeezing a label to one character per line, and a
+   screen whose content doesn't fit scrolls (normal sizes are unchanged —
+   nothing there overflows). The viewport never forbids zooming. */
+.screen{ overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+.btn{ overflow-wrap: anywhere; }
+/* Page 4 A: dish title row — the pencil / trash wrap under a long name */
+.report-dish-head{ flex-wrap: wrap; }
+.report-dish-title{ flex: 1 1 7em; }
+/* option cards: grow with their text, labels wrap */
+.screen-report .report-cards .detail-choice{ height: auto; }
+.screen-report .report-cards .detail-choice-label{ white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; text-align: center; line-height: 1.2; }
+/* meal total rows (A footer, B/C footer) */
+.report-total{ flex-wrap: wrap; gap: 0 8px; }
+.report-total-label, .report-total-unit, .report-total-value small{ white-space: nowrap; }
+.report-total-value{ flex-wrap: wrap; }
+.chat-total-row{ flex-wrap: wrap; }
+.chat-total{ flex: 1 1 auto; flex-wrap: wrap; row-gap: 0; }
+.chat-done-btn{ max-width: 100%; }
+/* scenario question buttons */
+.report-scenario-actions{ flex-wrap: wrap; }
+.report-scenario-actions .btn{ flex: 1 1 7em; }
+.report-scenario-input{ flex-wrap: wrap; }
+.report-scenario-input input{ flex: 1 1 8em; min-width: 0; }
+/* chat: the selected dish's values and the input box wrap / grow */
+.chat-sel-values{ white-space: normal; overflow: visible; text-overflow: clip; }
+.chat-input{ max-height: 7.4em; }
+/* Diary rows: names and values wrap */
+.meal-dish-name, .meal-dish-attr-value{ white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+/* the 「點照片放大／縮小」 tag never sits under 「+ 整餐/其他」: on the large
+   photo the tag moves to the top-left (the add button is at the photo's
+   bottom-right then); on the small strip, when the two don't fit beside
+   the photo, both move to the row under it (script.js placePhotoTools) */
+.report-photo-slot.photo-tappable:not(.is-compact) > .photo-peek-hint{ right: auto; left: 8px; top: 6px; bottom: auto; }
+.report-photo-tools{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 8px; margin-top: 6px; }
+.report-photo-tools[hidden]{ display: none; }
+.report-photo-tools > .report-add-dish-btn,
+.report-photo-tools > .photo-peek-hint{ position: static; max-width: 100%; white-space: normal; text-align: center; }
+/* the chat input row: a narrow box gets its own line (mic + send under it) */
+.chat-input-row{ flex-wrap: wrap; }
+.chat-input{ flex: 1 1 9em; }

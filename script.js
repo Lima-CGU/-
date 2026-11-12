@@ -3687,6 +3687,10 @@
   // for all three groups. Tapping it shows it full size until tapped again.
   const PHOTO_COMPACT_SHARE = 1 / 3;
   const PHOTO_COMPACT_MIN_PX = 96;
+  // (11/07) B/C with large system text: keep this much of the chat log
+  // visible; the photo strip may shrink down to CHAT_PHOTO_MIN_PX for it
+  const CHAT_LOG_MIN_PX = 96;
+  const CHAT_PHOTO_MIN_PX = 64;
   // Group A (10/22, no wasted space): picking a dish = the photo fills the
   // room between the heading and the footer (the hint right under it);
   // a dish open = a strip of A_STRIP_SHARE of that room; tapped = A_PEEK_SHARE.
@@ -3712,6 +3716,15 @@
     const selDet = reportSelectedId && !chatMode ? reportExtraDets.find(d => d.id === reportSelectedId) : null;
     const compact = photoCompactMode() && !photoPeek;
     let h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
+    if (chatMode){
+      // (11/07, large system text) the photo — even tapped large — never
+      // takes the chat log's last lines or runs under the footer: at most
+      // the room the footer leaves minus CHAT_LOG_MIN_PX (normal text sizes
+      // never hit this). Measured from the screen, not the body, whose
+      // min-height (set below) would otherwise feed back into the room.
+      const room = chatBodyRoom();
+      if (room > 0) h = Math.max(Math.min(h, CHAT_PHOTO_MIN_PX), Math.min(h, room - CHAT_LOG_MIN_PX));
+    }
     if (!chatMode){
       const fit = width * nh / nw;
       const room = reportPhotoRoom();
@@ -3752,13 +3765,64 @@
       }
     }
     reportPhotoSlot.classList.toggle('is-compact', compact);
-    // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
-    const btnHome = compact ? reportPhotoSlot : recognizeWrap;
-    if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    // on the small photo the 「+ 整餐/其他」 button would cover it: beside it
+    // instead (placePhotoTools, below; under the photo when there's no room)
     reportPhotoSlot.classList.toggle('photo-tappable', photoCompactMode());
     if (photoPeekHint){
       photoPeekHint.hidden = !photoCompactMode();
       photoPeekHint.textContent = photoPeek ? '點照片縮小' : '點照片放大';
+    }
+    placePhotoTools(compact, h, width, nw, nh);
+    // (11/07) B/C: the body never shrinks below heading + photo + the photo
+    // tools row + CHAT_LOG_MIN_PX — with large system text the screen scrolls
+    // instead of the photo / chat log sliding under the footer
+    const body = reportPhotoSlot.parentElement;
+    if (chatMode){
+      const toolsH = reportPhotoTools && !reportPhotoTools.hidden ? reportPhotoTools.offsetHeight + 6 : 0;
+      body.style.minHeight = `${Math.ceil(reportHeadingHeight() + h + toolsH + CHAT_LOG_MIN_PX)}px`;
+    } else body.style.minHeight = '';
+  }
+  function reportHeadingHeight(){
+    const head = reportPhotoSlot.parentElement.querySelector('.report-heading');
+    return head ? head.offsetHeight + (parseFloat(getComputedStyle(head).marginBottom) || 0) : 0;
+  }
+  // B/C: the height the screen leaves for the body (screen minus its
+  // padding, the chat footer and the heading)
+  function chatBodyRoom(){
+    const cs = getComputedStyle(reportScreenEl);
+    const foot = reportScreenEl.querySelector('.chat-foot');
+    const footH = foot ? foot.offsetHeight + (parseFloat(getComputedStyle(foot).marginTop) || 0) : 0;
+    return reportScreenEl.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - footH - reportHeadingHeight();
+  }
+  // (11/07, large system text) On the small photo strip 「+ 整餐/其他」 sits
+  // left of the photo and 「點照片放大」 right of it. When either doesn't fit
+  // in the blank space beside the photo (it would cover the photo and its
+  // markers), both move into the row under the photo (#reportPhotoTools).
+  // Normal text sizes always fit — nothing changes there.
+  const reportPhotoTools = document.getElementById('reportPhotoTools');
+  function naturalWidth(el){
+    const ws = el.style.whiteSpace, mw = el.style.maxWidth;
+    el.style.whiteSpace = 'nowrap'; el.style.maxWidth = 'none';
+    const w = el.offsetWidth;
+    el.style.whiteSpace = ws; el.style.maxWidth = mw;
+    return w;
+  }
+  function placePhotoTools(compact, h, width, nw, nh){
+    if (!reportPhotoTools) return;
+    // back in their usual places first (measured there)
+    if (photoPeekHint && photoPeekHint.parentElement !== reportPhotoSlot) reportPhotoSlot.appendChild(photoPeekHint);
+    const btnHome = compact ? reportPhotoSlot : recognizeWrap;
+    if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    let below = false;
+    if (compact){
+      const photoW = Math.min(width, h * nw / nh);
+      const room = (width - photoW) / 2 - 12; // blank space on each side of the photo
+      below = [reportAddDishBtn, photoPeekHint].some(el => el && el.getClientRects().length && naturalWidth(el) > room);
+    }
+    reportPhotoTools.hidden = !below;
+    if (below){
+      if (reportAddDishBtn.getClientRects().length) reportPhotoTools.appendChild(reportAddDishBtn);
+      if (photoPeekHint && !photoPeekHint.hidden) reportPhotoTools.appendChild(photoPeekHint);
     }
   }
   // A tap on the photo (or its blank sides, or the 「點照片放大／縮小」 tag)
@@ -3766,15 +3830,24 @@
   // tag used to ignore taps (pointer-events: none) and sits outside the photo
   // frame; iPhone Safari also needs the pointer cursor (.photo-tappable) to
   // deliver a tap on the plain image.)
-  reportPhotoSlot.addEventListener('click', e => {
+  function onPhotoSlotTap(e){
     if (!reportActive || !photoCompactMode() || reportAddingDish) return;
     const hint = e.target.closest('#photoPeekHint');
     if (!hint && e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
+    if (!hint && e.currentTarget === reportPhotoTools) return; // (the row's blank space)
     photoPeek = !photoPeek;
     logEvent(photoPeek ? 'photo_expanded' : 'photo_collapsed', { actor: 'user' });
     sizeReportPhotoSlot();
-  });
+  }
+  reportPhotoSlot.addEventListener('click', onPhotoSlotTap);
+  reportPhotoTools?.addEventListener('click', onPhotoSlotTap);
   window.addEventListener('resize', sizeReportPhotoSlot);
+  // the chat footer grows (a selected-dish chip, suggestion buttons, a
+  // two-line input, large system text): re-fit the photo to what is left
+  if (typeof ResizeObserver === 'function'){
+    const chatFootEl = reportScreenEl.querySelector('.chat-foot');
+    if (chatFootEl) new ResizeObserver(() => { if (chatMode) sizeReportPhotoSlot(); }).observe(chatFootEl);
+  }
   recognizePhoto.addEventListener('load', sizeReportPhotoSlot);
 
   // Hands the photo stage back to Page 3. Safe to call any time.
@@ -3790,6 +3863,9 @@
     reportPhotoSlot.style.height = '';
     reportPhotoSlot.classList.remove('is-compact');
     if (reportAddDishBtn.parentElement !== recognizeWrap) recognizeWrap.appendChild(reportAddDishBtn);
+    if (photoPeekHint && photoPeekHint.parentElement !== reportPhotoSlot) reportPhotoSlot.appendChild(photoPeekHint);
+    if (reportPhotoTools) reportPhotoTools.hidden = true;
+    reportPhotoSlot.parentElement.style.minHeight = '';
     reportScreenEl.classList.remove('report-stepping');
     photoPeek = false;
     if (photoPeekHint) photoPeekHint.hidden = true;
@@ -4337,6 +4413,7 @@
       d.aiOriginal = d.aiOriginal || { name: chatDishName(d), confidence: d.confidence ?? null };
     });
     enterReportMode();
+    requestAnimationFrame(sizeChatInput); // (11/07) a wrapped hint is not cut off
     // presets give every dish a size: start its calories (a countable dish
     // still waits for the count the user ate — 待補數量)
     currentDetections.forEach(d => {
@@ -4363,6 +4440,7 @@
     chatBusy = false;
     if (chatLog) chatLog.textContent = '';
     if (chatInput) chatInput.value = '';
+    sizeChatInput();
     chatSuggestionShownCount = 0;
     chatSuggestionTaps = [];
     chatAttemptId = null;
@@ -4646,6 +4724,7 @@
       meta: { source, ...(voice ? { voiceRaw: text, voiceFixed: said } : {}) }
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
+    sizeChatInput();
     renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
@@ -4697,6 +4776,7 @@
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
       if (chatInput){
         if (!chatInput.value) chatInput.value = text; // ready to resend
+        sizeChatInput();
         chatInput.focus();
       }
       return;
@@ -4954,10 +5034,29 @@
       chatForm?.requestSubmit();
     }
   });
-  chatInput?.addEventListener('input', () => {
+  // The box grows with its text up to its max-height (CSS, in em so large
+  // system text keeps ~5 lines); empty, it is as tall as the placeholder
+  // needs (11/07: at 150–200 % text the hint wrapped and was cut off)
+  function sizeChatInput(){
+    if (!chatInput) return;
     chatInput.style.height = 'auto';
-    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 110)}px`;
-  });
+    let needed = chatInput.scrollHeight;
+    if (!chatInput.value && chatInput.placeholder){
+      // measured at the placeholder's own (smaller) font size
+      const phSize = getComputedStyle(chatInput, '::placeholder').fontSize;
+      chatInput.style.fontSize = phSize;
+      chatInput.value = chatInput.placeholder;
+      needed = chatInput.scrollHeight;
+      chatInput.value = '';
+      chatInput.style.fontSize = '';
+    }
+    const cs = getComputedStyle(chatInput);
+    const max = parseFloat(cs.maxHeight) || 110;
+    const borders = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    chatInput.style.height = `${Math.ceil(Math.min(needed + borders, max))}px`;
+  }
+  chatInput?.addEventListener('input', sizeChatInput);
+  window.addEventListener('resize', () => { if (chatMode) sizeChatInput(); });
 
   /* 🎤 Web Speech: the words go into the text box; the user sends them */
   function stopChatListening(){
@@ -4981,6 +5080,7 @@
       let text = '';
       for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
       chatInput.value = base + text;
+      sizeChatInput();
       chatVoiceUsed = true;
       chatInput.dispatchEvent(new Event('input'));
     };
