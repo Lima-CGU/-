@@ -808,8 +808,8 @@
       row.remove();
       kcalSeq += 1; // ignore a recalculation still in flight
       if (meta) meta.dishCount = Math.max(0, meta.dishCount - 1);
-      if (meta && meta.dishesEl) meta.dishesEl.textContent = `${meta.dishCount} 道菜`;
       if (meta && meta.record) meta.record.dishes = meta.record.dishes.filter(d => d !== dish);
+      if (meta && meta.refreshDishCount) meta.refreshDishCount();
       if (meta && meta.refreshTotal) meta.refreshTotal();
       if (meta && meta.record){
         const log = meta.record.editLog = meta.record.editLog || {};
@@ -828,7 +828,7 @@
   function addMealCard(dataUrl, dishCount, dishes, record){
     emptyState.style.display = 'none';
     mealCount += 1;
-    countTag.textContent = `${mealCount} 筆`;
+    countTag.textContent = `已記錄 ${mealCount} 餐`;
 
     const card = document.createElement('div');
     card.className = 'meal-card';
@@ -845,7 +845,11 @@
 
     const dishesEl = document.createElement('span');
     dishesEl.className = 'meal-dishes';
-    dishesEl.textContent = `${dishCount} 道菜`;
+    // (11/07) 「N 道菜＋M 項補充食材」: scenario question 2's foods are
+    // ingredients of this meal, not dishes of their own
+    const refreshDishCount = () => {
+      dishesEl.textContent = record && Array.isArray(record.dishes) ? dishCountText(record.dishes) : `${dishCountMeta.dishCount} 道菜`;
+    };
     const meta = document.createElement('div');
     meta.className = 'meal-meta';
 
@@ -892,7 +896,8 @@
     };
     refreshTotal();
 
-    const dishCountMeta = { dishCount, dishesEl, record, refreshTotal };
+    const dishCountMeta = { dishCount, dishesEl, record, refreshTotal, refreshDishCount };
+    refreshDishCount();
 
     const status = document.createElement('div');
 
@@ -934,7 +939,7 @@
     removeBtn.addEventListener('click', () => {
       card.remove();
       mealCount = Math.max(0, mealCount - 1);
-      countTag.textContent = `${mealCount} 筆`;
+      countTag.textContent = `已記錄 ${mealCount} 餐`;
       if (mealCount === 0) emptyState.style.display = 'block';
       // the study data keeps it, marked as removed from the Diary
       if (record){
@@ -958,7 +963,7 @@
   }
   function renderSyncStatus(el, status){
     const synced = status === 'synced';
-    el.textContent = synced ? '已同步' : '等待上傳';
+    el.textContent = synced ? '已同步雲端' : '等待上傳';
     el.classList.toggle('is-synced', synced);
   }
   // A record must stay under the backend's 900 KB limit: if the events would
@@ -1089,7 +1094,7 @@
     target.status.appendChild(renderDiaryDishRow(dish, target.dishCountMeta));
     if (target.record) syncRecordSoon(target.record);
     target.dishCountMeta.dishCount += 1;
-    target.dishCountMeta.dishesEl.textContent = `${target.dishCountMeta.dishCount} 道菜`;
+    target.dishCountMeta.refreshDishCount();
 
     addDishTargetMeal = null;
     currentPhotoData = null;
@@ -2907,7 +2912,7 @@
   // stays in REPORT_FIELDS only so a record keeps all five keys)
   const ACTIVE_FIELDS = ['size', 'cookingMethod', 'sugar', 'salt'];
   // page order; fields that don't apply are skipped
-  // (11/01) 調味 seasonings: its own page after 烹調方式 — a list, no preset
+  // (11/01) 調味 seasonings: its own page after 烹調方式 — a list, preset 沒有特別調味 (11/07)
   const STEP_ORDER = ['size', 'count', 'cookingMethod', 'seasonings', 'sugar', 'salt'];
   const STEP_LABEL = { size: '份量', count: '數量', containerType: '容器', cookingMethod: '烹調方式', seasonings: '調味', sugar: '糖', salt: '鹽' };
   // seasonings apply to every food type but fruit and beverage (field-defaults.js)
@@ -2989,13 +2994,13 @@
     applySeasoningsDefault(det);
     logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
   }
-  // 調味: no preset — an empty list with source 'default' where it applies,
-  // null / 'na' where it doesn't (fruit, beverage)
+  // 調味: preset 沒有特別調味 (teacher 11/07) with source 'default' where it
+  // applies, null / 'na' where it doesn't (fruit, beverage)
   function applySeasoningsDefault(det){
     det.fieldSource = det.fieldSource || {};
     if (hasSeasonings(det)){
       if (!Array.isArray(det.detail.seasonings)){
-        det.detail.seasonings = [];
+        det.detail.seasonings = FIELD_DEFAULTS.SEASONING_DEFAULT.slice();
         det.fieldSource.seasonings = 'default';
       } else if (!det.fieldSource.seasonings) det.fieldSource.seasonings = 'default';
     } else {
@@ -3027,6 +3032,19 @@
   // Saved calorie result; a dish never calculated because a field it needs
   // is still empty is saved as { status: 'incomplete' } (資料不足，未估算),
   // so the gap is visible in the Diary, the admin page and the CSV
+  // (11/07, teacher: 「這不是 3 道菜」) a food added at scenario question 2
+  // (「還有其他需要補充的食材嗎？」) is an ingredient of the meal, not a dish:
+  // 「N 道菜＋M 項補充食材」. Question 1's foods stay dishes. Data unchanged
+  // (dishSource 'scenario' + scenarioNo 2); calories still add up.
+  function isIngredientDish(d){
+    return !!d && d.source === 'scenario' && d.scenarioNo === 2;
+  }
+  function dishCountText(list){
+    const all = (list || []).filter(Boolean);
+    const ingredients = all.filter(isIngredientDish).length;
+    const dishes = all.length - ingredients;
+    return ingredients ? `${dishes} 道菜＋${ingredients} 項補充食材` : `${dishes} 道菜`;
+  }
   // Saved dishes without a number: missing = a value was missing (資料不足 /
   // 待補數量 / 待補份量), failed = no match / anomaly / error
   // (a function declaration, no outer const: the Diary calls it while
@@ -3119,8 +3137,15 @@
     // (an empty photo is fine once foods were added through the questions)
     const allDone = (all.length > 0 || reportExtraDets.length > 0) && filled === all.length;
     const sel = selectedReportDet();
-    reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
-    reportProgress.hidden = allDone;
+    // (11/07) all filled and foods were added through the questions: the
+    // meal's 「共 N 道菜＋M 項補充食材」 (question 2 adds ingredients, not dishes)
+    if (allDone){
+      reportProgress.textContent = reportExtraDets.length ? `共 ${dishCountText(all.concat(reportExtraDets))}` : '';
+      reportProgress.hidden = !reportExtraDets.length;
+    } else {
+      reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
+      reportProgress.hidden = false;
+    }
     // while picking a dish (none open): 「下一道 ›」 opens the next unfilled one
     reportNextDishBtn.hidden = allDone || !!sel || !nextUnfilledReportDet();
     reportDoneBtn.hidden = !allDone;
@@ -3322,7 +3347,8 @@
     const field = currentStepField(det);
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const idx = steps.indexOf(field);
-    reportStepTitle.textContent = `第 ${idx + 1} / ${steps.length} 題:${STEP_LABEL[field]}`;
+    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 4 題」
+    reportStepTitle.textContent = `${STEP_LABEL[field]}（${idx + 1}/${steps.length}）`;
     const isCount = field === 'count';
     if (reportCountRow) reportCountRow.hidden = !isCount;
     if (isCount) renderCountStepper('reportCount', det.count, det.countUnit);
@@ -3392,13 +3418,16 @@
   function setReportSeasonings(det, next, source){
     const prev = seasoningsOf(det);
     if (sameList(prev, next)){ renderReportStep(det); return; } // (e.g. a dropped 其他 text: close its box)
+    // (11/07) replacing the preset 沒有特別調味 is not a changed answer — the
+    // same rule as the other fields (setReportField)
+    const fromDefault = prev.length > 0 && (det.fieldSource || {}).seasonings === 'default';
     if (currentMealMeta){
       currentMealMeta.editLog.fieldSetCount += 1;
-      if (prev.length) currentMealMeta.editLog.fieldChangeCount += 1;
+      if (prev.length && !fromDefault) currentMealMeta.editLog.fieldChangeCount += 1;
     }
     logEvent(prev.length ? 'field_changed' : 'field_set', {
       actor: 'user', target: dishNoOf(det), field: 'seasonings', before: prev.length ? prev.slice() : null, after: next.slice(),
-      attemptId: nextAttemptId(), source: source || null
+      attemptId: nextAttemptId(), source: source || null, detail: fromDefault ? { fromDefault: true } : null
     });
     setFieldSource(det, 'seasonings', 'user');
     det.detail = { ...(det.detail || {}), seasonings: next };
@@ -3726,15 +3755,21 @@
     // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
     const btnHome = compact ? reportPhotoSlot : recognizeWrap;
     if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    reportPhotoSlot.classList.toggle('photo-tappable', photoCompactMode());
     if (photoPeekHint){
       photoPeekHint.hidden = !photoCompactMode();
       photoPeekHint.textContent = photoPeek ? '點照片縮小' : '點照片放大';
     }
   }
-  // a tap on the photo itself (not a marker / label / button) toggles the size
-  recognizeWrap.addEventListener('click', e => {
-    if (!photoCompactMode() || reportAddingDish) return;
-    if (e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
+  // A tap on the photo (or its blank sides, or the 「點照片放大／縮小」 tag)
+  // toggles the size — not on a marker / label / other button. (11/07: the
+  // tag used to ignore taps (pointer-events: none) and sits outside the photo
+  // frame; iPhone Safari also needs the pointer cursor (.photo-tappable) to
+  // deliver a tap on the plain image.)
+  reportPhotoSlot.addEventListener('click', e => {
+    if (!reportActive || !photoCompactMode() || reportAddingDish) return;
+    const hint = e.target.closest('#photoPeekHint');
+    if (!hint && e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
     photoPeek = !photoPeek;
     logEvent(photoPeek ? 'photo_expanded' : 'photo_collapsed', { actor: 'user' });
     sizeReportPhotoSlot();
@@ -3758,6 +3793,7 @@
     reportScreenEl.classList.remove('report-stepping');
     photoPeek = false;
     if (photoPeekHint) photoPeekHint.hidden = true;
+    reportPhotoSlot.classList.remove('photo-tappable');
     refreshMarkerStates();
   }
 
@@ -4201,7 +4237,7 @@
     recordScenarioAnswer(no, 'text', { added: name }, 'typed', aid);
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
-    // still missing a field (e.g. 烹調方式 has no preset): 資料不足，未估算 —
+    // still missing a field (rare since 11/07: every cooking field has a preset 水煮): 資料不足，未估算 —
     // nothing is guessed; the user can open its chip and fill it in
     else markExtraIncomplete(det);
     showReportScenario(true);
@@ -4797,8 +4833,9 @@
           if ((det.detail || {}).size !== v) setFieldSource(det, k, 'default');
           return;
         }
-        // (調味: only when the AI's list adds something)
-        if (k === 'seasonings' && Array.isArray(v) && v.every(x => seasoningsOf(det).includes(x))) return;
+        // (調味: only when the AI's list adds something — or when the user
+        // said the preset itself, e.g. 「沒有特別調味」: then it is theirs, 11/07)
+        if (k === 'seasonings' && Array.isArray(v) && v.every(x => seasoningsOf(det).includes(x)) && (det.fieldSource || {}).seasonings !== 'default') return;
         setFieldSource(det, k, 'ai');
       });
       // 調味 (11/01): what the user said now is ADDED to the list

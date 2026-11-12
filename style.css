@@ -2559,7 +2559,9 @@ body.candidate-sheet-open .toast{
 
 /* Page 4, all groups: the photo shrinks to a strip while editing; tap = full size */
 .report-photo-slot{ position: relative; transition: height 0.2s ease; }
-.photo-peek-hint{ position: absolute; right: 8px; bottom: 6px; z-index: 6; padding: 3px 9px; border-radius: 999px; background: rgba(34, 28, 53, 0.72); color: #fff; font-family: var(--font-body); font-size: 12px; font-weight: 700; pointer-events: none; }
+.photo-peek-hint{ position: absolute; right: 8px; bottom: 6px; z-index: 6; margin: 0; padding: 3px 9px; border: 0; border-radius: 999px; background: rgba(34, 28, 53, 0.72); color: #fff; font-family: var(--font-body); font-size: 12px; font-weight: 700; line-height: 1.4; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* (11/07) iPhone Safari delivers a tap on a plain image only to a "clickable" target */
+.report-photo-slot.photo-tappable{ cursor: pointer; }
 .photo-peek-hint[hidden]{ display: none; }
 .report-photo-slot.is-compact .recognize-zoom-toggle{ display: none; }
 /* the small photo: names only on its labels (confidence / kcal lines hidden) */

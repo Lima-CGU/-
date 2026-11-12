@@ -35,9 +35,9 @@ t('雞腿 ×3 matched to a per-隻 item: oil × 3', () => {
   assert.strictEqual(r.countUsed, 3);
   assert.strictEqual(r.oilTeaspoons, 3);
 });
-t('炸醬麵: no cooking preset, no oil', () => {
+t('炸醬麵: no cooking word -> preset 水煮 (11/07), no oil', () => {
   const d = defaultsFor('炸醬麵', 'staple', 'food');
-  assert.ok(!d.cookingMethod);
+  assert.strictEqual(d.cookingMethod, '水煮');
   const r = calc.compute({ ...perServing, name: '炸醬麵' }, { foodType: 'staple', size: 'M', cookingMethod: d.cookingMethod || '' });
   assert.strictEqual(r.oilTeaspoons, 0);
 });
