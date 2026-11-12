@@ -3843,9 +3843,18 @@
     if (photoPeekHint && photoPeekHint.parentElement !== btnHome) btnHome.appendChild(photoPeekHint);
     if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
     let below = false;
-    if (compact){
-      const shown = [reportAddDishBtn, photoPeekHint].filter(el => el && el.getClientRects().length);
-      below = shown.reduce((sum, el) => sum + naturalWidth(el), 0) + 16 + 8 * shown.length > width;
+    const shown = [reportAddDishBtn, photoPeekHint].filter(el => el && el.getClientRects().length);
+    if (shown.length){
+      const sumW = shown.reduce((sum, el) => sum + naturalWidth(el), 0) + 16 + 8 * shown.length;
+      if (compact) below = sumW > width;
+      else if (shown.length === 2){
+        // enlarged photo: the tag top-left, the button bottom-right — they
+        // collide only when the photo is both too narrow and too short
+        // (the photo's size at the TARGET height — the slot is still animating)
+        const photoW = Math.min(width, h * nw / nh), photoH = photoW * nh / nw;
+        const sumH = shown.reduce((sum, el) => sum + el.offsetHeight, 0) + 24;
+        below = sumW > photoW && sumH > photoH;
+      }
     }
     reportPhotoTools.hidden = !below;
     if (below){
