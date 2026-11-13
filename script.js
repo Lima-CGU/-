@@ -180,6 +180,7 @@
       marks: {}, // event name -> { at, ms } of its first occurrence
       finalConfirmed: false
     };
+    flushPreTask(currentTask); // (11/13) taps made before this meal started
     logEvent('task_start', { actor: 'user', detail: detail || null });
   }
   function currentPageName(){
@@ -220,6 +221,67 @@
     if (!task.marks[event]) task.marks[event] = { at, ms };
     return e;
   }
+  /* (11/13) Taps made when no meal is in progress (the start page's 查看教學,
+     the Diary's camera button …) are kept here and written into the NEXT
+     meal's events, before its task_start (elapsedMs 0, detail.beforeTask,
+     detail.msBeforeTaskStart). At most PRE_TASK_MAX, none older than
+     PRE_TASK_MAX_AGE_MS. Never counted. */
+  const PRE_TASK_MAX = 30;
+  const PRE_TASK_MAX_AGE_MS = 30 * 60 * 1000;
+  let preTaskEvents = [];
+  function bufferPreTask(event, o){
+    const now = performance.now();
+    preTaskEvents = preTaskEvents.filter(x => now - x.t < PRE_TASK_MAX_AGE_MS).slice(-(PRE_TASK_MAX - 1));
+    preTaskEvents.push({ t: now, at: new Date().toISOString(), event, page: o.page !== undefined ? o.page : currentPageName(),
+      actor: o.actor || 'user', target: o.target ?? null, field: o.field ?? null,
+      before: o.before === undefined ? null : o.before, after: o.after === undefined ? null : o.after,
+      source: o.source ?? null, status: o.status || 'success', detail: o.detail ?? null });
+  }
+  function flushPreTask(task){
+    const now = performance.now();
+    preTaskEvents.filter(x => now - x.t < PRE_TASK_MAX_AGE_MS).forEach(x => {
+      task.events.push({ seq: task.events.length + 1, event: x.event, at: x.at, elapsedMs: 0, page: x.page, actor: x.actor,
+        target: x.target, field: x.field, before: x.before, after: x.after, attemptId: null, source: x.source, status: x.status,
+        detail: { ...(x.detail || {}), beforeTask: true, msBeforeTaskStart: Math.max(0, Math.round(task.t0 - x.t)) } });
+    });
+    preTaskEvents = [];
+  }
+  /* (11/13) A change made in the Diary AFTER the meal was saved (✏️, 刪除菜色,
+     刪除整餐, ＋新增菜色 …) goes into that saved record's own events with
+     detail.afterFinal: true — never into the running meal, never counted,
+     never part of its times (userActionCount / totalSec / correctionSec were
+     fixed at the save). elapsedMs = time since that meal's task_start. */
+  const diaryDishRecord = new WeakMap(); // a Diary dish -> its saved record
+  function logAfterFinal(record, event, o = {}){
+    if (!record) return null;
+    const events = Array.isArray(record.events) ? record.events : (record.events = []);
+    if (events.length >= MAX_EVENTS) return null;
+    const t = record.times || {};
+    const start = Date.parse(t.taskStartAt || t.startedAt || '');
+    const e = {
+      seq: events.length + 1, event, at: new Date().toISOString(),
+      elapsedMs: Number.isFinite(start) ? Math.max(0, Date.now() - start) : 0,
+      page: o.page !== undefined ? o.page : currentPageName(),
+      actor: o.actor || 'user', target: o.target ?? null, field: o.field ?? null,
+      before: o.before === undefined ? null : o.before, after: o.after === undefined ? null : o.after,
+      attemptId: null, source: o.source ?? null, status: o.status || 'success',
+      detail: { ...(o.detail || {}), afterFinal: true }
+    };
+    events.push(e);
+    return e;
+  }
+  // A tap that is not part of a correction (navigation, photo, zoom, voice,
+  // calorie details …): into the running meal; during the Diary's
+  // 「＋新增菜色」 photo into that saved meal (afterFinal); with no meal at all
+  // into the pre-task buffer. Only recorded — none of these is counted.
+  function logUserAction(event, o = {}){
+    const target = addDishTargetMeal && addDishTargetMeal.record;
+    if (target) return logAfterFinal(target, event, o);
+    if (currentTask) return logEvent(event, { actor: 'user', ...o });
+    bufferPreTask(event, { actor: 'user', ...o });
+    return null;
+  }
+
   // final_confirmed once per task (a double tap is not a second one)
   function logFinalConfirmed(detail){
     if (!currentTask || currentTask.finalConfirmed) return;
@@ -295,10 +357,15 @@
     const task = currentTask;
     if (!task) return null;
     const m = task.marks;
-    const draft = m.ai_draft_displayed, fin = m.final_confirmed;
+    const fin = m.final_confirmed;
+    // (11/13) no AI draft because detection failed: the failure message on
+    // screen (ai_failure_displayed) starts correctionSec, preEditDelaySec and
+    // userActionCount instead (same rules otherwise); aiProcessingSec stays
+    // photo -> draft (null), the wait for the failure is aiWaitSec
+    const draft = m.ai_draft_displayed || m.ai_failure_displayed;
     const sec = (a, b) => (a && b ? Math.round((b.ms - a.ms) / 100) / 10 : null);
     const seqOf = name => (task.events.find(e => e.event === name) || {}).seq || null;
-    const draftSeq = seqOf('ai_draft_displayed');
+    const draftSeq = seqOf('ai_draft_displayed') || seqOf('ai_failure_displayed');
     const finSeq = seqOf('final_confirmed');
     // (11/01) only changes made before the first scenario question — answers to
     // the questions never count as the first edit, in any group (a 完成 that was
@@ -312,12 +379,16 @@
       times: {
         taskStartAt: m.task_start ? m.task_start.at : null,
         photoConfirmedAt: m.photo_confirmed ? m.photo_confirmed.at : null,
-        aiDraftAt: draft ? draft.at : null,
+        aiDraftAt: m.ai_draft_displayed ? m.ai_draft_displayed.at : null,
+        ...(m.ai_draft_displayed || !m.ai_failure_displayed ? {} : {
+          aiFailedAt: m.ai_failure_displayed.at,
+          aiWaitSec: sec(m.photo_confirmed, m.ai_failure_displayed)
+        }),
         firstEditAt: firstEdit ? firstEdit.at : null,
         finalConfirmedAt: fin ? fin.at : null,
         totalSec: sec(m.task_start, fin),
         correctionSec: sec(draft, fin),
-        aiProcessingSec: sec(m.photo_confirmed, draft),
+        aiProcessingSec: sec(m.photo_confirmed, m.ai_draft_displayed),
         preEditDelaySec: firstEdit ? sec(draft, { ms: firstEdit.elapsedMs }) : null,
         // (11/01) the scenario questions: question 1 shown -> question 4 answered
         // (correctionSec includes this time; this lets analysis take it out)
@@ -457,8 +528,14 @@
     slideToScreen(fromEl, toEl, isForward);
   }
 
-  cameraDiaryBtn.addEventListener('click', () => goToScreen('diary'));
-  diaryCameraBtn.addEventListener('click', () => goToScreen('start'));
+  cameraDiaryBtn.addEventListener('click', () => {
+    logUserAction('back', { detail: { to: 'diary', from: 'camera' } });
+    goToScreen('diary');
+  });
+  diaryCameraBtn.addEventListener('click', () => {
+    logUserAction('back', { detail: { to: 'start', from: 'diary' } });
+    goToScreen('start');
+  });
 
   function openUsageModal(){
     usageModal.hidden = false;
@@ -470,10 +547,11 @@
 
   usageLink.addEventListener('click', e => {
     e.preventDefault();
+    logUserAction('tutorial_opened');
     openUsageModal();
   });
-  usageModalClose.addEventListener('click', closeUsageModal);
-  usageConfirmBtn.addEventListener('click', closeUsageModal);
+  usageModalClose.addEventListener('click', () => { logUserAction('tutorial_closed', { detail: { via: 'close' } }); closeUsageModal(); });
+  usageConfirmBtn.addEventListener('click', () => { logUserAction('tutorial_closed', { detail: { via: 'confirm' } }); closeUsageModal(); });
   // task_start = 開始拍照. Coming back to it before a photo was confirmed
   // keeps the same task; after a confirmed photo (that meal was left
   // unfinished) it starts a new one.
@@ -483,11 +561,13 @@
   });
   startHomeBtn?.addEventListener('click', () => goToScreen('start'));
   cameraHomeBtn?.addEventListener('click', () => {
-    if (!addDishTargetMeal) logEvent('back', { actor: 'user', detail: { to: 'start' } });
+    if (!addDishTargetMeal) logUserAction('back', { detail: { to: 'start' } });
+    else logAfterFinal(addDishTargetMeal.record, 'cancel', { detail: { what: 'diary-add-dish', to: 'start' } });
     goToScreen('start');
   });
   retakeBtn.addEventListener('click', () => {
     if (!addDishTargetMeal) logEvent('back', { actor: 'user', detail: { to: 'camera', what: 'retake' } });
+    else logAfterFinal(addDishTargetMeal.record, 'back', { detail: { to: 'camera', what: 'retake', via: 'diary-add-dish' } });
     goToScreen('camera');
   });
 
@@ -521,7 +601,7 @@
     shotBtn.disabled = true;
   }
 
-  retryCamBtn.addEventListener('click', openCamera);
+  retryCamBtn.addEventListener('click', () => { logUserAction('camera_retry'); openCamera(); });
 
   function updateLastShotThumb(dataUrl){
     lastShotThumb.src = dataUrl;
@@ -540,6 +620,7 @@
 
   shotBtn.addEventListener('click', () => {
     if (!stream) return;
+    logUserAction('photo_taken', { detail: { via: 'camera' } });
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
     canvas.width = w;
@@ -548,9 +629,15 @@
     useDataUrl(canvas.toDataURL('image/jpeg', 0.92), 'camera');
   });
 
+  // 從相簿選: the tap that opens the picker, then the picked photo
+  document.getElementById('pickFromLibraryLabel')?.addEventListener('click', () => logUserAction('library_opened'));
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
-    if (!file || !file.type.startsWith('image/')) return;
+    if (!file || !file.type.startsWith('image/')){
+      if (!file) logUserAction('library_closed', { status: 'cancelled' });
+      return;
+    }
+    logUserAction('photo_picked', { detail: { via: 'library', type: file.type, bytes: file.size } });
     const reader = new FileReader();
     reader.onload = ev => useDataUrl(ev.target.result, 'library');
     reader.readAsDataURL(file);
@@ -658,6 +745,9 @@
   // three actions: 🎤 voice-correct the name, ✏️ open the merged name +
   // attributes editor, 🗑️ delete this dish.
   function renderDiaryDishRow(dish, meta){
+    if (meta && meta.record) diaryDishRecord.set(dish, meta.record);
+    // (11/13) the dish's place in the saved meal (1-based), for event targets
+    const dishNoInRecord = () => (meta && meta.record && Array.isArray(meta.record.dishes) ? meta.record.dishes.indexOf(dish) + 1 || null : null);
     const row = document.createElement('div');
     row.className = 'meal-dish-row';
 
@@ -700,7 +790,11 @@
       kcalExplain.hidden = !kcalOpen;
       if (kcalOpen) window.PictaCalorie.renderExplain(kcalExplain, st);
     };
-    kcalTag.addEventListener('click', () => { kcalOpen = !kcalOpen; renderKcal(); });
+    kcalTag.addEventListener('click', () => {
+      kcalOpen = !kcalOpen;
+      if (meta && meta.record) logAfterFinal(meta.record, 'diary_kcal_toggled', { target: dishNoInRecord(), after: kcalOpen ? 'open' : 'closed' });
+      renderKcal();
+    });
     headEl.appendChild(kcalTag);
     body.appendChild(kcalExplain);
     renderKcal();
@@ -783,14 +877,20 @@
     micBtn.className = 'meal-dish-mic-btn';
     micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
     micBtn.setAttribute('aria-label', `用語音修正「${dish.name}」的菜名`);
-    micBtn.addEventListener('click', () => openVoiceModal(dish, 'name'));
+    micBtn.addEventListener('click', () => {
+      if (meta && meta.record) logAfterFinal(meta.record, 'diary_voice_opened', { target: dishNoInRecord(), source: 'voice' });
+      openVoiceModal(dish, 'name');
+    });
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'meal-dish-edit-btn';
     editBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20l1-4.2L15.6 5.2a1.5 1.5 0 0 1 2.1 0l1.1 1.1a1.5 1.5 0 0 1 0 2.1L8.2 19l-4.2 1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
     editBtn.setAttribute('aria-label', `編輯「${dish.name}」的菜名與細部屬性`);
-    editBtn.addEventListener('click', () => openDetailAdjustModal(dish));
+    editBtn.addEventListener('click', () => {
+      if (meta && meta.record) logAfterFinal(meta.record, 'diary_edit_opened', { target: dishNoInRecord(), before: splitNameConfidence(dish.name || '').name });
+      openDetailAdjustModal(dish);
+    });
 
     // Group A reports with buttons only — no voice entry point anywhere
     // Group B / C records come from the chat — to change them, go back to the
@@ -805,6 +905,8 @@
     deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M5 7h14M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     deleteBtn.setAttribute('aria-label', `刪除「${dish.name}」這道菜`);
     deleteBtn.addEventListener('click', () => {
+      if (meta && meta.record) logAfterFinal(meta.record, 'diary_dish_deleted', { target: dishNoInRecord(), before: splitNameConfidence(dish.name || '').name, after: null,
+        detail: { source: dish.source || null, scenarioNo: dish.scenarioNo || null } });
       row.remove();
       kcalSeq += 1; // ignore a recalculation still in flight
       if (meta) meta.dishCount = Math.max(0, meta.dishCount - 1);
@@ -910,6 +1012,7 @@
     addDishBtn.textContent = '+ 新增菜色';
     addDishBtn.setAttribute('aria-label', '為這筆紀錄新增一道菜');
     addDishBtn.addEventListener('click', () => {
+      if (record) logAfterFinal(record, 'diary_add_dish_opened', {});
       addDishTargetMeal = { status, dishCountMeta, cardEl: card, record };
       goToScreen('camera');
     });
@@ -937,6 +1040,7 @@
     removeBtn.setAttribute('aria-label', '移除這筆紀錄');
     removeBtn.textContent = '×';
     removeBtn.addEventListener('click', () => {
+      if (record) logAfterFinal(record, 'diary_meal_deleted', { target: 'meal', detail: { dishCount: Array.isArray(record.dishes) ? record.dishes.length : 0 } });
       card.remove();
       mealCount = Math.max(0, mealCount - 1);
       countTag.textContent = `已記錄 ${mealCount} 餐`;
@@ -1015,6 +1119,7 @@
   confirmUploadBtn.addEventListener('click', () => {
     if (!currentPhotoData) return;
     if (addDishTargetMeal){
+      if (addDishTargetMeal.record) logAfterFinal(addDishTargetMeal.record, 'photo_confirmed', { detail: { source: currentPhotoSource, via: 'diary-add-dish' } }); // (11/13)
       handleAddDishPhoto(currentPhotoData, addDishTargetMeal);
       return;
     }
@@ -1069,6 +1174,7 @@
     openCandidateDialog(virtualDet, candidates, () => {
       // onClose fires for both Confirm and Cancel; only Confirm sets a name.
       if (!virtualDet.name){
+        if (target.record) logAfterFinal(target.record, 'cancel', { detail: { what: 'diary-add-dish' } }); // (11/13)
         showToast('已取消新增菜色');
         return;
       }
@@ -1087,6 +1193,7 @@
     Object.assign(dish, { confidence: null, box: null, source: 'diary' });
     if (target.record){
       target.record.dishes.push(dish);
+      logAfterFinal(target.record, 'diary_dish_added', { target: target.record.dishes.length, after: splitNameConfidence(dish.name || '').name, detail: { source: 'diary' } });
       const log = target.record.editLog = target.record.editLog || {};
       log.addedDishes = (log.addedDishes || []).concat({ name: splitNameConfidence(dish.name || '').name, source: 'diary' });
       target.record.lastEditedAt = new Date().toISOString();
@@ -1225,12 +1332,27 @@
   // Ask the backend to auto-detect every dish (position + name) in one go
   async function callDetectAPI(photoDataUrl, attempt){
     attempt = attempt || 1;
-    const res = await fetch(`${BACKEND_URL}/api/detect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: photoDataUrl })
-    });
-    const data = await res.json();
+    // (11/13) the failure reason goes into ai_request_failed: err.kind =
+    // 'network' (no answer at all) / 'bad-response' (not JSON) / 'http';
+    // err.status = the HTTP status (408 / 504 / 524 = a timeout)
+    let res;
+    try {
+      res = await fetch(`${BACKEND_URL}/api/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: photoDataUrl })
+      });
+    } catch (err){
+      err.kind = 'network';
+      throw err;
+    }
+    let data;
+    try { data = await res.json(); }
+    catch (err){
+      const e = new Error(`detect: not JSON (HTTP ${res.status})`);
+      e.kind = 'bad-response'; e.status = res.status;
+      throw e;
+    }
 
     if (!res.ok){
       if (res.status === 503 && data.estimated_time && attempt < 3){
@@ -1238,9 +1360,19 @@
         await new Promise(r => setTimeout(r, Math.min(data.estimated_time, 20) * 1000));
         return callDetectAPI(photoDataUrl, attempt + 1);
       }
-      throw new Error(data.error || '自動辨識失敗');
+      const e = new Error(data.error || '自動辨識失敗');
+      e.kind = 'http'; e.status = res.status;
+      throw e;
     }
     return data;
+  }
+  function detectFailReason(err){
+    if (!err) return 'error';
+    if (err.kind === 'network') return 'network';
+    if (err.kind === 'bad-response') return 'bad-response';
+    if ([408, 504, 524].includes(err.status) || /timeout|timed out|逾時/i.test(err.message || '')) return 'timeout';
+    if (err.status) return `http-${err.status}`;
+    return 'error';
   }
 
   function normalizeDetectionBox(raw){
@@ -1340,6 +1472,8 @@
         detail: { dishCount: dishes.length, latencyMs: Math.round(performance.now() - detectStarted) }
       })));
 
+      // (11/13) 'ok' / 'empty' (the AI answered: no food) / 'failed' (no answer)
+      if (currentMealMeta) currentMealMeta.aiDraftStatus = dishes.length ? 'ok' : 'empty';
       if (!dishes.length){
         setRecognizeHint('沒有辨識到菜色,可以拖曳左下角的框自己補一個', false);
         logDraft();
@@ -1394,9 +1528,18 @@
     } catch (err){
       console.error(err);
       logApiError('detect', err && err.message, { event: false });
-      logEvent('ai_request_failed', { actor: 'system', status: 'failed', detail: { api: 'detect', message: String((err && err.message) || '').slice(0, 200) } });
+      // (11/13) why, and how long the participant waited for it
+      const reason = detectFailReason(err);
+      const waitedMs = Math.round(performance.now() - detectStarted);
+      if (currentMealMeta){ currentMealMeta.aiDraftStatus = 'failed'; currentMealMeta.aiDraftFailReason = reason; }
+      logEvent('ai_request_failed', { actor: 'system', status: 'failed', detail: { api: 'detect', reason, httpStatus: (err && err.status) || null, latencyMs: waitedMs, message: String((err && err.message) || '').slice(0, 200) } });
       setRecognizeHint('自動辨識失敗,請重新拍一張照片試試', false);
       showToast('自動辨識失敗,請重新拍照');
+      // the failure message is on screen: correctionSec / userActionCount
+      // start here when there is no AI draft (taskSummary)
+      requestAnimationFrame(() => requestAnimationFrame(() => logEvent('ai_failure_displayed', {
+        actor: 'system', page: 'recognize', status: 'failed', detail: { api: 'detect', reason, latencyMs: waitedMs }
+      })));
     }
 
     isAutoDetecting = false;
@@ -2146,6 +2289,8 @@
 
   recognizeZoomToggle.addEventListener('click', e => {
     e.stopPropagation();
+    // (11/13) 查看完整照片 / back to the dishes: recorded, not counted
+    logUserAction('photo_zoom_toggled', { before: zoomMode, after: zoomMode === 'food' ? 'full' : 'food' });
     if (zoomMode === 'food'){
       zoomMode = 'full';
       layoutRecognizePhoto(true);
@@ -2469,6 +2614,11 @@
       },
       events: task ? task.events : [],
       userActionCount: task ? task.userActionCount : null,
+      // (11/13) the AI draft of the photo that was saved: 'ok' / 'empty' (the
+      // AI answered, no food) / 'failed' (error or timeout — no draft at all)
+      aiDraftStatus: meta.aiDraftStatus || null,
+      aiDraftFailed: meta.aiDraftStatus === 'failed',
+      ...(meta.aiDraftStatus === 'failed' ? { aiDraftFailReason: meta.aiDraftFailReason || null } : {}),
       ...(task && task.eventsCapped ? { eventsCapped: true } : {}),
       aiDetections: meta.aiDetections,
       editLog: meta.editLog,
@@ -2500,6 +2650,8 @@
   // The group goes onto the record.
   recognizeNextBtn.addEventListener('click', async () => {
     if (isAutoDetecting || isSavingMeal || !currentPhotoData) return;
+    // (11/13) recorded, not counted; dishCount = dishes on the draft
+    logUserAction('next_pressed', { detail: { from: 'recognize', dishCount: currentDetections.length, aiDraft: currentMealMeta ? currentMealMeta.aiDraftStatus || null : null } });
     if (currentMealMeta && !currentMealMeta.nextAt) currentMealMeta.nextAt = new Date().toISOString();
     if (STUDY_GROUP === 'A'){
       enterReportMode();
@@ -2601,8 +2753,16 @@
   let detailCountDraft = null; // the Diary edit sheet's 數量 (null = not known yet: "?")
   let detailCountShown = false;
   const detailCountRow = document.getElementById('detailCountRow');
+  // (11/13) a tap inside the Diary ✏️ sheet: into that saved meal's events
+  // (afterFinal); the change itself is diary_field_changed on 確認
+  function logDiarySheet(event, o = {}){
+    const rec = detailAdjustTarget && diaryDishRecord.get(detailAdjustTarget);
+    if (!rec) return null;
+    return logAfterFinal(rec, event, { target: rec.dishes.indexOf(detailAdjustTarget) + 1 || null, ...o });
+  }
   const stepDetailCount = delta => {
     if (!detailCountShown) return;
+    logDiarySheet('diary_option_tapped', { field: 'count', before: detailCountDraft ?? null, after: stepCount(detailCountDraft, delta) ?? null, detail: { delta } });
     detailCountDraft = stepCount(detailCountDraft, delta);
     renderCountStepper('detailCount', detailCountDraft, detailAdjustTarget && detailAdjustTarget.countUnit);
     // the row's visibility depends on whether the draft differs (a user count is kept on rename)
@@ -2623,6 +2783,7 @@
     `).join('');
     detailCookingList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
+        logDiarySheet('diary_option_tapped', { field: 'cookingMethod', before: detailDraft.cookingMethod ?? null, after: btn.dataset.value });
         detailDraft.cookingMethod = btn.dataset.value;
         syncDetailSelectionState();
       });
@@ -2668,6 +2829,7 @@
 
     detailSizeList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
+        logDiarySheet('diary_option_tapped', { field: 'size', before: detailDraft.size ?? null, after: btn.dataset.value });
         detailDraft.size = btn.dataset.value;
         syncDetailSelectionState();
       });
@@ -2675,6 +2837,7 @@
 
     detailSugarList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
+        logDiarySheet('diary_option_tapped', { field: 'sugar', before: detailDraft.sugar ?? null, after: btn.dataset.value });
         detailDraft.sugar = btn.dataset.value;
         syncDetailSelectionState();
       });
@@ -2682,6 +2845,7 @@
 
     detailSaltList.querySelectorAll('.detail-choice').forEach(btn => {
       btn.addEventListener('click', () => {
+        logDiarySheet('diary_option_tapped', { field: 'salt', before: detailDraft.salt ?? null, after: btn.dataset.value });
         detailDraft.salt = btn.dataset.value;
         syncDetailSelectionState();
       });
@@ -2714,6 +2878,8 @@
   }
 
   function cancelDetailAdjust(){
+    const rec = detailAdjustTarget && diaryDishRecord.get(detailAdjustTarget);
+    if (rec) logAfterFinal(rec, 'diary_edit_cancelled', { target: rec.dishes.indexOf(detailAdjustTarget) + 1 || null });
     if (detailAdjustTarget && detailAdjustTarget.confirmState === 'editing'){
       setConfirmState(detailAdjustTarget, detailAdjustTarget.preEditState || 'pending');
     }
@@ -2799,10 +2965,12 @@
     if (!btn) return;
     if (btn.dataset.kind === 'seasonings-other'){
       detailSeasonOtherOpen = !detailSeasonOtherOpen;
+      logDiarySheet('other_input_toggled', { field: 'seasonings', after: detailSeasonOtherOpen ? 'open' : 'closed' });
       renderDetailSeasonings();
       if (detailSeasonOtherOpen) detailSeasonInput?.focus();
       return;
     }
+    logDiarySheet('diary_option_tapped', { field: 'seasonings', before: draftSeasonings().slice(), after: btn.dataset.value });
     detailDraft.seasonings = toggledSeasoningsFor(detailAdjustTarget && detailAdjustTarget.fieldSource, draftSeasonings(), btn.dataset.value);
     renderDetailSeasonings();
   });
@@ -2811,6 +2979,7 @@
     if (!text) return;
     detailSeasonInput.value = '';
     detailSeasonOtherOpen = false;
+    logDiarySheet('diary_option_tapped', { field: 'seasonings', before: draftSeasonings().slice(), after: text, source: 'typed', detail: { other: true } });
     if (!draftSeasonings().includes(text)) detailDraft.seasonings = toggledSeasonings(draftSeasonings(), text);
     renderDetailSeasonings();
   }
@@ -2822,6 +2991,10 @@
   function confirmDetailAdjust(){
     if (!detailAdjustTarget) return;
     const prevDetail = detailAdjustTarget.detail || {};
+    // (11/13) a Diary edit after the save: one event per changed field /
+    // name / count, into that saved meal (afterFinal) — compared below
+    const diaryRec = diaryDishRecord.get(detailAdjustTarget);
+    const diaryBefore = diaryRec ? { name: stripConfidenceText(detailAdjustTarget.name || ''), detail: JSON.parse(JSON.stringify(prevDetail)), count: detailAdjustTarget.count ?? null } : null;
     Object.keys(detailDraft).forEach(k => {
       if (k === 'seasonings'){
         const before = Array.isArray(prevDetail.seasonings) ? prevDetail.seasonings : [];
@@ -2851,6 +3024,27 @@
     }
     if (typeof detailAdjustTarget.refreshRow === 'function') {
       detailAdjustTarget.refreshRow();
+    }
+    if (diaryRec && diaryBefore){
+      const no = diaryRec.dishes.indexOf(detailAdjustTarget) + 1 || null;
+      const after = detailAdjustTarget.detail || {};
+      const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      let changes = 0;
+      REPORT_FIELDS.concat('seasonings').forEach(k => {
+        if (same(diaryBefore.detail[k], after[k])) return;
+        changes += 1;
+        logAfterFinal(diaryRec, 'diary_field_changed', { target: no, field: k, before: diaryBefore.detail[k] ?? null, after: after[k] ?? null });
+      });
+      if ((detailAdjustTarget.count ?? null) !== diaryBefore.count){
+        changes += 1;
+        logAfterFinal(diaryRec, 'diary_count_changed', { target: no, field: 'count', before: diaryBefore.count, after: detailAdjustTarget.count ?? null });
+      }
+      const newName = stripConfidenceText(detailAdjustTarget.name || '');
+      if (newName !== diaryBefore.name){
+        changes += 1;
+        logAfterFinal(diaryRec, 'diary_dish_renamed', { target: no, before: diaryBefore.name, after: newName, detail: { inputType: 'typed' } });
+      }
+      logAfterFinal(diaryRec, 'diary_edit_saved', { target: no, detail: { changes } });
     }
     setConfirmState(detailAdjustTarget, 'confirmed');
     closeDetailAdjustModal();
@@ -2992,7 +3186,16 @@
     }
     if (Number.isInteger(det.count) && !det.fieldSource.count) det.fieldSource.count = 'default'; // the photo's count
     applySeasoningsDefault(det);
-    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
+    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: appliedPresets(det, values), notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
+  }
+  // (11/13) every preset that was put in: the five-field values plus 調味
+  // (沒有特別調味) and a preset count, when their source is still 'default'
+  function appliedPresets(det, values){
+    const out = { ...(values || {}) };
+    const src = det.fieldSource || {};
+    if (src.seasonings === 'default' && Array.isArray((det.detail || {}).seasonings)) out.seasonings = det.detail.seasonings.slice();
+    if (src.count === 'default' && Number.isInteger(det.count)) out.count = det.count;
+    return out;
   }
   // 調味: preset 沒有特別調味 (teacher 11/07) with source 'default' where it
   // applies, null / 'na' where it doesn't (fruit, beverage)
@@ -3243,6 +3446,7 @@
   }
   reportDishKcal.addEventListener('click', () => {
     reportKcalOpen = !reportKcalOpen;
+    logUserAction('kcal_toggled', { target: dishNoOf(selectedReportDet()), after: reportKcalOpen ? 'open' : 'closed' });
     renderReportKcal();
   });
 
@@ -3484,6 +3688,7 @@
     if (btn.dataset.kind === 'seasonings-other'){
       if (!det) return;
       det.seasonOtherOpen = !det.seasonOtherOpen;
+      logUserAction('other_input_toggled', { target: dishNoOf(det), field: 'seasonings', after: det.seasonOtherOpen ? 'open' : 'closed' });
       renderReportStep(det);
       if (det.seasonOtherOpen) reportSeasonInput?.focus();
       return;
@@ -3684,6 +3889,7 @@
       if (FIELD_DEFAULTS.alwaysCounted(d.foodType, d.category) && !Number.isInteger(d.count)){
         d.count = FIELD_DEFAULTS.DEFAULT_COUNT;
         setFieldSource(d, 'count', 'default');
+        logEvent('default_applied', { actor: 'system', target: dishNoOf(d), detail: { foodType: d.foodType, fields: { count: d.count }, reason: 'default-count' } });
         if (d.labelEl) renderDetLabel(d.labelEl, d);
       }
       // presets can fill a dish completely: its calories start right away
@@ -3981,10 +4187,10 @@
     if (cmd && !picked) setReportVoiceMsg('');
   }
   reportVoiceBtn?.addEventListener('click', () => {
-    if (reportRecognition){ stopReportListening(); return; }
+    if (reportRecognition){ logVoice('voice_stopped', 'report', { actor: 'user' }); stopReportListening(); return; }
     if (!selectedReportDet()) return;
     const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor){ setReportVoiceMsg('這個瀏覽器不支援語音,請直接點選', true); return; }
+    if (!Ctor){ logVoice('voice_failed', 'report', { reason: 'unsupported' }); setReportVoiceMsg('這個瀏覽器不支援語音,請直接點選', true); return; }
     const rec = new Ctor();
     rec.lang = 'zh-TW';
     rec.interimResults = false;
@@ -3995,17 +4201,23 @@
       applySpokenOptions(text.trim());
     };
     rec.onerror = ev => {
+      logVoice('voice_failed', 'report', { reason: ev.error || 'unknown' });
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') setReportVoiceMsg('沒有麥克風權限,請直接點選', true);
       else if (ev.error === 'no-speech') setReportVoiceMsg('沒有聽到聲音,請再說一次或直接點選', true);
       else if (ev.error !== 'aborted') setReportVoiceMsg('語音辨識失敗,請再說一次或直接點選', true);
     };
-    rec.onend = () => { if (reportRecognition === rec) stopReportListening(); };
+    rec.onend = () => {
+      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'report'); } // (once per recognition)
+      if (reportRecognition === rec) stopReportListening();
+    };
     try {
       rec.start();
+      logVoice('voice_started', 'report', { actor: 'user' });
       reportRecognition = rec;
       reportVoiceBtn.classList.add('is-listening');
       setReportVoiceMsg('請說出這一題的選項,或「換一組」「下一步」「上一步」');
     } catch (err){
+      logVoice('voice_failed', 'report', { reason: 'start-failed' });
       setReportVoiceMsg('語音無法啟動,請直接點選', true);
     }
   });
@@ -4118,13 +4330,15 @@
       det.countable = false;
       delete det.fieldSource.count;
     }
-    if (!opts.diary) logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: presets, notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
+    if (!opts.diary) logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: appliedPresets(det, presets), notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
     if (det.labelEl) renderDetLabel(det.labelEl, det);
   }
 
   /* delete, with a second confirmation */
   reportDeleteBtn.addEventListener('click', () => {
-    if (selectedReportDet()) reportDeleteConfirm.hidden = false;
+    if (!selectedReportDet()) return;
+    reportDeleteConfirm.hidden = false;
+    logUserAction('delete_asked', { target: dishNoOf(selectedReportDet()) }); // (11/13) recorded, not counted
   });
   reportDeleteCancel.addEventListener('click', () => {
     reportDeleteConfirm.hidden = true;
@@ -4317,6 +4531,7 @@
     if (!st || isSavingMeal || scenarioTapTooSoon()) return;
     if (st.next <= 2){
       // questions 1–2: type the food to add (not an answer until it is sent)
+      logUserAction('scenario_input_opened', { detail: { no: st.next } }); // (11/13) recorded, not counted
       reportScenarioInputRow.hidden = false;
       reportScenarioInput.focus();
       sizeReportPhotoSlot();
@@ -4346,6 +4561,7 @@
     if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
       det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
       setFieldSource(det, 'count', 'default');
+      logEvent('default_applied', { actor: 'system', target: currentDetections.length + reportExtraDets.length, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
     }
     if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
     // the dish itself (system — the user's action is the scenario_answered below)
@@ -4396,6 +4612,7 @@
       logEvent('cancel', { actor: 'user', detail: { what: 'leave' } });
       return;
     }
+    if (started) logEvent('confirmed', { actor: 'user', detail: { what: 'leave' } }); // (11/13)
     logEvent('back', { actor: 'user', detail: { to: 'start', discarded: !!started } });
     exitReportMode();
     goToScreen('start');
@@ -4662,6 +4879,7 @@
       const tag = item.querySelector('.kcal-tag');
       tag.addEventListener('click', () => {
         item.dataset.open = item.dataset.open === '1' ? '' : '1';
+        logUserAction('kcal_toggled', { target: dishNoOf(chatAllDets().find(d => d.id === id)), after: item.dataset.open === '1' ? 'open' : 'closed' });
         renderChatKcalItem(rows, id);
       });
       rows.appendChild(item);
@@ -4831,6 +5049,7 @@
       count: d.count || null, notes: (d.notes || []).length
     });
     const beforeSnaps = new Map(chatAllDets().map(d => [d, snap(d)]));
+    const beforeSources = new Map(chatAllDets().map(d => [d, { ...(d.fieldSource || {}) }])); // (11/13) sourceOnly
     const touched = applyChatResult(data);
     // the answer touched exactly one dish (updated, renamed, a note, or a
     // dish just added in the chat): that is now the dish being talked about
@@ -4873,6 +5092,23 @@
         before: b ? Object.fromEntries(keys.map(k => [k, b[k] ?? null])) : null,
         after: Object.fromEntries(keys.map(k => [k, a[k] ?? null])),
         detail: { newDish: !b, notesAdded }
+      });
+    });
+    // (11/13) the AI gave a field the value it already had (a preset): the
+    // value is the same, only its source changes default -> ai. One event per
+    // dish, before = after, detail.sourceOnly (not counted).
+    chatAllDets().forEach(det => {
+      const b = beforeSnaps.get(det);
+      const bs = beforeSources.get(det);
+      if (!b || !bs) return; // (a new dish: its record_updated above covers it)
+      const a = snap(det);
+      const src = det.fieldSource || {};
+      const fields = Object.keys(src).filter(k => bs[k] === 'default' && src[k] === 'ai' && (b[k] ?? null) === (a[k] ?? null));
+      if (!fields.length) return;
+      const vals = Object.fromEntries(fields.map(k => [k, a[k] ?? null]));
+      logEvent('record_updated', {
+        actor: 'system', target: chatDishNo(det), attemptId, field: fields.join(','), before: vals, after: { ...vals },
+        detail: { sourceOnly: true, sourceBefore: 'default', sourceAfter: 'ai' }
       });
     });
     // (11/01) an answer to a scenario question: the next question — unless the
@@ -5110,9 +5346,9 @@
     chatMicBtn?.classList.remove('is-listening');
   }
   chatMicBtn?.addEventListener('click', () => {
-    if (chatRecognition){ stopChatListening(); return; }
+    if (chatRecognition){ logVoice('voice_stopped', 'chat', { actor: 'user' }); stopChatListening(); return; }
     const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor){ showToast('這個瀏覽器不支援語音輸入,請直接打字'); return; }
+    if (!Ctor){ logVoice('voice_failed', 'chat', { reason: 'unsupported' }); showToast('這個瀏覽器不支援語音輸入,請直接打字'); return; }
     const rec = new Ctor();
     rec.lang = 'zh-TW';
     rec.interimResults = true;
@@ -5128,15 +5364,22 @@
       chatInput.dispatchEvent(new Event('input'));
     };
     rec.onerror = ev => {
+      logVoice('voice_failed', 'chat', { reason: ev.error || 'unknown' });
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') showToast('沒有麥克風權限,請直接打字');
       else if (ev.error !== 'aborted' && ev.error !== 'no-speech') showToast('語音辨識失敗,請再試一次或直接打字');
     };
-    rec.onend = () => { if (chatRecognition === rec) stopChatListening(); chatInput.focus(); };
+    rec.onend = () => {
+      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'chat', { chars: chatInput.value.length }); } // (once per recognition)
+      if (chatRecognition === rec) stopChatListening();
+      chatInput.focus();
+    };
     try {
       rec.start();
+      logVoice('voice_started', 'chat', { actor: 'user' });
       chatRecognition = rec;
       chatMicBtn.classList.add('is-listening');
     } catch (err){
+      logVoice('voice_failed', 'chat', { reason: 'start-failed' });
       showToast('語音辨識無法啟動,請直接打字');
     }
   });
@@ -5152,6 +5395,8 @@
       logEvent('cancel', { actor: 'user', detail: { what: 'finish', incomplete } });
       return;
     }
+    // (11/13) 確定 on that question is recorded too (not counted)
+    if (incomplete) logEvent('confirmed', { actor: 'user', detail: { what: 'finish', incomplete } });
     chatFinishIncomplete = incomplete;
     // (11/01) the four scenario questions first; saved after the 4th
     const st = scenarioState();
@@ -5245,6 +5490,20 @@
   const voiceFallbackInput    = document.getElementById('voiceFallbackInput');
   const voiceFallbackConfirmBtn = document.getElementById('voiceFallbackConfirmBtn');
 
+  /* (11/13) the microphone, all groups: voice_started (user tap),
+     voice_stopped (user tap while listening), voice_ended (recognition
+     ended), voice_failed (reason = the Web Speech error: no-speech,
+     not-allowed, network … / unsupported / start-failed). source 'voice';
+     recorded, never counted (what was said is counted where it lands: a
+     field_set, a sent message). The Diary's 🎤 goes to its saved meal. */
+  function logVoice(event, where, o = {}){
+    const failed = event === 'voice_failed';
+    const detail = { where, ...(o.reason ? { reason: o.reason } : {}), ...(o.chars != null ? { chars: o.chars } : {}) };
+    const opts = { actor: o.actor || (event === 'voice_started' || event === 'voice_stopped' ? 'user' : 'system'), source: 'voice',
+      status: failed ? 'failed' : 'success', target: o.target ?? null, detail };
+    if (o.record) return logAfterFinal(o.record, event, opts);
+    return currentTask ? logEvent(event, opts) : bufferPreTask(event, opts);
+  }
   function getSpeechRecognitionCtor(){
     return window.SpeechRecognition || window.webkitSpeechRecognition;
   }
@@ -5375,6 +5634,7 @@
     };
 
     recognition.onerror = (event) => {
+      logVoice('voice_failed', 'diary', { reason: event.error || 'unknown', record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
       if (event.error === 'no-speech'){
         showToast('沒聽到聲音,再試一次');
         showVoiceState('listening');
@@ -5391,7 +5651,9 @@
 
     try {
       recognition.start();
+      logVoice('voice_started', 'diary', { actor: 'user', record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
     } catch (err){
+      logVoice('voice_failed', 'diary', { reason: 'start-failed', record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
       showVoiceState('fallback');
     }
   }
@@ -5415,6 +5677,8 @@
   function applyVoiceResult(text){
     const det = voiceTargetDet;
     if (!det || !text) return;
+    const vrec = diaryDishRecord.get(det);
+    if (vrec) logAfterFinal(vrec, 'diary_dish_renamed', { target: vrec.dishes.indexOf(det) + 1 || null, before: stripConfidenceText(det.name || ''), after: text, source: recognizedText === text ? 'voice' : 'typed', detail: { via: 'voice-dialog' } });
     det.name = text;
     det.loading = false;
     if (det.labelEl) renderDetLabel(det.labelEl, det);
@@ -5426,6 +5690,8 @@
   }
 
   function cancelVoiceEditing(){
+    const vrec = voiceTargetDet && diaryDishRecord.get(voiceTargetDet);
+    if (vrec) logAfterFinal(vrec, 'diary_edit_cancelled', { target: vrec.dishes.indexOf(voiceTargetDet) + 1 || null, source: 'voice' });
     if (voiceTargetDet && voiceTargetDet.confirmState === 'editing'){
       setConfirmState(voiceTargetDet, voiceTargetDet.preEditState || 'pending');
     }
