@@ -253,7 +253,7 @@
       <div class="detail-grid">
         <div><div class="detail-photo">${r.photoStored ? '照片讀取中…' : '這筆紀錄沒有照片'}</div></div>
         <div>
-          <p class="meta">紀錄 ID:${esc(record.id)}・受試者 ${esc(record.pid)}・${esc(record.group)} 組${record.mealId ? `・便當 ${esc(record.mealId)}` : ''}・總時間 ${num2(record.times && record.times.totalSec)} 秒・AI 處理 ${num2(record.times && record.times.aiProcessingSec)} 秒</p>
+          <p class="meta">紀錄 ID:${esc(record.id)}・受試者 ${esc(record.pid)}・${esc(record.group)} 組${record.mealId ? `・便當 ${esc(record.mealId)}` : ''}・總時間 ${num2(record.times && record.times.totalSec)} 秒・AI 處理 ${num2(record.times && record.times.aiProcessingSec)} 秒</p>${aiDraftNote(record)}
           <h3>AI 初稿 ↔ 受試者最後的結果</h3>
           <div class="table-scroll">${compareTable(record)}</div>
           ${record.chat && Array.isArray(record.chat.messages) ? chatHtml(record.chat) : ''}
@@ -288,6 +288,16 @@
   }
   // One row per final dish (left: what the AI said; right: the final name + fields),
   // plus the AI dishes the participant deleted.
+  // (11/13) the AI draft failed (no draft at all) / found no food
+  function aiDraftNote(record){
+    const failed = record.aiDraftStatus === 'failed' || record.aiDraftFailed === true;
+    if (failed){
+      const t = record.times || {};
+      return `<p class="meta"><span class="tag warn">AI 辨識失敗</span> 原因:${esc(record.aiDraftFailReason || '不明')}${t.aiWaitSec != null ? `・等待 ${num2(t.aiWaitSec)} 秒` : ''}(修正時間從失敗訊息出現開始算)</p>`;
+    }
+    if (record.aiDraftStatus === 'empty') return '<p class="meta"><span class="tag">AI 沒有辨識到食物</span></p>';
+    return '';
+  }
   // A dish's calories: the number, or why there is none
   // (incomplete / 待補份量 / 待補數量 = a field was missing, nothing was guessed)
   function kcalHtml(d){

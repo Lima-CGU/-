@@ -108,9 +108,13 @@ function validateRecord(r){
   need(r.nutrition == null || isObj(r.nutrition), 'record.nutrition must be an object');
   need(r.chat == null || (isObj(r.chat) && Array.isArray(r.chat.messages)), 'record.chat must be an object with messages');
   need(r.mealId == null || (typeof r.mealId === 'string' && MEAL_ID_RE.test(r.mealId)), 'record.mealId: up to 20 letters, digits, - or _');
-  for (const k of ['taskStartAt', 'photoConfirmedAt', 'aiDraftAt', 'firstEditAt', 'finalConfirmedAt']) need(r.times[k] == null || isIso(r.times[k]), `record.times.${k} must be an ISO date`);
-  for (const k of ['totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'scenarioSec']) need(r.times[k] == null || (typeof r.times[k] === 'number' && Number.isFinite(r.times[k]) && r.times[k] >= 0), `record.times.${k} must be a number >= 0`);
+  for (const k of ['taskStartAt', 'photoConfirmedAt', 'aiDraftAt', 'aiFailedAt', 'firstEditAt', 'finalConfirmedAt']) need(r.times[k] == null || isIso(r.times[k]), `record.times.${k} must be an ISO date`);
+  for (const k of ['totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'scenarioSec', 'aiWaitSec']) need(r.times[k] == null || (typeof r.times[k] === 'number' && Number.isFinite(r.times[k]) && r.times[k] >= 0), `record.times.${k} must be a number >= 0`);
   need(r.userActionCount == null || (Number.isInteger(r.userActionCount) && r.userActionCount >= 0), 'record.userActionCount must be an integer >= 0');
+  // (11/13) the AI draft's outcome
+  need(r.aiDraftStatus == null || ['ok', 'empty', 'failed'].includes(r.aiDraftStatus), 'record.aiDraftStatus must be ok, empty or failed');
+  need(r.aiDraftFailed == null || typeof r.aiDraftFailed === 'boolean', 'record.aiDraftFailed must be true or false');
+  need(optStr(r.aiDraftFailReason, 40), 'record.aiDraftFailReason must be a short string');
   need(r.events == null || (Array.isArray(r.events) && r.events.length <= MAX_EVENTS), `record.events must be an array (max ${MAX_EVENTS})`);
   (r.events || []).forEach((e, i) => validateEvent(e, `record.events[${i}]`));
   checkValue(r, 'record', 0, false);
@@ -203,6 +207,14 @@ async function loadRecords(db, { pid, group, mealId } = {}){
 const CSV_COLUMNS = [
   'recordId', 'pid', 'group', 'mealId', 'appVersion', 'startedAt', 'nextAt', 'doneAt', 'durationSec',
   'totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'userActionCount',
+  // (11/13) the AI draft: aiDraftFailed = detection failed / timed out (then
+  // correctionSec starts at the failure message), aiDraftStatus ok / empty /
+  // failed (empty = the AI answered but found no food), aiWaitSec = photo ->
+  // failure message
+  'aiDraftFailed', 'aiDraftStatus', 'aiWaitSec', 'aiDraftFailReason',
+  // every photo's AI draft in this meal, oldest first (e.g. failed(timeout)+ok
+  // = the first photo failed, the retaken one worked)
+  'aiDraftAttempts',
   // (11/01) the scenario questions: question 1 shown -> question 4 answered (part of
   // correctionSec), and each question's answers in order (none / edit / text, joined by +)
   'scenarioSec', 'scenario1', 'scenario2', 'scenario3', 'scenario4',
@@ -256,6 +268,11 @@ function toCsv(records){
       startedAt: t.startedAt, nextAt: t.nextAt, doneAt: t.doneAt, durationSec: t.durationSec,
       totalSec: t.totalSec, correctionSec: t.correctionSec, aiProcessingSec: t.aiProcessingSec,
       preEditDelaySec: t.preEditDelaySec, userActionCount: r.userActionCount,
+      aiDraftFailed: r.aiDraftStatus ? r.aiDraftStatus === 'failed' : (r.aiDraftFailed == null ? null : !!r.aiDraftFailed),
+      aiDraftStatus: r.aiDraftStatus || null, aiWaitSec: t.aiWaitSec ?? null,
+      aiDraftFailReason: r.aiDraftStatus === 'failed' ? r.aiDraftFailReason || null : null,
+      aiDraftAttempts: Array.isArray(r.aiDraftAttempts) && r.aiDraftAttempts.length
+        ? r.aiDraftAttempts.filter(isObj).map(a => (a.status === 'failed' && a.reason ? `failed(${a.reason})` : String(a.status))).join('+') : null,
       scenarioSec: t.scenarioSec ?? null,
       ...scenarioColumns(r.scenario),
       mealTotalKcal: r.nutrition ? r.nutrition.totalKcal : null,
@@ -338,6 +355,7 @@ function summarize(r){
     ingredientCount: Array.isArray(r.dishes) ? r.dishes.filter(d => isObj(d) && d.source === 'scenario' && d.scenarioNo === 2).length : 0,
     correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
     aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
+    aiDraftFailed: r.aiDraftStatus === 'failed' || r.aiDraftFailed === true,
     totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
     // dishes saved without a number, as in the participant's Diary:
     // unestimated = a value was missing (資料不足 / 待補數量 / 待補份量),

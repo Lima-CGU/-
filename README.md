@@ -437,6 +437,78 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 **下載事件**:`format=events` 是一列一個事件的 CSV(`recordId`、`pid`、`group`、`mealId` + 事件所有欄位;`before`/`after`/`detail` 是 JSON 字串),一樣需要 ADMIN_TOKEN,也可以用 `pid`、`group`、`meal` 篩選。
 
+### 每個按鈕對應的事件(11/13 補強)
+
+每個按鈕都會在 `record.events` 留一筆事件,欄位有 `at`、`elapsedMs`、`page`、`actor`、`target`/`field`、`before`/`after`(適用時)。表中「算」欄:**是**表示照原本規則算進 `userActionCount`(數字是權重),**否**表示只記錄不計數。標「新」的是這次補上的事件,其他是原本就有的。
+
+| 按鈕/輸入 | 頁面 | 組別 | 事件 | 算 |
+|---|---|---|---|---|
+| 開始拍照 | 開始 | A B C | `task_start` | 否(在 AI 初稿之前) |
+| 查看教學 | 開始 | A B C | 新 `tutorial_opened` | 否 |
+| 教學視窗 ×/我知道了 | 開始 | A B C | 新 `tutorial_closed`(`detail.via`) | 否 |
+| 回到主畫面 | 拍照 | A B C | `back`(`to: start`) | 否 |
+| 查看日記 | 拍照 | A B C | 新 `back`(`to: diary`) | 否 |
+| 重新嘗試開啟鏡頭 | 拍照 | A B C | 新 `camera_retry` | 否 |
+| 拍照 | 拍照 | A B C | 新 `photo_taken`(`via: camera`) | 否 |
+| 從相簿選 | 拍照 | A B C | 新 `library_opened`;選好照片 新 `photo_picked`;沒選 新 `library_closed`(cancelled) | 否 |
+| 重拍 | 確認照片 | A B C | `back`(`what: retake`) | 否 |
+| 確認上傳 | 確認照片 | A B C | `photo_confirmed` | 否 |
+| 查看完整照片/回到菜色 | 辨識 | A B C | 新 `photo_zoom_toggled`(before/after:`food`/`full`) | 否 |
+| 下一步 | 辨識 | A B C | 新 `next_pressed`(`dishCount`、`aiDraft`) | 否 |
+| 照片上的圓圈 | 填寫 | A | `item_selected`(+ system `edit_opened`) | 是 1 |
+| 下一道 › | 填寫 | A | `item_selected` | 是 1 |
+| 點照片放大/縮小(照片或標籤) | 填寫/對話 | A B C | `photo_expanded` / `photo_collapsed` | 否 |
+| 熱量標籤(展開公式) | 填寫/對話 | A B C | 新 `kcal_toggled`(after:`open`/`closed`) | 否 |
+| 鉛筆(改菜名) | 填寫 | A | `edit_opened` | 是 1 |
+| 改菜名 確認/取消 | 填寫 | A | `dish_renamed`(打字 2)/ `cancel` | 是 2 / 否 |
+| 垃圾桶 | 填寫 | A | 新 `delete_asked` | 否 |
+| 刪除確認 刪除/取消 | 填寫 | A | `dish_deleted` / `cancel` | 是 1 / 否 |
+| 🎤 用說的 | 填寫 | A | 新 `voice_started`、`voice_stopped`(使用者再按一次)、`voice_ended`、`voice_failed`(`detail.reason`)、`voice_unmatched`(聽到了但沒有對上任何選項,只記字數),`source: voice`;聽懂的選項照原本記 `field_set`(`source: voice`) | 麥克風事件否;選項照原規則 |
+| 選項卡片(份量/烹調/糖/鹽) | 填寫 | A | `field_set` / `field_changed` | 是 1 |
+| 調味卡片、調味「加入」 | 填寫 | A | `field_set` / `field_changed` | 是 1 |
+| 調味「其他…」 | 填寫 | A | 新 `other_input_toggled` | 否 |
+| 數量 −/+ | 填寫 | A | `count_changed` | 是 1 |
+| 其他 ↻ | 填寫 | A | `options_next` | 是 1 |
+| 還要補充其他欄位 | 填寫 | A | `edit_opened` | 是 1 |
+| 上一步/下一步 | 填寫 | A | `step_back` / `step_next` | 否 |
+| 完成這道菜 | 填寫 | A | `dish_reviewed` | 是 1 |
+| 完成 | 填寫/對話 | A B C | `finish_pressed` | 是 1 |
+| 「還有 N 道菜的資訊不完整」確定/取消 | 對話 | B C | 新 `confirmed` / `cancel`(`what: finish`) | 否 |
+| 情境提示「有，補充食物」 | 填寫 | A | 新 `scenario_input_opened` | 否 |
+| 情境提示「送出」 | 填寫 | A | `scenario_answered`(typed)+ system `dish_added` | 是 2 |
+| 情境提示「有，回去修改」/「沒有，下一題」 | 填寫/對話 | A B C | `scenario_answered` | 是 1 |
+| 補充菜標籤「＋名稱」 | 填寫 | A | `item_selected` | 是 1 |
+| 右上角相機(離開這一餐) | 填寫/對話 | A B C | `back`;離開確認框 確定 新 `confirmed` / 取消 `cancel` | 否 |
+| 圓圈、「+ 整餐/其他」 | 對話 | B C | `item_selected` | 是 1 |
+| 🎤 麥克風 | 對話 | B C | 新 `voice_started` / `voice_stopped` / `voice_ended` / `voice_failed`(`source: voice`) | 否(送出的訊息照原本算 2) |
+| 送出(打字或語音) | 對話 | B C | `message_submitted` | 是 2 |
+| 建議按鈕 | 對話 | C | `message_submitted`(suggestion)、system `suggestion_shown` | 是 1 |
+| 右上角相機 | 日記 | A B C | 新 `back`(`to: start`, `from: diary`) | 否 |
+| 熱量標籤 | 日記 | A B C | 新 `diary_kcal_toggled` | 否 |
+| ✏️ | 日記 | A | 新 `diary_edit_opened` | 否 |
+| ✏️ 視窗裡的選項、數量 ±、調味、「其他」、「加入」 | 日記 | A | 新 `diary_option_tapped` / `other_input_toggled` | 否 |
+| ✏️ 視窗 確認 | 日記 | A | 新 `diary_field_changed`、`diary_count_changed`、`diary_dish_renamed`(改到的才記,每項一筆)+ `diary_edit_saved` | 否 |
+| ✏️ 視窗 取消/× | 日記 | A | 新 `diary_edit_cancelled` | 否 |
+| 🎤 菜名(只有舊紀錄、非 A 的裝置) | 日記 | (B C 舊紀錄) | 新 `diary_voice_opened`、`voice_*`、`diary_dish_renamed`、`diary_edit_cancelled` | 否 |
+| 刪除菜色 🗑 | 日記 | A B C | 新 `diary_dish_deleted` | 否 |
+| 刪除整餐 × | 日記 | A B C | 新 `diary_meal_deleted` | 否 |
+| ＋新增菜色 | 日記 | A B C | 新 `diary_add_dish_opened` → 拍照/相簿/重拍/回主畫面/確認照片 也記在那一餐(`diary_photo_taken`、`diary_photo_picked`、`diary_back`、`diary_photo_confirmed`…)→ 新 `diary_dish_added`(取消為 `diary_cancel`) | 否 |
+
+**存檔後(日記)的事件**:記在那一餐自己的 `record.events`,事件名稱一律以 `diary_` 開頭,`detail.afterFinal: true`,`elapsedMs` 從那一餐的 `task_start` 起算;每次記錄後這一餐會重新存到裝置並重新上傳(約 1 秒後合併成一次,同一筆紀錄 id;上傳前和存檔時一樣會檢查大小)。它們不會改變那一餐的 `userActionCount`、`totalSec`、`correctionSec`(存檔時就固定了),重算操作次數時也不會被誤算。日記改菜名後,系統依新的食物類型自動帶入或清掉的欄位記成 `actor: system`、`detail.reason: 'rename'`,和使用者自己改的分開。
+
+**沒有存檔就離開的嘗試**(例如辨識完按右上角相機重拍、填到一半回到開始頁):那次的事件不會丟掉,會整段寫進下一餐 `task_start` 之前,`elapsedMs` 是 0,`detail.previousAttempt: true`、`detail.prevElapsedMs`(在那次嘗試裡的時間)。所以「第一張照片辨識失敗、重拍後成功」也看得出來;紀錄另有 `aiDraftAttempts`(每一張照片的 AI 初稿結果,依序;CSV 欄 `aiDraftAttempts`,例如 `failed(timeout)+ok`)。這些事件在本次 `task_start` 之前,不影響本次的計時和操作次數。分析時找 `task_start`、`photo_confirmed` 等事件請排除 `detail.previousAttempt`。
+
+**麥克風**:辨識還沒結束、這一餐就已經存檔時,遲到的 `voice_ended` / `voice_failed` 不會記到下一餐(直接捨棄)。
+
+**還沒開始一餐時按的按鈕**(開始頁的「查看教學」、日記右上角相機……):先暫存,寫進下一餐 `task_start` 之前,`elapsedMs` 是 0,`detail.beforeTask: true` 和 `detail.msBeforeTaskStart`(在開始前幾毫秒);最多 30 筆、30 分鐘內。
+
+**系統事件(這次補強)**:
+- `default_applied` 的 `detail.fields` 列出所有帶入的預設值,包括烹調「水煮」和調味「沒有特別調味」(還是預設時);A 組水果的預設數量 1 另記一筆(`reason: 'default-count'`);照片上 AI 數到的數量不是預設值,記在 `detail.photoCount`。
+- `record_updated` 帶 `detail.sourceOnly: true` 的是「值沒變、只有來源從預設變成 AI」,統計「AI 改了幾次」時請排除。
+- B/C 組 AI 填的值和預設值一樣、只是來源從 `default` 變成 `ai` 時,記一筆 `record_updated`,before 和 after 相同,`detail.sourceOnly: true`。
+- **AI 辨識失敗或逾時**:`ai_request_failed` 的 detail 有 `reason`(`timeout` / `network` / `http-500` / `bad-response` …)、`httpStatus`、`latencyMs`(等了多久);接著失敗訊息出現在畫面上時記 `ai_failure_displayed`。這時沒有 AI 初稿,所以 `correctionSec`、`preEditDelaySec` 和 `userActionCount` 從 `ai_failure_displayed` 開始算(其他規則不變),`aiProcessingSec` 維持「照片 → AI 初稿」(失敗時是空的),等待失敗的時間另記 `times.aiWaitSec`(照片 → 失敗訊息)、`times.aiFailedAt`。紀錄上有 `aiDraftFailed: true`、`aiDraftStatus: 'failed'`、`aiDraftFailReason`;後台展開時顯示「AI 辨識失敗」,CSV 有 `aiDraftFailed`、`aiDraftStatus`、`aiWaitSec`、`aiDraftFailReason`、`aiDraftAttempts` 欄。代理伺服器回的錯誤網頁(502/504/524,不是 JSON)也照 HTTP 狀態判斷,504/524/408 記成 `timeout`。
+- **辨識成功但沒找到食物**:照舊有 `ai_draft_displayed`(`dishCount: 0`),`aiDraftStatus: 'empty'`、`aiDraftFailed: false`;後台顯示「AI 沒有辨識到食物」。所以「失敗/逾時」和「沒找到食物」可以分開。
+
 ## 後台使用說明(給研究助理)
 
 研究管理後台是一個網頁,手機和電腦都能用:**https://lima-cgu.github.io/-/admin.html**。App 裡沒有連到這裡的按鈕,也不會被搜尋引擎收錄;請直接輸入網址或存成書籤。
