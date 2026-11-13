@@ -17,12 +17,11 @@ const records = require('../records');
 const tests = [];
 const t = (name, fn) => tests.push([name, fn]);
 
-t('the four scenario questions, word for word', () => {
+t('the three scenario questions (11/14: old 3 + 4 merged), word for word', () => {
   assert.deepStrictEqual(fd.SCENARIO_PROMPTS, [
     '主菜下方是否還有其他食物？',
     '除了目前辨識出的食材，還有其他需要補充的食材嗎？',
-    '除了目前辨識出的食材，還有使用其他調味料嗎？',
-    '這道料理是用什麼方式烹調的？'
+    '除了目前記錄的內容，還有其他調味料或烹調方式需要補充或修改嗎？'
   ]);
 });
 t('seasonings apply to food but not fruit / beverage', () => {
@@ -57,8 +56,10 @@ t('chat: the prompt forbids seasonings guessed from the dish name', () => {
 t('chat: the scenario question reaches the AI context', () => {
   const r = parseRequest({ group: 'C', dishes, history: [], message: '有加米酒', scenario: 3 });
   const ctx = buildMessages(r).find(m => m.role === 'system' && m.content.includes('使用者目前選取')).content;
-  assert.ok(ctx.includes('情境提問中:系統剛問了第 3 題「除了目前辨識出的食材，還有使用其他調味料嗎？」'));
+  assert.ok(ctx.includes('情境提問中:系統剛問了第 3 題「除了目前記錄的內容，還有其他調味料或烹調方式需要補充或修改嗎？」'));
   assert.strictEqual(parseRequest({ group: 'B', dishes, history: [], message: 'x', scenario: 9 }).scenario, null);
+  // (11/14) only 3 questions: a 4th is no scenario question any more
+  assert.strictEqual(parseRequest({ group: 'B', dishes, history: [], message: 'x', scenario: 4 }).scenario, null);
 });
 t('CSV: seasonings, seasoningsSource, scenarioSec, scenario1..4', () => {
   const rec = { id: 'm-test12345', pid: 'DEVTEST', group: 'A', times: { scenarioSec: 8.5 },

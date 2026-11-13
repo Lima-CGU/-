@@ -1054,7 +1054,9 @@
 
     const metaRight = document.createElement('div');
     metaRight.className = 'meal-meta-right';
-    metaRight.append(addDishBtn, syncEl, timeEl);
+    // (11/14, teacher) no 「＋新增菜色」 after the save, in any group — the
+    // button and its flow stay in the code but it is not shown
+    metaRight.append(syncEl, timeEl);
     const metaLeft = document.createElement('div');
     metaLeft.className = 'meal-meta-left';
     metaLeft.append(dishesEl, totalKcalEl);
@@ -3612,7 +3614,7 @@
     const field = currentStepField(det);
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const idx = steps.indexOf(field);
-    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 4 題」
+    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 3 題」
     reportStepTitle.textContent = `${STEP_LABEL[field]}（${idx + 1}/${steps.length}）`;
     const isCount = field === 'count';
     if (reportCountRow) reportCountRow.hidden = !isCount;
@@ -4511,7 +4513,7 @@
     showReportScenario();
   });
 
-  /* Group A scenario page: 「第 n / 4 題」, the question, 「有,回去修改」 and
+  /* Group A scenario page: 「第 n / 3 題」, the question, 「有,回去修改」 and
      「沒有,下一題」. 有 on questions 1–2 asks for a food to add (an onPhoto:false
      dish, like a chat-added one, with its type's presets) and stays on the
      question; 有 on 3–4 goes back to the dishes, and the next 「完成」 asks that
@@ -4527,6 +4529,8 @@
     reportScenarioNoEl.textContent = `第 ${no} / ${SCENARIO_PROMPTS.length} 題`;
     // questions 1–2 add a food; 3–4 go back to the dishes
     reportScenarioYes.textContent = no <= 2 ? '有，補充食物' : '有，回去修改';
+    // (11/14) the last question saves the meal
+    reportScenarioNone.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
     reportScenarioQ.textContent = SCENARIO_PROMPTS[no - 1];
     reportScenarioInputRow.hidden = true;
     reportScenarioInput.value = '';
@@ -4751,7 +4755,10 @@
     const n = currentDetections.length;
     addChatMessage('assistant', n
       ? `我已辨識到 ${n} 個食物項目(如上圖)。請點選你想描述的食物,然後告訴我你吃了多少、餐點的烹調方式或其他細節。`
-      : '照片上沒有辨識到食物。請點「+ 整餐/其他」,告訴我你吃了什麼、吃了多少。');
+      // (11/14) detection failed / timed out: not a problem with the photo
+      : (currentMealMeta && currentMealMeta.aiDraftStatus === 'failed'
+        ? '自動辨識暫時失敗，可以重新拍照，或點「+ 整餐/其他」告訴我你吃了什麼、吃了多少。'
+        : '照片上沒有辨識到食物。請點「+ 整餐/其他」,告訴我你吃了什麼、吃了多少。'));
   }
 
   function resetChatState(){
@@ -4908,7 +4915,7 @@
       bubble.append(img, text);
     } else {
       bubble.textContent = msg.content;
-      // (11/01) a scenario question: 「第 n / 4 題」 above the exact question words
+      // (11/01) a scenario question: 「第 n / 3 題」 above the exact question words
       if (msg.scenario){
         const tag = document.createElement('span');
         tag.className = 'chat-scenario-tag';
@@ -5482,6 +5489,8 @@
   }
   function askChatScenario(no){
     chatScenarioNo = no;
+    // (11/14) the last question saves the meal
+    if (chatScenarioNextBtn) chatScenarioNextBtn.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
     addChatMessage('assistant', SCENARIO_PROMPTS[no - 1], { meta: { scenario: no } });
     logScenarioShown(no);
     renderChatSuggestions([]); // (the buttons come with AI replies only)
