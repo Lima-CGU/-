@@ -346,7 +346,7 @@ function parseRequest(body){
   const history = (Array.isArray(b.history) ? b.history : []).slice(-MAX_HISTORY)
     .map(m => ({ role: m && m.role === 'assistant' ? 'assistant' : 'user', content: str(m && m.content, 600) }))
     .filter(m => m.content);
-  // (11/01) which scenario question (1–4) the user is answering, if any
+  // (11/01) which scenario question (1–3 since 11/14) the user is answering, if any
   const scenario = Number.isInteger(b.scenario) && b.scenario >= 1 && b.scenario <= fieldDefaults.SCENARIO_PROMPTS.length ? b.scenario : null;
   return { group, dishes, selected, contextNo, scenario, history, message };
 }

@@ -314,9 +314,9 @@
     logEvent('final_confirmed', { actor: 'user', detail: detail || null });
   }
   /* ---------- scenario questions (11/01, all three groups) ----------
-     After 「完成」 and before saving, the four questions of field-defaults.js
+     After 「完成」 and before saving, the questions (3 since 11/14) of field-defaults.js
      SCENARIO_PROMPTS are asked in order, one per page (A) / message (B, C),
-     each once; the meal is saved only after the 4th. Answers: 'none'
+     each once; the meal is saved only after the last. Answers: 'none'
      (沒有,下一題), 'edit' (A, question 3 (3–4 before 11/14): back to the dishes), 'text'
      (A: a food typed for questions 1–2; B/C: the user's chat answer). */
   const SCENARIO_PROMPTS = FIELD_DEFAULTS.SCENARIO_PROMPTS;
@@ -5472,7 +5472,7 @@
     // (11/13) 確定 on that question is recorded too (not counted)
     if (incomplete) logEvent('confirmed', { actor: 'user', detail: { what: 'finish', incomplete } });
     chatFinishIncomplete = incomplete;
-    // (11/01) the four scenario questions first; saved after the 4th
+    // (11/01) the scenario questions first; saved after the last
     const st = scenarioState();
     if (st) askChatScenario(st.next);
   });
@@ -5481,7 +5481,7 @@
      message with the exact words (not generated, not reworded); the user
      answers by voice / typing as usual (the AI updates the record), or taps
      「沒有,下一題」. After the reply to an answer, or that tap, the next one. */
-  let chatScenarioNo = null;     // the question being asked (1–4), or null
+  let chatScenarioNo = null;     // the question being asked (1–3), or null
   let chatFinishIncomplete = 0;  // dishes still incomplete when 完成 was tapped
   function updateChatScenarioUi(){
     if (chatDoneBtn) chatDoneBtn.hidden = !!chatScenarioNo;
