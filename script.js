@@ -374,7 +374,7 @@
   }
   // (step_next / step_back / photo_expanded / photo_collapsed are logged but not counted — 待老師確認)
   // (11/01) finish_pressed = each tap on 「完成」 (counted); final_confirmed is
-  // now logged when the meal is really saved, after the 4th scenario answer,
+  // now logged when the meal is really saved, after the last scenario answer,
   // and is no longer counted (it is not a tap of its own) — 待研究助理確認
   const USER_ACTION_EVENTS = ['finish_pressed', 'scenario_answered', 'dish_reviewed', 'options_next', 'item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted'];
   // What goes onto the record: events, the new times and userActionCount.
@@ -4505,7 +4505,7 @@
     else updateReportDone();
   }
 
-  /* done: every dish filled -> the four scenario questions (11/01) -> save
+  /* done: every dish filled -> the scenario questions (11/01; 3 since 11/14) -> save
      (with group) -> Diary */
   reportDoneBtn.addEventListener('click', () => {
     if (reportDoneBtn.disabled || isSavingMeal || reportScenarioOn) return;
