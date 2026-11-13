@@ -28,5 +28,13 @@ t('CSV keeps scenario4: empty for a new record, filled for an old one', () => {
   assert.deepStrictEqual(['scenario3', 'scenario4'].map(k => cell(1, k)), ['none(button)', '']);
   assert.deepStrictEqual(['scenario3', 'scenario4'].map(k => cell(2, k)), ['none(button)', 'none(button)']);
 });
+t('CSV: a last question answered by message, then 「沒有，完成」', () => {
+  const r = { id: 'm-test-1114-0003', pid: 'DEVTEST', group: 'B', times: {}, dishes: [{ name: '炒青菜', detail: {} }],
+    scenario: { answers: [{ no: 1, answer: 'none', input: 'button' }, { no: 2, answer: 'none', input: 'button' },
+      { no: 3, answer: 'text', input: 'message' }, { no: 3, answer: 'text', input: 'button', closedBy: 'button' }] } };
+  const rows = records.toCsv([r]).replace(/^\uFEFF/, '').split(/\r?\n/);
+  const head = rows[0].split(',');
+  assert.strictEqual(rows[1].split(',')[head.indexOf('scenario3')], 'text(message)+text(button)');
+});
 if (fails){ console.log(`${fails} failed`); process.exit(1); }
 console.log('all passed');

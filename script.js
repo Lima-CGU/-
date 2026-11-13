@@ -5185,14 +5185,20 @@
       });
     });
     // (11/01) an answer to a scenario question: the next question — unless the
-    // reply is off-topic or the AI asks back (then the user answers that first)
+    // reply is off-topic or the AI asks back (then the user answers that first),
+    // or it is the last question (11/14: only 「沒有，完成」 saves)
     // Every on-topic message about the question is kept as a 'text' answer
     // (also when the AI asks back — the user then answers again, or taps
     // 「沒有，下一題」, which is then recorded as 'text' too).
     const onQuestion = askedScenario && chatScenarioNo === askedScenario && !data.offTopic;
     if (onQuestion) recordScenarioAnswer(askedScenario, 'text', data.isClarification ? { askedBack: true } : null,
       source === 'suggestion' ? 'suggestion' : 'message', attemptId); // (a C button answer: 'suggestion', 0 here — its message_submitted counts 1)
-    const answered = onQuestion && !data.isClarification;
+    // (11/14) the LAST question never moves on (= saves) by itself: the user
+    // can correct the AI with more messages and saves with 「沒有，完成」
+    // (recorded like questions 1–2 after a message: 'text', input 'button',
+    // closedBy). Questions 1–2 unchanged.
+    const answered = onQuestion && !data.isClarification && askedScenario < SCENARIO_PROMPTS.length;
+    if (onQuestion) setChatScenarioBtnLabel();
     // (buttons that would be cleared by the next question at once are not
     // shown, so they are not counted as shown either)
     if (!answered) renderChatSuggestions(data.suggestions);
@@ -5480,7 +5486,8 @@
   /* B/C scenario questions (11/01): the system posts each question as an AI
      message with the exact words (not generated, not reworded); the user
      answers by voice / typing as usual (the AI updates the record), or taps
-     「沒有,下一題」. After the reply to an answer, or that tap, the next one. */
+     「沒有,下一題」. After the reply to an answer, or that tap, the next one —
+     except the last question, which only that button closes (11/14). */
   let chatScenarioNo = null;     // the question being asked (1–3), or null
   let chatFinishIncomplete = 0;  // dishes still incomplete when 完成 was tapped
   function updateChatScenarioUi(){
@@ -5489,13 +5496,22 @@
   }
   function askChatScenario(no){
     chatScenarioNo = no;
-    // (11/14) the last question saves the meal
-    if (chatScenarioNextBtn) chatScenarioNextBtn.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
+    setChatScenarioBtnLabel();
     addChatMessage('assistant', SCENARIO_PROMPTS[no - 1], { meta: { scenario: no } });
     logScenarioShown(no);
     renderChatSuggestions([]); // (the buttons come with AI replies only)
     updateChatScenarioUi();
     updateChatBusy();
+  }
+  // (11/14) 「沒有，下一題」; the last question saves: 「沒有，完成」, or 「完成」
+  // once the user has answered it in a message (label only — what the tap
+  // records is unchanged)
+  function setChatScenarioBtnLabel(){
+    if (!chatScenarioNextBtn || !chatScenarioNo) return;
+    const st = scenarioState();
+    const answeredByMessage = !!st && st.answers.some(a => a.no === chatScenarioNo && a.answer === 'text');
+    chatScenarioNextBtn.textContent = chatScenarioNo < SCENARIO_PROMPTS.length ? '沒有，下一題'
+      : (answeredByMessage ? '完成' : '沒有，完成');
   }
   function advanceChatScenario(){
     const st = scenarioState();
