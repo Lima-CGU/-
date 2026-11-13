@@ -463,7 +463,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | 改菜名 確認/取消 | 填寫 | A | `dish_renamed`(打字 2)/ `cancel` | 是 2 / 否 |
 | 垃圾桶 | 填寫 | A | 新 `delete_asked` | 否 |
 | 刪除確認 刪除/取消 | 填寫 | A | `dish_deleted` / `cancel` | 是 1 / 否 |
-| 🎤 用說的 | 填寫 | A | 新 `voice_started`、`voice_stopped`(使用者再按一次)、`voice_ended`、`voice_failed`(`detail.reason`),`source: voice`;聽懂的選項照原本記 `field_set`(`source: voice`) | 麥克風事件否;選項照原規則 |
+| 🎤 用說的 | 填寫 | A | 新 `voice_started`、`voice_stopped`(使用者再按一次)、`voice_ended`、`voice_failed`(`detail.reason`)、`voice_unmatched`(聽到了但沒有對上任何選項,只記字數),`source: voice`;聽懂的選項照原本記 `field_set`(`source: voice`) | 麥克風事件否;選項照原規則 |
 | 選項卡片(份量/烹調/糖/鹽) | 填寫 | A | `field_set` / `field_changed` | 是 1 |
 | 調味卡片、調味「加入」 | 填寫 | A | `field_set` / `field_changed` | 是 1 |
 | 調味「其他…」 | 填寫 | A | 新 `other_input_toggled` | 否 |
@@ -492,16 +492,21 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 | 🎤 菜名(只有舊紀錄、非 A 的裝置) | 日記 | (B C 舊紀錄) | 新 `diary_voice_opened`、`voice_*`、`diary_dish_renamed`、`diary_edit_cancelled` | 否 |
 | 刪除菜色 🗑 | 日記 | A B C | 新 `diary_dish_deleted` | 否 |
 | 刪除整餐 × | 日記 | A B C | 新 `diary_meal_deleted` | 否 |
-| ＋新增菜色 | 日記 | A B C | 新 `diary_add_dish_opened` → 拍照/相簿/重拍/回主畫面/確認照片 也記在那一餐 → 新 `diary_dish_added`(取消為 `cancel`) | 否 |
+| ＋新增菜色 | 日記 | A B C | 新 `diary_add_dish_opened` → 拍照/相簿/重拍/回主畫面/確認照片 也記在那一餐(`diary_photo_taken`、`diary_photo_picked`、`diary_back`、`diary_photo_confirmed`…)→ 新 `diary_dish_added`(取消為 `diary_cancel`) | 否 |
 
-**存檔後(日記)的事件**:記在那一餐自己的 `record.events`,`detail.afterFinal: true`,`elapsedMs` 從那一餐的 `task_start` 起算。它們不會改變那一餐的 `userActionCount`、`totalSec`、`correctionSec`(存檔時就固定了),事件名稱也都以 `diary_` 開頭(或帶 `afterFinal`),重算操作次數時不會被誤算。
+**存檔後(日記)的事件**:記在那一餐自己的 `record.events`,事件名稱一律以 `diary_` 開頭,`detail.afterFinal: true`,`elapsedMs` 從那一餐的 `task_start` 起算;每次記錄後這一餐會重新存到裝置並重新上傳(約 1 秒後合併成一次,同一筆紀錄 id;上傳前和存檔時一樣會檢查大小)。它們不會改變那一餐的 `userActionCount`、`totalSec`、`correctionSec`(存檔時就固定了),重算操作次數時也不會被誤算。日記改菜名後,系統依新的食物類型自動帶入或清掉的欄位記成 `actor: system`、`detail.reason: 'rename'`,和使用者自己改的分開。
+
+**沒有存檔就離開的嘗試**(例如辨識完按右上角相機重拍、填到一半回到開始頁):那次的事件不會丟掉,會整段寫進下一餐 `task_start` 之前,`elapsedMs` 是 0,`detail.previousAttempt: true`、`detail.prevElapsedMs`(在那次嘗試裡的時間)。所以「第一張照片辨識失敗、重拍後成功」也看得出來;紀錄另有 `aiDraftAttempts`(每一張照片的 AI 初稿結果,依序;CSV 欄 `aiDraftAttempts`,例如 `failed(timeout)+ok`)。這些事件在本次 `task_start` 之前,不影響本次的計時和操作次數。分析時找 `task_start`、`photo_confirmed` 等事件請排除 `detail.previousAttempt`。
+
+**麥克風**:辨識還沒結束、這一餐就已經存檔時,遲到的 `voice_ended` / `voice_failed` 不會記到下一餐(直接捨棄)。
 
 **還沒開始一餐時按的按鈕**(開始頁的「查看教學」、日記右上角相機……):先暫存,寫進下一餐 `task_start` 之前,`elapsedMs` 是 0,`detail.beforeTask: true` 和 `detail.msBeforeTaskStart`(在開始前幾毫秒);最多 30 筆、30 分鐘內。
 
 **系統事件(這次補強)**:
-- `default_applied` 的 `detail.fields` 列出所有帶入的預設值,包括烹調「水煮」和調味「沒有特別調味」(還是預設時);A 組水果的預設數量 1 另記一筆(`reason: 'default-count'`)。
+- `default_applied` 的 `detail.fields` 列出所有帶入的預設值,包括烹調「水煮」和調味「沒有特別調味」(還是預設時);A 組水果的預設數量 1 另記一筆(`reason: 'default-count'`);照片上 AI 數到的數量不是預設值,記在 `detail.photoCount`。
+- `record_updated` 帶 `detail.sourceOnly: true` 的是「值沒變、只有來源從預設變成 AI」,統計「AI 改了幾次」時請排除。
 - B/C 組 AI 填的值和預設值一樣、只是來源從 `default` 變成 `ai` 時,記一筆 `record_updated`,before 和 after 相同,`detail.sourceOnly: true`。
-- **AI 辨識失敗或逾時**:`ai_request_failed` 的 detail 有 `reason`(`timeout` / `network` / `http-500` / `bad-response` …)、`httpStatus`、`latencyMs`(等了多久);接著失敗訊息出現在畫面上時記 `ai_failure_displayed`。這時沒有 AI 初稿,所以 `correctionSec`、`preEditDelaySec` 和 `userActionCount` 從 `ai_failure_displayed` 開始算(其他規則不變),`aiProcessingSec` 維持「照片 → AI 初稿」(失敗時是空的),等待失敗的時間另記 `times.aiWaitSec`(照片 → 失敗訊息)、`times.aiFailedAt`。紀錄上有 `aiDraftFailed: true`、`aiDraftStatus: 'failed'`、`aiDraftFailReason`;後台展開時顯示「AI 辨識失敗」,CSV 有 `aiDraftFailed`、`aiDraftStatus`、`aiWaitSec` 欄。
+- **AI 辨識失敗或逾時**:`ai_request_failed` 的 detail 有 `reason`(`timeout` / `network` / `http-500` / `bad-response` …)、`httpStatus`、`latencyMs`(等了多久);接著失敗訊息出現在畫面上時記 `ai_failure_displayed`。這時沒有 AI 初稿,所以 `correctionSec`、`preEditDelaySec` 和 `userActionCount` 從 `ai_failure_displayed` 開始算(其他規則不變),`aiProcessingSec` 維持「照片 → AI 初稿」(失敗時是空的),等待失敗的時間另記 `times.aiWaitSec`(照片 → 失敗訊息)、`times.aiFailedAt`。紀錄上有 `aiDraftFailed: true`、`aiDraftStatus: 'failed'`、`aiDraftFailReason`;後台展開時顯示「AI 辨識失敗」,CSV 有 `aiDraftFailed`、`aiDraftStatus`、`aiWaitSec`、`aiDraftFailReason`、`aiDraftAttempts` 欄。代理伺服器回的錯誤網頁(502/504/524,不是 JSON)也照 HTTP 狀態判斷,504/524/408 記成 `timeout`。
 - **辨識成功但沒找到食物**:照舊有 `ai_draft_displayed`(`dishCount: 0`),`aiDraftStatus: 'empty'`、`aiDraftFailed: false`;後台顯示「AI 沒有辨識到食物」。所以「失敗/逾時」和「沒找到食物」可以分開。
 
 ## 後台使用說明(給研究助理)
