@@ -160,7 +160,7 @@
         <div class="diary-heading report-heading">
           <h2>日記</h2>
           <div class="diary-heading-actions">
-            <span class="count-tag" id="reportCountTag">0 筆</span>
+            <span class="count-tag" id="reportCountTag">已記錄 0 餐</span>
             <button class="diary-camera-btn" id="reportCameraBtn" type="button" aria-label="回到拍照">
               <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
                 <path d="M4 8.5C4 7.67 4.67 7 5.5 7H8l1.2-1.8c.2-.3.5-.5.85-.5h4.9c.35 0 .65.2.85.5L16 7h2.5c.83 0 1.5.67 1.5 1.5v9c0 .83-.67 1.5-1.5 1.5h-13C4.67 19 4 18.33 4 17.5v-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -169,7 +169,9 @@
             </button>
           </div>
         </div>
-        <div class="report-photo-slot" id="reportPhotoSlot"><span class="photo-peek-hint" id="photoPeekHint" hidden>點照片放大</span></div>
+        <div class="report-photo-slot" id="reportPhotoSlot"><button type="button" class="photo-peek-hint" id="photoPeekHint" hidden>點照片放大</button></div>
+        <!-- (11/07) large system text: 「+ 整餐/其他」 and 「點照片放大」 move here when they don't fit beside the small photo -->
+        <div class="report-photo-tools" id="reportPhotoTools" hidden></div>
         <!-- Group A (11/01 fix): foods added through the scenario questions —
              not on the photo; tap one to edit (one field per page) or delete it -->
         <div class="report-extra-chips" id="reportExtraChips" hidden></div>
@@ -300,7 +302,7 @@
         <div class="diary-heading">
           <h2>日記</h2>
           <div class="diary-heading-actions">
-            <span class="count-tag" id="countTag">0 筆</span>
+            <span class="count-tag" id="countTag">已記錄 0 餐</span>
             <button class="diary-camera-btn" id="diaryCameraBtn" type="button" aria-label="回到拍照">
               <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
                 <path d="M4 8.5C4 7.67 4.67 7 5.5 7H8l1.2-1.8c.2-.3.5-.5.85-.5h4.9c.35 0 .65.2.85.5L16 7h2.5c.83 0 1.5.67 1.5 1.5v9c0 .83-.67 1.5-1.5 1.5h-13C4.67 19 4 18.33 4 17.5v-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>

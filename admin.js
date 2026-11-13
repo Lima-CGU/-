@@ -209,7 +209,7 @@
       ['受試者', esc(r.pid)],
       ['組別', esc(GROUP_LABEL[r.group] || r.group)],
       ['便當', esc(r.mealId || '—')],
-      ['菜數', String(r.dishCount)],
+      ['菜數', esc(r.ingredientCount ? `${r.dishCount - r.ingredientCount} 道菜＋${r.ingredientCount} 項補充食材` : `${r.dishCount} 道菜`)],
       ['修正時間(秒)', num2(r.correctionSec)],
       ['操作次數', r.userActionCount == null ? '—' : String(r.userActionCount)],
       ['整餐熱量', `${r.totalKcal == null ? '—' : `${r.totalKcal} kcal`}${r.failedKcalDishes ? ` <span class="tag warn">另有 ${esc(r.failedKcalDishes)} 道無法估算</span>` : ''}${r.unestimatedDishes ? ` <span class="tag warn">有 ${esc(r.unestimatedDishes)} 道未估算</span>` : ''}`],
@@ -302,7 +302,7 @@
     const dishes = Array.isArray(record.dishes) ? record.dishes : [];
     const out = dishes.map((d, i) => {
       const ai = d.aiOriginal || null;
-      const aiName = ai && ai.name ? `${esc(ai.name)}${ai.confidence != null ? `(${esc(ai.confidence)}%)` : ''}${ai.count ? ` ×${esc(ai.count)}` : ''}` : (d.source === 'chat' ? '(對話中新增)' : d.source === 'user' ? '(受試者新增)' : '—');
+      const aiName = ai && ai.name ? `${esc(ai.name)}${ai.confidence != null ? `(${esc(ai.confidence)}%)` : ''}${ai.count ? ` ×${esc(ai.count)}` : ''}` : (d.source === 'chat' ? '(對話中新增)' : d.source === 'user' ? '(受試者新增)' : d.source === 'scenario' ? (d.scenarioNo === 2 ? '(情境提示補充食材)' : '(情境提示補充食物)') : '—');
       const finalName = plain(d.name);
       const changed = ai && ai.name && ai.name !== finalName;
       return `<tr><td>${i + 1}</td><td>${aiName}</td><td><span class="${changed ? 'changed' : ''}">${esc(finalName)}</span>${changed ? '(改過菜名)' : ''}<div class="fields">${esc(fieldsText(d))}</div>${Array.isArray(d.notes) && d.notes.length ? `<div class="fields">備註:${esc(d.notes.join(';'))}</div>` : ''}${kcalHtml(d)}</td></tr>`;

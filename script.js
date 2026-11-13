@@ -808,8 +808,8 @@
       row.remove();
       kcalSeq += 1; // ignore a recalculation still in flight
       if (meta) meta.dishCount = Math.max(0, meta.dishCount - 1);
-      if (meta && meta.dishesEl) meta.dishesEl.textContent = `${meta.dishCount} 道菜`;
       if (meta && meta.record) meta.record.dishes = meta.record.dishes.filter(d => d !== dish);
+      if (meta && meta.refreshDishCount) meta.refreshDishCount();
       if (meta && meta.refreshTotal) meta.refreshTotal();
       if (meta && meta.record){
         const log = meta.record.editLog = meta.record.editLog || {};
@@ -828,7 +828,7 @@
   function addMealCard(dataUrl, dishCount, dishes, record){
     emptyState.style.display = 'none';
     mealCount += 1;
-    countTag.textContent = `${mealCount} 筆`;
+    countTag.textContent = `已記錄 ${mealCount} 餐`;
 
     const card = document.createElement('div');
     card.className = 'meal-card';
@@ -845,7 +845,11 @@
 
     const dishesEl = document.createElement('span');
     dishesEl.className = 'meal-dishes';
-    dishesEl.textContent = `${dishCount} 道菜`;
+    // (11/07) 「N 道菜＋M 項補充食材」: scenario question 2's foods are
+    // ingredients of this meal, not dishes of their own
+    const refreshDishCount = () => {
+      dishesEl.textContent = record && Array.isArray(record.dishes) ? dishCountText(record.dishes) : `${dishCountMeta.dishCount} 道菜`;
+    };
     const meta = document.createElement('div');
     meta.className = 'meal-meta';
 
@@ -892,7 +896,8 @@
     };
     refreshTotal();
 
-    const dishCountMeta = { dishCount, dishesEl, record, refreshTotal };
+    const dishCountMeta = { dishCount, dishesEl, record, refreshTotal, refreshDishCount };
+    refreshDishCount();
 
     const status = document.createElement('div');
 
@@ -934,7 +939,7 @@
     removeBtn.addEventListener('click', () => {
       card.remove();
       mealCount = Math.max(0, mealCount - 1);
-      countTag.textContent = `${mealCount} 筆`;
+      countTag.textContent = `已記錄 ${mealCount} 餐`;
       if (mealCount === 0) emptyState.style.display = 'block';
       // the study data keeps it, marked as removed from the Diary
       if (record){
@@ -958,7 +963,7 @@
   }
   function renderSyncStatus(el, status){
     const synced = status === 'synced';
-    el.textContent = synced ? '已同步' : '等待上傳';
+    el.textContent = synced ? '已同步雲端' : '等待上傳';
     el.classList.toggle('is-synced', synced);
   }
   // A record must stay under the backend's 900 KB limit: if the events would
@@ -1089,7 +1094,7 @@
     target.status.appendChild(renderDiaryDishRow(dish, target.dishCountMeta));
     if (target.record) syncRecordSoon(target.record);
     target.dishCountMeta.dishCount += 1;
-    target.dishCountMeta.dishesEl.textContent = `${target.dishCountMeta.dishCount} 道菜`;
+    target.dishCountMeta.refreshDishCount();
 
     addDishTargetMeal = null;
     currentPhotoData = null;
@@ -1542,7 +1547,7 @@
       .map(d => (RECOGNIZE_PREVIEW_ONLY && d.markerEl ? d.markerEl : d.dotEl).getBoundingClientRect());
     // controls that sit on the photo itself — a label under them is unreadable
     // (CSS-hidden ones measure 0x0 and are skipped)
-    const controlRects = [recognizeZoomToggle, manualBoxSpawner, reportAddDishBtn]
+    const controlRects = [recognizeZoomToggle, manualBoxSpawner, reportAddDishBtn, photoPeekHint]
       .filter(el => !el.hidden)
       .map(el => el.getBoundingClientRect())
       .filter(r => r.width && r.height);
@@ -2798,7 +2803,7 @@
       if (detailSeasonOtherOpen) detailSeasonInput?.focus();
       return;
     }
-    detailDraft.seasonings = toggledSeasonings(draftSeasonings(), btn.dataset.value);
+    detailDraft.seasonings = toggledSeasoningsFor(detailAdjustTarget && detailAdjustTarget.fieldSource, draftSeasonings(), btn.dataset.value);
     renderDetailSeasonings();
   });
   function addDetailSeasoningText(){
@@ -2907,7 +2912,7 @@
   // stays in REPORT_FIELDS only so a record keeps all five keys)
   const ACTIVE_FIELDS = ['size', 'cookingMethod', 'sugar', 'salt'];
   // page order; fields that don't apply are skipped
-  // (11/01) 調味 seasonings: its own page after 烹調方式 — a list, no preset
+  // (11/01) 調味 seasonings: its own page after 烹調方式 — a list, preset 沒有特別調味 (11/07)
   const STEP_ORDER = ['size', 'count', 'cookingMethod', 'seasonings', 'sugar', 'salt'];
   const STEP_LABEL = { size: '份量', count: '數量', containerType: '容器', cookingMethod: '烹調方式', seasonings: '調味', sugar: '糖', salt: '鹽' };
   // seasonings apply to every food type but fruit and beverage (field-defaults.js)
@@ -2989,13 +2994,13 @@
     applySeasoningsDefault(det);
     logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: values, notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
   }
-  // 調味: no preset — an empty list with source 'default' where it applies,
-  // null / 'na' where it doesn't (fruit, beverage)
+  // 調味: preset 沒有特別調味 (teacher 11/07) with source 'default' where it
+  // applies, null / 'na' where it doesn't (fruit, beverage)
   function applySeasoningsDefault(det){
     det.fieldSource = det.fieldSource || {};
     if (hasSeasonings(det)){
       if (!Array.isArray(det.detail.seasonings)){
-        det.detail.seasonings = [];
+        det.detail.seasonings = FIELD_DEFAULTS.SEASONING_DEFAULT.slice();
         det.fieldSource.seasonings = 'default';
       } else if (!det.fieldSource.seasonings) det.fieldSource.seasonings = 'default';
     } else {
@@ -3027,6 +3032,19 @@
   // Saved calorie result; a dish never calculated because a field it needs
   // is still empty is saved as { status: 'incomplete' } (資料不足，未估算),
   // so the gap is visible in the Diary, the admin page and the CSV
+  // (11/07, teacher: 「這不是 3 道菜」) a food added at scenario question 2
+  // (「還有其他需要補充的食材嗎？」) is an ingredient of the meal, not a dish:
+  // 「N 道菜＋M 項補充食材」. Question 1's foods stay dishes. Data unchanged
+  // (dishSource 'scenario' + scenarioNo 2); calories still add up.
+  function isIngredientDish(d){
+    return !!d && d.source === 'scenario' && d.scenarioNo === 2;
+  }
+  function dishCountText(list){
+    const all = (list || []).filter(Boolean);
+    const ingredients = all.filter(isIngredientDish).length;
+    const dishes = all.length - ingredients;
+    return ingredients ? `${dishes} 道菜＋${ingredients} 項補充食材` : `${dishes} 道菜`;
+  }
   // Saved dishes without a number: missing = a value was missing (資料不足 /
   // 待補數量 / 待補份量), failed = no match / anomaly / error
   // (a function declaration, no outer const: the Diary calls it while
@@ -3119,8 +3137,15 @@
     // (an empty photo is fine once foods were added through the questions)
     const allDone = (all.length > 0 || reportExtraDets.length > 0) && filled === all.length;
     const sel = selectedReportDet();
-    reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
-    reportProgress.hidden = allDone;
+    // (11/07) all filled and foods were added through the questions: the
+    // meal's 「共 N 道菜＋M 項補充食材」 (question 2 adds ingredients, not dishes)
+    if (allDone){
+      reportProgress.textContent = reportExtraDets.length ? `共 ${dishCountText(all.concat(reportExtraDets))}` : '';
+      reportProgress.hidden = !reportExtraDets.length;
+    } else {
+      reportProgress.textContent = `已填 ${filled} / ${all.length} 道`;
+      reportProgress.hidden = false;
+    }
     // while picking a dish (none open): 「下一道 ›」 opens the next unfilled one
     reportNextDishBtn.hidden = allDone || !!sel || !nextUnfilledReportDet();
     reportDoneBtn.hidden = !allDone;
@@ -3322,7 +3347,8 @@
     const field = currentStepField(det);
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const idx = steps.indexOf(field);
-    reportStepTitle.textContent = `第 ${idx + 1} / ${steps.length} 題:${STEP_LABEL[field]}`;
+    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 4 題」
+    reportStepTitle.textContent = `${STEP_LABEL[field]}（${idx + 1}/${steps.length}）`;
     const isCount = field === 'count';
     if (reportCountRow) reportCountRow.hidden = !isCount;
     if (isCount) renderCountStepper('reportCount', det.count, det.countUnit);
@@ -3388,17 +3414,40 @@
     return FIELD_DEFAULTS.cleanSeasonings(list.filter(v => v !== NONE).concat(value));
   }
   const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  // (11/07) a tap on the still-preset 沒有特別調味 confirms it (the list
+  // stays) — tapping it again after the user chose it still clears it
+  function toggledSeasoningsFor(fieldSource, list, value){
+    const NONE = FIELD_DEFAULTS.SEASONING_NONE;
+    if (value === NONE && sameList(list, [NONE]) && (fieldSource || {}).seasonings === 'default') return list.slice();
+    return toggledSeasonings(list, value);
+  }
   // Group A: one committed change = one attempt (like a card tap)
   function setReportSeasonings(det, next, source){
     const prev = seasoningsOf(det);
-    if (sameList(prev, next)){ renderReportStep(det); return; } // (e.g. a dropped 其他 text: close its box)
+    if (sameList(prev, next)){
+      // (11/07) choosing the preset itself (a spoken 「沒有」 while 沒有特別調味
+      // is preset) confirms it — like a tap on any other field's preset
+      // (setReportField): field_set, before = after, detail.confirmedDefault
+      // (no editLog.fieldSetCount: setReportField doesn't count a confirmed preset either)
+      if (next.length && (det.fieldSource || {}).seasonings === 'default'){
+        logEvent('field_set', {
+          actor: 'user', target: dishNoOf(det), field: 'seasonings', before: prev.slice(), after: next.slice(),
+          attemptId: nextAttemptId(), source: source || null, detail: { confirmedDefault: true }
+        });
+        setFieldSource(det, 'seasonings', 'user');
+      }
+      renderReportStep(det); return; // (e.g. a dropped 其他 text: close its box)
+    }
+    // (11/07) replacing the preset 沒有特別調味 is not a changed answer — the
+    // same rule as the other fields (setReportField)
+    const fromDefault = prev.length > 0 && (det.fieldSource || {}).seasonings === 'default';
     if (currentMealMeta){
       currentMealMeta.editLog.fieldSetCount += 1;
-      if (prev.length) currentMealMeta.editLog.fieldChangeCount += 1;
+      if (prev.length && !fromDefault) currentMealMeta.editLog.fieldChangeCount += 1;
     }
     logEvent(prev.length ? 'field_changed' : 'field_set', {
       actor: 'user', target: dishNoOf(det), field: 'seasonings', before: prev.length ? prev.slice() : null, after: next.slice(),
-      attemptId: nextAttemptId(), source: source || null
+      attemptId: nextAttemptId(), source: source || null, detail: fromDefault ? { fromDefault: true } : null
     });
     setFieldSource(det, 'seasonings', 'user');
     det.detail = { ...(det.detail || {}), seasonings: next };
@@ -3429,7 +3478,7 @@
     if (performance.now() - cardsSwappedAt < CARD_SWAP_GUARD_MS) return;
     const det = selectedReportDet();
     if (btn.dataset.kind === 'seasonings'){
-      if (det && !det.loading) setReportSeasonings(det, toggledSeasonings(seasoningsOf(det), btn.dataset.value));
+      if (det && !det.loading) setReportSeasonings(det, toggledSeasoningsFor(det.fieldSource, seasoningsOf(det), btn.dataset.value));
       return;
     }
     if (btn.dataset.kind === 'seasonings-other'){
@@ -3658,6 +3707,10 @@
   // for all three groups. Tapping it shows it full size until tapped again.
   const PHOTO_COMPACT_SHARE = 1 / 3;
   const PHOTO_COMPACT_MIN_PX = 96;
+  // (11/07) B/C with large system text: keep this much of the chat log
+  // visible; the photo strip may shrink down to CHAT_PHOTO_MIN_PX for it
+  const CHAT_LOG_MIN_PX = 96;
+  const CHAT_PHOTO_MIN_PX = 64;
   // Group A (10/22, no wasted space): picking a dish = the photo fills the
   // room between the heading and the footer (the hint right under it);
   // a dish open = a strip of A_STRIP_SHARE of that room; tapped = A_PEEK_SHARE.
@@ -3670,6 +3723,8 @@
     return body.clientHeight - headH;
   }
   let photoPeek = false;
+  let lastReportStripH = 0; // (A) the strip's height with a dish open, last computed
+  let peekOverflow = false;  // (A) the enlarged photo was kept larger than the page fits
   const photoCompactMode = () => reportActive && (chatMode || !!reportSelectedId);
   function sizeReportPhotoSlot(){
     if (!reportActive) return;
@@ -3683,6 +3738,15 @@
     const selDet = reportSelectedId && !chatMode ? reportExtraDets.find(d => d.id === reportSelectedId) : null;
     const compact = photoCompactMode() && !photoPeek;
     let h = compact ? Math.max(PHOTO_COMPACT_MIN_PX, normal * PHOTO_COMPACT_SHARE) : normal;
+    if (chatMode){
+      // (11/07, large system text) the photo — even tapped large — never
+      // takes the chat log's last lines or runs under the footer: at most
+      // the room the footer leaves minus CHAT_LOG_MIN_PX (normal text sizes
+      // never hit this). Measured from the screen, not the body, whose
+      // min-height (set below) would otherwise feed back into the room.
+      const room = chatBodyRoom();
+      if (room > 0) h = Math.max(Math.min(h, CHAT_PHOTO_MIN_PX), Math.min(h, room - CHAT_LOG_MIN_PX));
+    }
     if (!chatMode){
       const fit = width * nh / nw;
       const room = reportPhotoRoom();
@@ -3716,30 +3780,117 @@
       const slotNow = reportPhotoSlot.getBoundingClientRect().height;
       const panelAtTarget = reportPanel.clientHeight + slotNow - h;
       const over = natural - panelAtTarget;
+      peekOverflow = false;
       if (over > 0){
-        const floor = compact ? PHOTO_COMPACT_MIN_PX : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over));
+        let floor = compact ? PHOTO_COMPACT_MIN_PX : Math.min(h, Math.max(PHOTO_COMPACT_MIN_PX, h - over));
+        // (11/07) with large system text the fitted 「enlarged」 photo can end
+        // up no bigger than the strip, so 「點照片放大」 seems to do nothing:
+        // then it is 1.5× the strip and the panel scrolls (scrollbar shown,
+        // .report-peek-scroll). (Normal text: 390×700 數量 page is the tightest, 236 vs 226 px — not hit.)
+        peekOverflow = !compact && lastReportStripH > 0 && h - over <= lastReportStripH * 1.02;
+        if (peekOverflow) floor = Math.min(h, Math.round(lastReportStripH * 1.5));
         h = Math.max(floor, h - Math.ceil(over));
         reportPhotoSlot.style.height = `${Math.round(h)}px`;
       }
     }
+    if (!chatMode && compact && reportSelectedId) lastReportStripH = h;
+    if (compact || chatMode || !reportSelectedId) peekOverflow = false;
+    reportScreenEl.classList.toggle('report-peek-scroll', peekOverflow);
     reportPhotoSlot.classList.toggle('is-compact', compact);
-    // on the small photo the 「+ 整餐/其他」 button would cover it: beside it instead
-    const btnHome = compact ? reportPhotoSlot : recognizeWrap;
-    if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    // on the small photo the 「+ 整餐/其他」 button would cover it: beside it
+    // instead (placePhotoTools, below; under the photo when there's no room)
+    reportPhotoSlot.classList.toggle('photo-tappable', photoCompactMode());
     if (photoPeekHint){
       photoPeekHint.hidden = !photoCompactMode();
       photoPeekHint.textContent = photoPeek ? '點照片縮小' : '點照片放大';
     }
+    placePhotoTools(compact, h, width, nw, nh);
+    // (11/07) B/C: the body never shrinks below heading + photo + the photo
+    // tools row + CHAT_LOG_MIN_PX — with large system text the screen scrolls
+    // instead of the photo / chat log sliding under the footer
+    const body = reportPhotoSlot.parentElement;
+    if (chatMode){
+      const toolsH = reportPhotoTools && !reportPhotoTools.hidden ? reportPhotoTools.offsetHeight + 6 : 0;
+      body.style.minHeight = `${Math.ceil(reportHeadingHeight() + h + toolsH + CHAT_LOG_MIN_PX)}px`;
+    } else body.style.minHeight = '';
   }
-  // a tap on the photo itself (not a marker / label / button) toggles the size
-  recognizeWrap.addEventListener('click', e => {
-    if (!photoCompactMode() || reportAddingDish) return;
-    if (e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
+  function reportHeadingHeight(){
+    const head = reportPhotoSlot.parentElement.querySelector('.report-heading');
+    return head ? head.offsetHeight + (parseFloat(getComputedStyle(head).marginBottom) || 0) : 0;
+  }
+  // B/C: the height the screen leaves for the body (screen minus its
+  // padding, the chat footer and the heading)
+  function chatBodyRoom(){
+    const cs = getComputedStyle(reportScreenEl);
+    const foot = reportScreenEl.querySelector('.chat-foot');
+    const footH = foot ? foot.offsetHeight + (parseFloat(getComputedStyle(foot).marginTop) || 0) : 0;
+    return reportScreenEl.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - footH - reportHeadingHeight();
+  }
+  // (11/07, large system text) On the small photo strip 「+ 整餐/其他」 sits
+  // at the slot's bottom-left and 「點照片放大」 at its bottom-right. When the
+  // two would run into each other (very large text / a very narrow screen;
+  // they also cover the markers then), both move into the row under the
+  // photo (#reportPhotoTools). Normal text sizes never get there, so the
+  // layout there is unchanged. On the enlarged photo the tag sits at the
+  // photo's own top-left (inside #recognizeWrap), the add button at its
+  // bottom-right.
+  const reportPhotoTools = document.getElementById('reportPhotoTools');
+  function naturalWidth(el){
+    const ws = el.style.whiteSpace, mw = el.style.maxWidth;
+    el.style.whiteSpace = 'nowrap'; el.style.maxWidth = 'none';
+    const w = el.offsetWidth;
+    el.style.whiteSpace = ws; el.style.maxWidth = mw;
+    return w;
+  }
+  function placePhotoTools(compact, h, width, nw, nh){
+    if (!reportPhotoTools) return;
+    // back in their usual places first (measured there)
+    const btnHome = compact ? reportPhotoSlot : recognizeWrap;
+    if (photoPeekHint && photoPeekHint.parentElement !== btnHome) btnHome.appendChild(photoPeekHint);
+    if (reportAddDishBtn.parentElement !== btnHome) btnHome.appendChild(reportAddDishBtn);
+    let below = false;
+    const shown = [reportAddDishBtn, photoPeekHint].filter(el => el && el.getClientRects().length);
+    if (shown.length){
+      const sumW = shown.reduce((sum, el) => sum + naturalWidth(el), 0) + 16 + 8 * shown.length;
+      if (compact) below = sumW > width;
+      else if (shown.length === 2){
+        // enlarged photo: the tag top-left, the button bottom-right — they
+        // collide only when the photo is both too narrow and too short
+        // (the photo's size at the TARGET height — the slot is still animating)
+        const photoW = Math.min(width, h * nw / nh), photoH = photoW * nh / nw;
+        const sumH = shown.reduce((sum, el) => sum + el.offsetHeight, 0) + 24;
+        below = sumW > photoW && sumH > photoH;
+      }
+    }
+    reportPhotoTools.hidden = !below;
+    if (below){
+      if (reportAddDishBtn.getClientRects().length) reportPhotoTools.appendChild(reportAddDishBtn);
+      if (photoPeekHint && !photoPeekHint.hidden) reportPhotoTools.appendChild(photoPeekHint);
+    }
+  }
+  // A tap on the photo (or its blank sides, or the 「點照片放大／縮小」 tag)
+  // toggles the size — not on a marker / label / other button. (11/07: the
+  // tag used to ignore taps (pointer-events: none) and sits outside the photo
+  // frame; iPhone Safari also needs the pointer cursor (.photo-tappable) to
+  // deliver a tap on the plain image.)
+  function onPhotoSlotTap(e){
+    if (!reportActive || !photoCompactMode() || reportAddingDish) return;
+    const hint = e.target.closest('#photoPeekHint');
+    if (!hint && e.target.closest('button, .det-marker, .det-label, .det-dot')) return;
+    if (!hint && e.currentTarget === reportPhotoTools) return; // (the row's blank space)
     photoPeek = !photoPeek;
     logEvent(photoPeek ? 'photo_expanded' : 'photo_collapsed', { actor: 'user' });
     sizeReportPhotoSlot();
-  });
+  }
+  reportPhotoSlot.addEventListener('click', onPhotoSlotTap);
+  reportPhotoTools?.addEventListener('click', onPhotoSlotTap);
   window.addEventListener('resize', sizeReportPhotoSlot);
+  // the chat footer grows (a selected-dish chip, suggestion buttons, a
+  // two-line input, large system text): re-fit the photo to what is left
+  if (typeof ResizeObserver === 'function'){
+    const chatFootEl = reportScreenEl.querySelector('.chat-foot');
+    if (chatFootEl) new ResizeObserver(() => { if (chatMode) sizeReportPhotoSlot(); }).observe(chatFootEl);
+  }
   recognizePhoto.addEventListener('load', sizeReportPhotoSlot);
 
   // Hands the photo stage back to Page 3. Safe to call any time.
@@ -3755,9 +3906,13 @@
     reportPhotoSlot.style.height = '';
     reportPhotoSlot.classList.remove('is-compact');
     if (reportAddDishBtn.parentElement !== recognizeWrap) recognizeWrap.appendChild(reportAddDishBtn);
+    if (photoPeekHint && photoPeekHint.parentElement !== reportPhotoSlot) reportPhotoSlot.appendChild(photoPeekHint);
+    if (reportPhotoTools) reportPhotoTools.hidden = true;
+    reportPhotoSlot.parentElement.style.minHeight = '';
     reportScreenEl.classList.remove('report-stepping');
     photoPeek = false;
     if (photoPeekHint) photoPeekHint.hidden = true;
+    reportPhotoSlot.classList.remove('photo-tappable');
     refreshMarkerStates();
   }
 
@@ -4201,7 +4356,7 @@
     recordScenarioAnswer(no, 'text', { added: name }, 'typed', aid);
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
-    // still missing a field (e.g. 烹調方式 has no preset): 資料不足，未估算 —
+    // still missing a field (rare since 11/07: every cooking field has a preset 水煮): 資料不足，未估算 —
     // nothing is guessed; the user can open its chip and fill it in
     else markExtraIncomplete(det);
     showReportScenario(true);
@@ -4301,6 +4456,7 @@
       d.aiOriginal = d.aiOriginal || { name: chatDishName(d), confidence: d.confidence ?? null };
     });
     enterReportMode();
+    requestAnimationFrame(sizeChatInput); // (11/07) a wrapped hint is not cut off
     // presets give every dish a size: start its calories (a countable dish
     // still waits for the count the user ate — 待補數量)
     currentDetections.forEach(d => {
@@ -4327,6 +4483,7 @@
     chatBusy = false;
     if (chatLog) chatLog.textContent = '';
     if (chatInput) chatInput.value = '';
+    sizeChatInput();
     chatSuggestionShownCount = 0;
     chatSuggestionTaps = [];
     chatAttemptId = null;
@@ -4610,6 +4767,7 @@
       meta: { source, ...(voice ? { voiceRaw: text, voiceFixed: said } : {}) }
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
+    sizeChatInput();
     renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
@@ -4661,6 +4819,7 @@
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
       if (chatInput){
         if (!chatInput.value) chatInput.value = text; // ready to resend
+        sizeChatInput();
         chatInput.focus();
       }
       return;
@@ -4797,8 +4956,9 @@
           if ((det.detail || {}).size !== v) setFieldSource(det, k, 'default');
           return;
         }
-        // (調味: only when the AI's list adds something)
-        if (k === 'seasonings' && Array.isArray(v) && v.every(x => seasoningsOf(det).includes(x))) return;
+        // (調味: only when the AI's list adds something — or when the user
+        // said the preset itself, e.g. 「沒有特別調味」: then it is theirs, 11/07)
+        if (k === 'seasonings' && Array.isArray(v) && v.every(x => seasoningsOf(det).includes(x)) && (det.fieldSource || {}).seasonings !== 'default') return;
         setFieldSource(det, k, 'ai');
       });
       // 調味 (11/01): what the user said now is ADDED to the list
@@ -4917,10 +5077,29 @@
       chatForm?.requestSubmit();
     }
   });
-  chatInput?.addEventListener('input', () => {
+  // The box grows with its text up to its max-height (CSS, in em so large
+  // system text keeps ~5 lines); empty, it is as tall as the placeholder
+  // needs (11/07: at 150–200 % text the hint wrapped and was cut off)
+  function sizeChatInput(){
+    if (!chatInput) return;
     chatInput.style.height = 'auto';
-    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 110)}px`;
-  });
+    let needed = chatInput.scrollHeight;
+    if (!chatInput.value && chatInput.placeholder){
+      // measured at the placeholder's own (smaller) font size
+      const phSize = getComputedStyle(chatInput, '::placeholder').fontSize;
+      chatInput.style.fontSize = phSize;
+      chatInput.value = chatInput.placeholder;
+      needed = chatInput.scrollHeight;
+      chatInput.value = '';
+      chatInput.style.fontSize = '';
+    }
+    const cs = getComputedStyle(chatInput);
+    const max = parseFloat(cs.maxHeight) || 110;
+    const borders = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    chatInput.style.height = `${Math.ceil(Math.min(needed + borders, max))}px`;
+  }
+  chatInput?.addEventListener('input', sizeChatInput);
+  window.addEventListener('resize', () => { if (chatMode) sizeChatInput(); });
 
   /* 🎤 Web Speech: the words go into the text box; the user sends them */
   function stopChatListening(){
@@ -4944,6 +5123,7 @@
       let text = '';
       for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
       chatInput.value = base + text;
+      sizeChatInput();
       chatVoiceUsed = true;
       chatInput.dispatchEvent(new Event('input'));
     };

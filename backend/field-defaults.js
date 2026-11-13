@@ -30,13 +30,16 @@
   /* ---------- seasonings 調味 (teacher 11/01) 【待老師確認】 ----------
      A list (several can be picked): 醬油, 米酒, anything typed under 其他,
      or 沒有特別調味 (which clears the others). Applies to every food type
-     except fruit and beverage. NO preset: an untouched dish is saved as []
-     with fieldSource 'default'; a type it doesn't apply to as null / 'na'.
+     except fruit and beverage. Preset (teacher 11/07): 沒有特別調味 —
+     SEASONING_DEFAULT, fieldSource 'default' until the user / AI changes it;
+     a type it doesn't apply to is null / 'na'.
      It never changes the calories. Group B/C's AI fills it only with what
      the user said (never guessed from the dish name). */
   const SEASONING_OPTIONS = ['醬油', '米酒'];                 // 【待老師確認】
   const SEASONING_NONE = '沒有特別調味';                       // 【待老師確認】
   const SEASONING_OTHER = '其他';                             // + the typed text 【待老師確認】
+  // every dish it applies to starts with this list (teacher 11/07)
+  const SEASONING_DEFAULT = [SEASONING_NONE];
   const SEASONING_MAX_CHARS = 10;
   const SEASONING_MAX_ITEMS = 6;
   const NO_SEASONING_TYPES = ['fruit', 'beverage'];           // 【待老師確認】
@@ -112,16 +115,19 @@
 
   /* ---------- defaults per food type 【待老師確認】 ----------
      cookingMethod here is only the fallback when the dish name has no
-     cooking word (see cookingFromName); '' = left empty for the user. */
+     cooking word (see cookingFromName). Teacher 11/07: a dish whose name
+     has no cooking word starts at 水煮 (DEFAULT_COOKING) — every group,
+     including foods added through the scenario questions (鴨肉, 高麗菜). */
+  const DEFAULT_COOKING = '水煮';
   const DEFAULTS = {
-    staple:    { size: 'M', cookingMethod: '', sugar: '無糖', salt: '無鹽' },     // 【待老師確認】
-    protein:   { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
-    vegetable: { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
-    soup:      { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    staple:    { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '無糖', salt: '無鹽' },     // 【待老師確認】
+    protein:   { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    vegetable: { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
+    soup:      { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '無糖', salt: '1/4 茶匙' }, // 【待老師確認】
     fruit:     { size: 'M' },                                    // 【待老師確認】 (only size + count apply)
     beverage:  { size: 'M', sugar: '無糖' },                     // 【待老師確認】 (no cooking / salt)
-    snack:     { size: 'M', cookingMethod: '', sugar: '半糖', salt: '無鹽' },     // 【待老師確認】
-    other:     { size: 'M', cookingMethod: '', sugar: '無糖', salt: '1/4 茶匙' }  // 【待老師確認】
+    snack:     { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '半糖', salt: '無鹽' },     // 【待老師確認】
+    other:     { size: 'M', cookingMethod: DEFAULT_COOKING, sugar: '無糖', salt: '1/4 茶匙' }  // 【待老師確認】
   };
 
   /* ---------- option cards (Group A, one field per page) 【待老師確認】 ----------
@@ -226,7 +232,7 @@
   return {
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
-    SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings,
+    SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,
     SCENARIO_PROMPTS
   };
 });

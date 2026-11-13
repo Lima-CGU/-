@@ -333,6 +333,9 @@ function summarize(r){
     id: r.id, pid: r.pid, group: r.group, mealId: r.mealId || '',
     doneAt: t.doneAt || r.createdAt || null,
     dishCount: Array.isArray(r.dishes) ? r.dishes.length : 0,
+    // (11/07) foods added at scenario question 2 are ingredients, not dishes:
+    // the admin list shows 「N 道菜＋M 項補充食材」 (dishCount stays the total)
+    ingredientCount: Array.isArray(r.dishes) ? r.dishes.filter(d => isObj(d) && d.source === 'scenario' && d.scenarioNo === 2).length : 0,
     correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
     aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
     totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
