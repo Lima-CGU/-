@@ -5192,7 +5192,11 @@
     const onQuestion = askedScenario && chatScenarioNo === askedScenario && !data.offTopic;
     if (onQuestion) recordScenarioAnswer(askedScenario, 'text', data.isClarification ? { askedBack: true } : null,
       source === 'suggestion' ? 'suggestion' : 'message', attemptId); // (a C button answer: 'suggestion', 0 here — its message_submitted counts 1)
-    const answered = onQuestion && !data.isClarification;
+    // (11/14) the LAST question never moves on (= saves) by itself: the user
+    // can correct the AI with more messages and saves with 「沒有，完成」
+    // (recorded like questions 1–2 after a message: 'text', input 'button',
+    // closedBy). Questions 1–2 unchanged.
+    const answered = onQuestion && !data.isClarification && askedScenario < SCENARIO_PROMPTS.length;
     // (buttons that would be cleared by the next question at once are not
     // shown, so they are not counted as shown either)
     if (!answered) renderChatSuggestions(data.suggestions);
