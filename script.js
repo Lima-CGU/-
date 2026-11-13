@@ -385,15 +385,19 @@
     // photo -> draft (null), the wait for the failure is aiWaitSec
     const draft = m.ai_draft_displayed || m.ai_failure_displayed;
     const sec = (a, b) => (a && b ? Math.round((b.ms - a.ms) / 100) / 10 : null);
-    const seqOf = name => (task.events.find(e => e.event === name) || {}).seq || null;
+    // (11/13) only THIS attempt's events: the carried ones of an earlier,
+    // unsaved attempt (detail.previousAttempt) and taps made before the meal
+    // (detail.beforeTask) sit before task_start and never count here
+    const own = task.events.filter(e => !(e.detail && (e.detail.previousAttempt || e.detail.beforeTask)));
+    const seqOf = name => (own.find(e => e.event === name) || {}).seq || null;
     const draftSeq = seqOf('ai_draft_displayed') || seqOf('ai_failure_displayed');
     const finSeq = seqOf('final_confirmed');
     // (11/01) only changes made before the first scenario question — answers to
     // the questions never count as the first edit, in any group (a 完成 that was
     // cancelled at the 資訊不完整 prompt doesn't cut it off)
     const finishSeq = seqOf('scenario_prompt_shown') || Infinity;
-    const firstEdit = draftSeq ? task.events.find(e => e.seq > draftSeq && e.seq < finishSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
-    const userActionCount = draftSeq && finSeq ? task.events.filter(e => e.seq >= draftSeq && e.seq <= finSeq
+    const firstEdit = draftSeq ? own.find(e => e.seq > draftSeq && e.seq < finishSeq && e.actor === 'user' && FIRST_EDIT_EVENTS.includes(e.event)) : null;
+    const userActionCount = draftSeq && finSeq ? own.filter(e => e.seq >= draftSeq && e.seq <= finSeq
       && e.actor === 'user' && USER_ACTION_EVENTS.includes(e.event)).reduce((n, e) => n + userActionWeight(e), 0) : null;
     return {
       events: task.events.slice(),
@@ -414,8 +418,8 @@
         // (11/01) the scenario questions: question 1 shown -> question 4 answered
         // (correctionSec includes this time; this lets analysis take it out)
         scenarioSec: (() => {
-          const first = task.events.find(e => e.event === 'scenario_prompt_shown' && e.detail && e.detail.no === 1);
-          const last = task.events.filter(e => e.event === 'scenario_answered' && e.detail && e.detail.no === SCENARIO_PROMPTS.length).pop();
+          const first = own.find(e => e.event === 'scenario_prompt_shown' && e.detail && e.detail.no === 1);
+          const last = own.filter(e => e.event === 'scenario_answered' && e.detail && e.detail.no === SCENARIO_PROMPTS.length).pop();
           return first && last ? sec({ ms: first.elapsedMs }, { ms: last.elapsedMs }) : null;
         })()
       },
