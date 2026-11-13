@@ -5185,7 +5185,8 @@
       });
     });
     // (11/01) an answer to a scenario question: the next question — unless the
-    // reply is off-topic or the AI asks back (then the user answers that first)
+    // reply is off-topic or the AI asks back (then the user answers that first),
+    // or it is the last question (11/14: only 「沒有，完成」 saves)
     // Every on-topic message about the question is kept as a 'text' answer
     // (also when the AI asks back — the user then answers again, or taps
     // 「沒有，下一題」, which is then recorded as 'text' too).
@@ -5484,7 +5485,8 @@
   /* B/C scenario questions (11/01): the system posts each question as an AI
      message with the exact words (not generated, not reworded); the user
      answers by voice / typing as usual (the AI updates the record), or taps
-     「沒有,下一題」. After the reply to an answer, or that tap, the next one. */
+     「沒有,下一題」. After the reply to an answer, or that tap, the next one —
+     except the last question, which only that button closes (11/14). */
   let chatScenarioNo = null;     // the question being asked (1–3), or null
   let chatFinishIncomplete = 0;  // dishes still incomplete when 完成 was tapped
   function updateChatScenarioUi(){
