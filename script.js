@@ -5198,6 +5198,7 @@
     // (recorded like questions 1–2 after a message: 'text', input 'button',
     // closedBy). Questions 1–2 unchanged.
     const answered = onQuestion && !data.isClarification && askedScenario < SCENARIO_PROMPTS.length;
+    if (onQuestion) setChatScenarioBtnLabel();
     // (buttons that would be cleared by the next question at once are not
     // shown, so they are not counted as shown either)
     if (!answered) renderChatSuggestions(data.suggestions);
@@ -5495,13 +5496,22 @@
   }
   function askChatScenario(no){
     chatScenarioNo = no;
-    // (11/14) the last question saves the meal
-    if (chatScenarioNextBtn) chatScenarioNextBtn.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
+    setChatScenarioBtnLabel();
     addChatMessage('assistant', SCENARIO_PROMPTS[no - 1], { meta: { scenario: no } });
     logScenarioShown(no);
     renderChatSuggestions([]); // (the buttons come with AI replies only)
     updateChatScenarioUi();
     updateChatBusy();
+  }
+  // (11/14) 「沒有，下一題」; the last question saves: 「沒有，完成」, or 「完成」
+  // once the user has answered it in a message (label only — what the tap
+  // records is unchanged)
+  function setChatScenarioBtnLabel(){
+    if (!chatScenarioNextBtn || !chatScenarioNo) return;
+    const st = scenarioState();
+    const answeredByMessage = !!st && st.answers.some(a => a.no === chatScenarioNo && a.answer === 'text');
+    chatScenarioNextBtn.textContent = chatScenarioNo < SCENARIO_PROMPTS.length ? '沒有，下一題'
+      : (answeredByMessage ? '完成' : '沒有，完成');
   }
   function advanceChatScenario(){
     const st = scenarioState();
