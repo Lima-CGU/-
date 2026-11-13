@@ -64,7 +64,7 @@
      message, in ALL groups with exactly these words (研究助理工作單「對話組
      AI 提問」 — the traditional group asks the same). Do not reword.
      Teacher 11/14: the old questions 3 (調味料) and 4 (烹調方式) are merged
-     into question 3 — Group A's pages already ask both. Old records keep
+     into question 3. Old records keep
      their 4 answers (CSV scenario4); new records leave scenario4 empty. */
   const SCENARIO_PROMPTS = [
     '主菜下方是否還有其他食物？',

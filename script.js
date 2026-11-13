@@ -317,7 +317,7 @@
      After 「完成」 and before saving, the four questions of field-defaults.js
      SCENARIO_PROMPTS are asked in order, one per page (A) / message (B, C),
      each once; the meal is saved only after the 4th. Answers: 'none'
-     (沒有,下一題), 'edit' (A, questions 3–4: back to the dishes), 'text'
+     (沒有,下一題), 'edit' (A, question 3 (3–4 before 11/14): back to the dishes), 'text'
      (A: a food typed for questions 1–2; B/C: the user's chat answer). */
   const SCENARIO_PROMPTS = FIELD_DEFAULTS.SCENARIO_PROMPTS;
   function scenarioState(){
@@ -419,7 +419,7 @@
         correctionSec: sec(draft, fin),
         aiProcessingSec: sec(m.photo_confirmed, m.ai_draft_displayed),
         preEditDelaySec: firstEdit ? sec(draft, { ms: firstEdit.elapsedMs }) : null,
-        // (11/01) the scenario questions: question 1 shown -> question 4 answered
+        // (11/01) the scenario questions: question 1 shown -> the last question answered
         // (correctionSec includes this time; this lets analysis take it out)
         scenarioSec: (() => {
           const first = own.find(e => e.event === 'scenario_prompt_shown' && e.detail && e.detail.no === 1);
@@ -4516,7 +4516,7 @@
   /* Group A scenario page: 「第 n / 3 題」, the question, 「有,回去修改」 and
      「沒有,下一題」. 有 on questions 1–2 asks for a food to add (an onPhoto:false
      dish, like a chat-added one, with its type's presets) and stays on the
-     question; 有 on 3–4 goes back to the dishes, and the next 「完成」 asks that
+     question; 有 on question 3 goes back to the dishes, and the next 「完成」 asks that
      question again (answered ones are not asked again). */
   function showReportScenario(again){
     const st = scenarioState();
@@ -4527,7 +4527,7 @@
     reportScreenEl.classList.add('report-scenario-on');
     reportScenario.hidden = false;
     reportScenarioNoEl.textContent = `第 ${no} / ${SCENARIO_PROMPTS.length} 題`;
-    // questions 1–2 add a food; 3–4 go back to the dishes
+    // questions 1–2 add a food; 3 goes back to the dishes
     reportScenarioYes.textContent = no <= 2 ? '有，補充食物' : '有，回去修改';
     // (11/14) the last question saves the meal
     reportScenarioNone.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
