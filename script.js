@@ -4607,7 +4607,7 @@
       sizeReportPhotoSlot();
       return;
     }
-    // questions 3–4: back to the dishes (seasonings / cooking); asked again after 「完成」
+    // question 3: back to the dishes (seasonings / cooking); asked again after 「完成」
     recordScenarioAnswer(st.next, 'edit', null, 'button');
     hideReportScenario();
     // the hint under the photo (a toast would cover the 完成 button)
