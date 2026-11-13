@@ -175,11 +175,14 @@
   const MAX_EVENTS = 3000;
   let currentTask = null;
   function startTask(detail){
+    const previous = currentTask; // (11/13) an attempt that was never saved
     currentTask = {
       t0: performance.now(), events: [], capped: false, attempts: 0,
       marks: {}, // event name -> { at, ms } of its first occurrence
-      finalConfirmed: false
+      finalConfirmed: false,
+      aiAttempts: previous && previous.aiAttempts ? previous.aiAttempts.slice() : []
     };
+    carryPreviousAttempt(previous, currentTask);
     flushPreTask(currentTask); // (11/13) taps made before this meal started
     logEvent('task_start', { actor: 'user', detail: detail || null });
   }
@@ -237,6 +240,20 @@
       before: o.before === undefined ? null : o.before, after: o.after === undefined ? null : o.after,
       source: o.source ?? null, status: o.status || 'success', detail: o.detail ?? null });
   }
+  /* (11/13) An attempt that was left before saving (a photo retaken from
+     Page 4, a meal left half-filled …) is not thrown away: its events go
+     into the next meal first, unchanged except elapsedMs 0 and
+     detail.previousAttempt: true + prevElapsedMs (its own elapsed time).
+     They come before this meal's task_start, so they never change its
+     marks, times or userActionCount. (At most PREVIOUS_ATTEMPT_MAX events.) */
+  const PREVIOUS_ATTEMPT_MAX = 1500;
+  function carryPreviousAttempt(prev, task){
+    if (!prev || !prev.events || !prev.events.length) return;
+    prev.events.slice(-PREVIOUS_ATTEMPT_MAX).forEach(e => {
+      task.events.push({ ...e, seq: task.events.length + 1, elapsedMs: 0, attemptId: null,
+        detail: { ...(e.detail || {}), previousAttempt: true, prevElapsedMs: e.elapsedMs } });
+    });
+  }
   function flushPreTask(task){
     const now = performance.now();
     preTaskEvents.filter(x => now - x.t < PRE_TASK_MAX_AGE_MS).forEach(x => {
@@ -254,6 +271,8 @@
   const diaryDishRecord = new WeakMap(); // a Diary dish -> its saved record
   function logAfterFinal(record, event, o = {}){
     if (!record) return null;
+    // (all of them are diary_*: never mistaken for the meal's own events)
+    if (!/^diary_/.test(event)) event = `diary_${event}`;
     const events = Array.isArray(record.events) ? record.events : (record.events = []);
     if (events.length >= MAX_EVENTS) return null;
     const t = record.times || {};
@@ -268,6 +287,8 @@
       detail: { ...(o.detail || {}), afterFinal: true }
     };
     events.push(e);
+    // kept on this device and uploaded again (debounced, same record id)
+    if (mealRecords.includes(record)) syncRecordSoon(record);
     return e;
   }
   // A tap that is not part of a correction (navigation, photo, zoom, voice,
@@ -399,6 +420,9 @@
         })()
       },
       userActionCount,
+      // (11/13) every photo's AI draft in this meal, oldest first — a failed
+      // attempt before a retake stays visible (aiDraftStatus = the saved photo's)
+      aiDraftAttempts: (task.aiAttempts || []).slice(-20),
       ...(task.capped ? { eventsCapped: true } : {})
     };
   }
@@ -630,7 +654,10 @@
   });
 
   // 從相簿選: the tap that opens the picker, then the picked photo
-  document.getElementById('pickFromLibraryLabel')?.addEventListener('click', () => logUserAction('library_opened'));
+  document.getElementById('pickFromLibraryLabel')?.addEventListener('click', e => {
+    if (e.target === fileInput) return; // (the label's own click re-dispatched to the input)
+    logUserAction('library_opened');
+  });
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
     if (!file || !file.type.startsWith('image/')){
@@ -1103,7 +1130,11 @@
       syncTimers.delete(record.id);
       record.syncStatus = 'pending';
       persistDiary();
-      window.PictaSync.enqueue(uploadableRecord(record), null);
+      // (11/13) Diary events after the save make a record grow: the upload
+      // copy is trimmed like at the save (fitRecordSize), the device copy isn't
+      const up = uploadableRecord(record);
+      fitRecordSize(up);
+      window.PictaSync.enqueue(up, null);
     }, 1200));
   }
   document.addEventListener('pictameal:sync-update', e => {
@@ -1350,7 +1381,7 @@
     try { data = await res.json(); }
     catch (err){
       const e = new Error(`detect: not JSON (HTTP ${res.status})`);
-      e.kind = 'bad-response'; e.status = res.status;
+      e.kind = res.ok ? 'bad-response' : 'http'; e.status = res.status;
       throw e;
     }
 
@@ -1474,6 +1505,7 @@
 
       // (11/13) 'ok' / 'empty' (the AI answered: no food) / 'failed' (no answer)
       if (currentMealMeta) currentMealMeta.aiDraftStatus = dishes.length ? 'ok' : 'empty';
+      if (currentTask) currentTask.aiAttempts.push({ status: dishes.length ? 'ok' : 'empty', dishCount: dishes.length, at: new Date().toISOString() });
       if (!dishes.length){
         setRecognizeHint('沒有辨識到菜色,可以拖曳左下角的框自己補一個', false);
         logDraft();
@@ -1532,6 +1564,7 @@
       const reason = detectFailReason(err);
       const waitedMs = Math.round(performance.now() - detectStarted);
       if (currentMealMeta){ currentMealMeta.aiDraftStatus = 'failed'; currentMealMeta.aiDraftFailReason = reason; }
+      if (currentTask) currentTask.aiAttempts.push({ status: 'failed', reason, waitedMs, at: new Date().toISOString() });
       logEvent('ai_request_failed', { actor: 'system', status: 'failed', detail: { api: 'detect', reason, httpStatus: (err && err.status) || null, latencyMs: waitedMs, message: String((err && err.message) || '').slice(0, 200) } });
       setRecognizeHint('自動辨識失敗,請重新拍一張照片試試', false);
       showToast('自動辨識失敗,請重新拍照');
@@ -2619,6 +2652,7 @@
       aiDraftStatus: meta.aiDraftStatus || null,
       aiDraftFailed: meta.aiDraftStatus === 'failed',
       ...(meta.aiDraftStatus === 'failed' ? { aiDraftFailReason: meta.aiDraftFailReason || null } : {}),
+      aiDraftAttempts: task ? task.aiDraftAttempts : [],
       ...(task && task.eventsCapped ? { eventsCapped: true } : {}),
       aiDetections: meta.aiDetections,
       editLog: meta.editLog,
@@ -3004,6 +3038,8 @@
       if (detailDraft[k] && detailDraft[k] !== prevDetail[k]) setFieldSource(detailAdjustTarget, k, 'user');
     });
     detailAdjustTarget.detail = { ...detailDraft };
+    // (11/13) what the USER set in the sheet, before a rename re-applies presets
+    const diaryUserDetail = diaryRec ? JSON.parse(JSON.stringify(detailAdjustTarget.detail)) : null;
     if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
       detailAdjustTarget.count = detailCountDraft;
       detailAdjustTarget.countEdits = (detailAdjustTarget.countEdits || 0) + 1;
@@ -3030,14 +3066,25 @@
       const after = detailAdjustTarget.detail || {};
       const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
       let changes = 0;
+      // the user's changes (sheet) …
       REPORT_FIELDS.concat('seasonings').forEach(k => {
-        if (same(diaryBefore.detail[k], after[k])) return;
+        if (same(diaryBefore.detail[k], diaryUserDetail[k])) return;
         changes += 1;
-        logAfterFinal(diaryRec, 'diary_field_changed', { target: no, field: k, before: diaryBefore.detail[k] ?? null, after: after[k] ?? null });
+        logAfterFinal(diaryRec, 'diary_field_changed', { target: no, field: k, before: diaryBefore.detail[k] ?? null, after: diaryUserDetail[k] ?? null });
       });
-      if ((detailAdjustTarget.count ?? null) !== diaryBefore.count){
+      if (detailCountDraft && detailCountDraft !== diaryBefore.count){
         changes += 1;
-        logAfterFinal(diaryRec, 'diary_count_changed', { target: no, field: 'count', before: diaryBefore.count, after: detailAdjustTarget.count ?? null });
+        logAfterFinal(diaryRec, 'diary_count_changed', { target: no, field: 'count', before: diaryBefore.count, after: detailCountDraft });
+      }
+      // … and what the system did after a rename to another food type
+      // (presets put in / fields that no longer apply / a preset count)
+      REPORT_FIELDS.concat('seasonings').forEach(k => {
+        if (same(diaryUserDetail[k], after[k])) return;
+        logAfterFinal(diaryRec, 'diary_field_changed', { actor: 'system', target: no, field: k, before: diaryUserDetail[k] ?? null, after: after[k] ?? null, detail: { reason: 'rename', source: (detailAdjustTarget.fieldSource || {})[k] || null } });
+      });
+      const countAfterUser = detailCountDraft || diaryBefore.count;
+      if ((detailAdjustTarget.count ?? null) !== (countAfterUser ?? null)){
+        logAfterFinal(diaryRec, 'diary_count_changed', { actor: 'system', target: no, field: 'count', before: countAfterUser ?? null, after: detailAdjustTarget.count ?? null, detail: { reason: 'rename' } });
       }
       const newName = stripConfidenceText(detailAdjustTarget.name || '');
       if (newName !== diaryBefore.name){
@@ -3186,7 +3233,8 @@
     }
     if (Number.isInteger(det.count) && !det.fieldSource.count) det.fieldSource.count = 'default'; // the photo's count
     applySeasoningsDefault(det);
-    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: appliedPresets(det, values), notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason } });
+    logEvent('default_applied', { actor: 'system', target: no, detail: { foodType: det.foodType, fields: appliedPresets(det, values), notApplicable: REPORT_FIELDS.filter(k => !applicable.includes(k)), reason,
+      ...(Number.isInteger(det.count) && det.fieldSource.count === 'default' ? { photoCount: det.count } : {}) } });
   }
   // (11/13) every preset that was put in: the five-field values plus 調味
   // (沒有特別調味) and a preset count, when their source is still 'default'
@@ -3194,8 +3242,7 @@
     const out = { ...(values || {}) };
     const src = det.fieldSource || {};
     if (src.seasonings === 'default' && Array.isArray((det.detail || {}).seasonings)) out.seasonings = det.detail.seasonings.slice();
-    if (src.count === 'default' && Number.isInteger(det.count)) out.count = det.count;
-    return out;
+    return out; // (a preset count gets its own default_applied, reason 'default-count')
   }
   // 調味: preset 沒有特別調味 (teacher 11/07) with source 'default' where it
   // applies, null / 'na' where it doesn't (fruit, beverage)
@@ -4176,6 +4223,8 @@
       }
     }
     if (!picked && !cmd){
+      // (11/13) heard, but no option / command matched (length only, not the words)
+      logVoice('voice_unmatched', 'report', { chars: String(text || '').replace(/\s+/g, '').length });
       const heard = String(text || '').replace(/\s+/g, '');
       setReportVoiceMsg(`沒有聽懂,請再說一次,或直接點選卡牌${heard ? `(聽到:${heard.length > 10 ? heard.slice(0, 10) + '…' : heard})` : ''}`, true);
       return;
@@ -4201,17 +4250,18 @@
       applySpokenOptions(text.trim());
     };
     rec.onerror = ev => {
-      logVoice('voice_failed', 'report', { reason: ev.error || 'unknown' });
+      logVoice('voice_failed', 'report', { reason: ev.error || 'unknown', task: rec.task });
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') setReportVoiceMsg('沒有麥克風權限,請直接點選', true);
       else if (ev.error === 'no-speech') setReportVoiceMsg('沒有聽到聲音,請再說一次或直接點選', true);
       else if (ev.error !== 'aborted') setReportVoiceMsg('語音辨識失敗,請再說一次或直接點選', true);
     };
     rec.onend = () => {
-      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'report'); } // (once per recognition)
+      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'report', { task: rec.task }); } // (once per recognition)
       if (reportRecognition === rec) stopReportListening();
     };
     try {
       rec.start();
+      rec.task = currentTask;
       logVoice('voice_started', 'report', { actor: 'user' });
       reportRecognition = rec;
       reportVoiceBtn.classList.add('is-listening');
@@ -4311,6 +4361,7 @@
     // whether the dish is countable. A count the user set is kept.
     // (a Diary count edit before 10/22 fix3 left no 'user' source: countEdits says so)
     const userCount = det.fieldSource.count === 'user' || det.countEdits > 0;
+    let presetCountNow = false;
     if (foodType !== before && !userCount){
       det.count = null;
       det.countable = false;
@@ -4323,6 +4374,7 @@
       if (!Number.isInteger(det.count)){
         det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
         setFieldSource(det, 'count', 'default');
+        presetCountNow = true;
       }
     } else if (det.fieldSource.count === 'default' && !(det.aiOriginal && det.aiOriginal.count)){
       // a preset count of the old type (fruit = 1) means nothing for 炒飯
@@ -4330,7 +4382,7 @@
       det.countable = false;
       delete det.fieldSource.count;
     }
-    if (!opts.diary) logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: appliedPresets(det, presets), notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
+    if (!opts.diary) logEvent('default_applied', { actor: 'system', target: dishNoOf(det), detail: { foodType, foodTypeBefore: before, fields: { ...appliedPresets(det, presets), ...(presetCountNow ? { count: det.count } : {}) }, notApplicable: ACTIVE_FIELDS.filter(k => !applicable.includes(k)), reason: 'rename' } });
     if (det.labelEl) renderDetLabel(det.labelEl, det);
   }
 
@@ -5364,17 +5416,18 @@
       chatInput.dispatchEvent(new Event('input'));
     };
     rec.onerror = ev => {
-      logVoice('voice_failed', 'chat', { reason: ev.error || 'unknown' });
+      logVoice('voice_failed', 'chat', { reason: ev.error || 'unknown', task: rec.task });
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') showToast('沒有麥克風權限,請直接打字');
       else if (ev.error !== 'aborted' && ev.error !== 'no-speech') showToast('語音辨識失敗,請再試一次或直接打字');
     };
     rec.onend = () => {
-      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'chat', { chars: chatInput.value.length }); } // (once per recognition)
+      if (!rec.loggedEnd){ rec.loggedEnd = true; logVoice('voice_ended', 'chat', { chars: chatInput.value.length, task: rec.task }); } // (once per recognition)
       if (chatRecognition === rec) stopChatListening();
       chatInput.focus();
     };
     try {
       rec.start();
+      rec.task = currentTask;
       logVoice('voice_started', 'chat', { actor: 'user' });
       chatRecognition = rec;
       chatMicBtn.classList.add('is-listening');
@@ -5497,6 +5550,9 @@
      recorded, never counted (what was said is counted where it lands: a
      field_set, a sent message). The Diary's 🎤 goes to its saved meal. */
   function logVoice(event, where, o = {}){
+    // a recognition started in a meal that has since been saved: drop its
+    // late end / failure (o.task = the meal it started in)
+    if (o.task !== undefined && o.task !== currentTask && !o.record) return null;
     const failed = event === 'voice_failed';
     const detail = { where, ...(o.reason ? { reason: o.reason } : {}), ...(o.chars != null ? { chars: o.chars } : {}) };
     const opts = { actor: o.actor || (event === 'voice_started' || event === 'voice_stopped' ? 'user' : 'system'), source: 'voice',
@@ -5585,6 +5641,11 @@
 
   function stopRecognition(){
     if (!recognition) return;
+    // (11/13) still listening when the dialog closes / restarts: recorded
+    if (!recognition.loggedEnd){
+      recognition.loggedEnd = true;
+      logVoice('voice_stopped', 'diary', { actor: 'user', record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
+    }
     recognition.onresult = null;
     recognition.onerror = null;
     recognition.onend = null;
@@ -5633,6 +5694,12 @@
       showVoiceState('result');
     };
 
+    const thisRec = recognition;
+    recognition.onend = () => {
+      if (thisRec.loggedEnd) return;
+      thisRec.loggedEnd = true;
+      logVoice('voice_ended', 'diary', { record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
+    };
     recognition.onerror = (event) => {
       logVoice('voice_failed', 'diary', { reason: event.error || 'unknown', record: voiceTargetDet && diaryDishRecord.get(voiceTargetDet) });
       if (event.error === 'no-speech'){
@@ -5678,7 +5745,7 @@
     const det = voiceTargetDet;
     if (!det || !text) return;
     const vrec = diaryDishRecord.get(det);
-    if (vrec) logAfterFinal(vrec, 'diary_dish_renamed', { target: vrec.dishes.indexOf(det) + 1 || null, before: stripConfidenceText(det.name || ''), after: text, source: recognizedText === text ? 'voice' : 'typed', detail: { via: 'voice-dialog' } });
+    if (vrec && stripConfidenceText(det.name || '') !== text) logAfterFinal(vrec, 'diary_dish_renamed', { target: vrec.dishes.indexOf(det) + 1 || null, before: stripConfidenceText(det.name || ''), after: text, source: recognizedText === text ? 'voice' : 'typed', detail: { via: 'voice-dialog' } });
     det.name = text;
     det.loading = false;
     if (det.labelEl) renderDetLabel(det.labelEl, det);

@@ -18,10 +18,12 @@ const base = () => ({
   times: { startedAt: '2026-11-13T06:00:00.000Z', doneAt: '2026-11-13T06:01:00.000Z', correctionSec: 8.5, aiWaitSec: 0.6, aiFailedAt: '2026-11-13T06:00:05.000Z' },
   dishes: [{ name: '炒青菜', detail: { size: 'M' } }],
   userActionCount: 8, aiDraftStatus: 'failed', aiDraftFailed: true, aiDraftFailReason: 'timeout',
+  aiDraftAttempts: [{ status: 'failed', reason: 'timeout', waitedMs: 589 }, { status: 'ok', dishCount: 2 }],
   events: [
     ev(1, 'task_start'), ev(2, 'ai_request_failed', { actor: 'system', status: 'failed', detail: { api: 'detect', reason: 'timeout', latencyMs: 589 } }),
     ev(3, 'ai_failure_displayed', { actor: 'system', status: 'failed' }), ev(4, 'voice_failed', { actor: 'system', source: 'voice', status: 'failed', detail: { reason: 'no-speech' } }),
-    ev(5, 'diary_dish_deleted', { page: 'diary', target: 1, before: '炒青菜', detail: { afterFinal: true } })
+    ev(5, 'back', { detail: { previousAttempt: true, prevElapsedMs: 900 } }),
+    ev(6, 'diary_dish_deleted', { page: 'diary', target: 1, before: '炒青菜', detail: { afterFinal: true } })
   ]
 });
 
@@ -39,7 +41,9 @@ t('CSV: aiDraftFailed, aiDraftStatus, aiWaitSec', () => {
   const rows = records.toCsv([base(), ok, old]).replace(/^﻿/, '').split(/\r?\n/);
   const head = rows[0].split(',');
   const cell = (row, k) => rows[row].split(',')[head.indexOf(k)];
-  assert.ok(head.includes('aiDraftFailed') && head.includes('aiDraftStatus') && head.includes('aiWaitSec'));
+  assert.ok(['aiDraftFailed', 'aiDraftStatus', 'aiWaitSec', 'aiDraftFailReason', 'aiDraftAttempts'].every(k => head.includes(k)));
+  assert.strictEqual(cell(1, 'aiDraftFailReason'), 'timeout');
+  assert.strictEqual(cell(1, 'aiDraftAttempts'), 'failed(timeout)+ok');
   assert.deepStrictEqual([cell(1, 'aiDraftFailed'), cell(1, 'aiDraftStatus'), cell(1, 'aiWaitSec'), cell(1, 'correctionSec'), cell(1, 'userActionCount')], ['true', 'failed', '0.6', '8.5', '8']);
   assert.deepStrictEqual([cell(2, 'aiDraftFailed'), cell(2, 'aiDraftStatus')], ['false', 'empty']);
   assert.deepStrictEqual([cell(3, 'aiDraftFailed'), cell(3, 'aiDraftStatus')], ['', '']); // an old record: unknown
@@ -47,7 +51,7 @@ t('CSV: aiDraftFailed, aiDraftStatus, aiWaitSec', () => {
 t('events CSV: the new events, incl. afterFinal Diary changes', () => {
   const csv = records.toEventsCsv([base()]);
   for (const name of ['ai_failure_displayed', 'voice_failed', 'diary_dish_deleted']) assert.ok(csv.includes(name), name);
-  assert.ok(csv.includes('afterFinal'));
+  assert.ok(csv.includes('afterFinal') && csv.includes('previousAttempt'));
 });
 t('admin summary: aiDraftFailed', () => {
   assert.strictEqual(records.summarize(base()).aiDraftFailed, true);

@@ -211,7 +211,10 @@ const CSV_COLUMNS = [
   // correctionSec starts at the failure message), aiDraftStatus ok / empty /
   // failed (empty = the AI answered but found no food), aiWaitSec = photo ->
   // failure message
-  'aiDraftFailed', 'aiDraftStatus', 'aiWaitSec',
+  'aiDraftFailed', 'aiDraftStatus', 'aiWaitSec', 'aiDraftFailReason',
+  // every photo's AI draft in this meal, oldest first (e.g. failed(timeout)+ok
+  // = the first photo failed, the retaken one worked)
+  'aiDraftAttempts',
   // (11/01) the scenario questions: question 1 shown -> question 4 answered (part of
   // correctionSec), and each question's answers in order (none / edit / text, joined by +)
   'scenarioSec', 'scenario1', 'scenario2', 'scenario3', 'scenario4',
@@ -267,6 +270,9 @@ function toCsv(records){
       preEditDelaySec: t.preEditDelaySec, userActionCount: r.userActionCount,
       aiDraftFailed: r.aiDraftStatus ? r.aiDraftStatus === 'failed' : (r.aiDraftFailed == null ? null : !!r.aiDraftFailed),
       aiDraftStatus: r.aiDraftStatus || null, aiWaitSec: t.aiWaitSec ?? null,
+      aiDraftFailReason: r.aiDraftStatus === 'failed' ? r.aiDraftFailReason || null : null,
+      aiDraftAttempts: Array.isArray(r.aiDraftAttempts) && r.aiDraftAttempts.length
+        ? r.aiDraftAttempts.filter(isObj).map(a => (a.status === 'failed' && a.reason ? `failed(${a.reason})` : String(a.status))).join('+') : null,
       scenarioSec: t.scenarioSec ?? null,
       ...scenarioColumns(r.scenario),
       mealTotalKcal: r.nutrition ? r.nutrition.totalKcal : null,
