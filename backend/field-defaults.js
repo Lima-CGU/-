@@ -59,15 +59,17 @@
     return out.slice(0, SEASONING_MAX_ITEMS);
   }
 
-  /* ---------- scenario questions (teacher 11/01) ----------
+  /* ---------- scenario questions (teacher 11/01; 3 questions since 11/14) ----------
      Asked after 「完成」 and before saving, in this order, one per page /
      message, in ALL groups with exactly these words (研究助理工作單「對話組
-     AI 提問」 — the traditional group asks the same). Do not reword. */
+     AI 提問」 — the traditional group asks the same). Do not reword.
+     Teacher 11/14: the old questions 3 (調味料) and 4 (烹調方式) are merged
+     into question 3. Old records keep
+     their 4 answers (CSV scenario4); new records leave scenario4 empty. */
   const SCENARIO_PROMPTS = [
     '主菜下方是否還有其他食物？',
     '除了目前辨識出的食材，還有其他需要補充的食材嗎？',
-    '除了目前辨識出的食材，還有使用其他調味料嗎？',
-    '這道料理是用什麼方式烹調的？'
+    '除了目前記錄的內容，還有其他調味料或烹調方式需要補充或修改嗎？'
   ];
   // labels only for old records (plate / bowl / cup / lunchbox / none)
   const CONTAINER_LABELS = { plate: '盤子', bowl: '碗', cup: '杯子', lunchbox: '便當盒', none: '直接拿' };

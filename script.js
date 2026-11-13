@@ -314,10 +314,10 @@
     logEvent('final_confirmed', { actor: 'user', detail: detail || null });
   }
   /* ---------- scenario questions (11/01, all three groups) ----------
-     After 「完成」 and before saving, the four questions of field-defaults.js
+     After 「完成」 and before saving, the questions (3 since 11/14) of field-defaults.js
      SCENARIO_PROMPTS are asked in order, one per page (A) / message (B, C),
-     each once; the meal is saved only after the 4th. Answers: 'none'
-     (沒有,下一題), 'edit' (A, questions 3–4: back to the dishes), 'text'
+     each once; the meal is saved only after the last. Answers: 'none'
+     (沒有,下一題), 'edit' (A, question 3 (3–4 before 11/14): back to the dishes), 'text'
      (A: a food typed for questions 1–2; B/C: the user's chat answer). */
   const SCENARIO_PROMPTS = FIELD_DEFAULTS.SCENARIO_PROMPTS;
   function scenarioState(){
@@ -374,7 +374,7 @@
   }
   // (step_next / step_back / photo_expanded / photo_collapsed are logged but not counted — 待老師確認)
   // (11/01) finish_pressed = each tap on 「完成」 (counted); final_confirmed is
-  // now logged when the meal is really saved, after the 4th scenario answer,
+  // now logged when the meal is really saved, after the last scenario answer,
   // and is no longer counted (it is not a tap of its own) — 待研究助理確認
   const USER_ACTION_EVENTS = ['finish_pressed', 'scenario_answered', 'dish_reviewed', 'options_next', 'item_selected', 'edit_opened', 'field_set', 'field_changed', 'dish_renamed', 'count_changed', 'dish_added', 'dish_deleted', 'message_submitted'];
   // What goes onto the record: events, the new times and userActionCount.
@@ -419,7 +419,7 @@
         correctionSec: sec(draft, fin),
         aiProcessingSec: sec(m.photo_confirmed, m.ai_draft_displayed),
         preEditDelaySec: firstEdit ? sec(draft, { ms: firstEdit.elapsedMs }) : null,
-        // (11/01) the scenario questions: question 1 shown -> question 4 answered
+        // (11/01) the scenario questions: question 1 shown -> the last question answered
         // (correctionSec includes this time; this lets analysis take it out)
         scenarioSec: (() => {
           const first = own.find(e => e.event === 'scenario_prompt_shown' && e.detail && e.detail.no === 1);
@@ -1054,7 +1054,9 @@
 
     const metaRight = document.createElement('div');
     metaRight.className = 'meal-meta-right';
-    metaRight.append(addDishBtn, syncEl, timeEl);
+    // (11/14, teacher) no 「＋新增菜色」 after the save, in any group — the
+    // button and its flow stay in the code but it is not shown
+    metaRight.append(syncEl, timeEl);
     const metaLeft = document.createElement('div');
     metaLeft.className = 'meal-meta-left';
     metaLeft.append(dishesEl, totalKcalEl);
@@ -3612,7 +3614,7 @@
     const field = currentStepField(det);
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const idx = steps.indexOf(field);
-    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 4 題」
+    // (11/07) 「份量（1/5）」 — the scenario questions keep 「第 1 / 3 題」
     reportStepTitle.textContent = `${STEP_LABEL[field]}（${idx + 1}/${steps.length}）`;
     const isCount = field === 'count';
     if (reportCountRow) reportCountRow.hidden = !isCount;
@@ -4503,7 +4505,7 @@
     else updateReportDone();
   }
 
-  /* done: every dish filled -> the four scenario questions (11/01) -> save
+  /* done: every dish filled -> the scenario questions (11/01; 3 since 11/14) -> save
      (with group) -> Diary */
   reportDoneBtn.addEventListener('click', () => {
     if (reportDoneBtn.disabled || isSavingMeal || reportScenarioOn) return;
@@ -4511,10 +4513,10 @@
     showReportScenario();
   });
 
-  /* Group A scenario page: 「第 n / 4 題」, the question, 「有,回去修改」 and
+  /* Group A scenario page: 「第 n / 3 題」, the question, 「有,回去修改」 and
      「沒有,下一題」. 有 on questions 1–2 asks for a food to add (an onPhoto:false
      dish, like a chat-added one, with its type's presets) and stays on the
-     question; 有 on 3–4 goes back to the dishes, and the next 「完成」 asks that
+     question; 有 on question 3 goes back to the dishes, and the next 「完成」 asks that
      question again (answered ones are not asked again). */
   function showReportScenario(again){
     const st = scenarioState();
@@ -4525,8 +4527,10 @@
     reportScreenEl.classList.add('report-scenario-on');
     reportScenario.hidden = false;
     reportScenarioNoEl.textContent = `第 ${no} / ${SCENARIO_PROMPTS.length} 題`;
-    // questions 1–2 add a food; 3–4 go back to the dishes
+    // questions 1–2 add a food; 3 goes back to the dishes
     reportScenarioYes.textContent = no <= 2 ? '有，補充食物' : '有，回去修改';
+    // (11/14) the last question saves the meal
+    reportScenarioNone.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
     reportScenarioQ.textContent = SCENARIO_PROMPTS[no - 1];
     reportScenarioInputRow.hidden = true;
     reportScenarioInput.value = '';
@@ -4603,7 +4607,7 @@
       sizeReportPhotoSlot();
       return;
     }
-    // questions 3–4: back to the dishes (seasonings / cooking); asked again after 「完成」
+    // question 3: back to the dishes (seasonings / cooking); asked again after 「完成」
     recordScenarioAnswer(st.next, 'edit', null, 'button');
     hideReportScenario();
     // the hint under the photo (a toast would cover the 完成 button)
@@ -4751,7 +4755,10 @@
     const n = currentDetections.length;
     addChatMessage('assistant', n
       ? `我已辨識到 ${n} 個食物項目(如上圖)。請點選你想描述的食物,然後告訴我你吃了多少、餐點的烹調方式或其他細節。`
-      : '照片上沒有辨識到食物。請點「+ 整餐/其他」,告訴我你吃了什麼、吃了多少。');
+      // (11/14) detection failed / timed out: not a problem with the photo
+      : (currentMealMeta && currentMealMeta.aiDraftStatus === 'failed'
+        ? '自動辨識暫時失敗，可以重新拍照，或點「+ 整餐/其他」告訴我你吃了什麼、吃了多少。'
+        : '照片上沒有辨識到食物。請點「+ 整餐/其他」,告訴我你吃了什麼、吃了多少。'));
   }
 
   function resetChatState(){
@@ -4908,7 +4915,7 @@
       bubble.append(img, text);
     } else {
       bubble.textContent = msg.content;
-      // (11/01) a scenario question: 「第 n / 4 題」 above the exact question words
+      // (11/01) a scenario question: 「第 n / 3 題」 above the exact question words
       if (msg.scenario){
         const tag = document.createElement('span');
         tag.className = 'chat-scenario-tag';
@@ -5465,7 +5472,7 @@
     // (11/13) 確定 on that question is recorded too (not counted)
     if (incomplete) logEvent('confirmed', { actor: 'user', detail: { what: 'finish', incomplete } });
     chatFinishIncomplete = incomplete;
-    // (11/01) the four scenario questions first; saved after the 4th
+    // (11/01) the scenario questions first; saved after the last
     const st = scenarioState();
     if (st) askChatScenario(st.next);
   });
@@ -5474,7 +5481,7 @@
      message with the exact words (not generated, not reworded); the user
      answers by voice / typing as usual (the AI updates the record), or taps
      「沒有,下一題」. After the reply to an answer, or that tap, the next one. */
-  let chatScenarioNo = null;     // the question being asked (1–4), or null
+  let chatScenarioNo = null;     // the question being asked (1–3), or null
   let chatFinishIncomplete = 0;  // dishes still incomplete when 完成 was tapped
   function updateChatScenarioUi(){
     if (chatDoneBtn) chatDoneBtn.hidden = !!chatScenarioNo;
@@ -5482,6 +5489,8 @@
   }
   function askChatScenario(no){
     chatScenarioNo = no;
+    // (11/14) the last question saves the meal
+    if (chatScenarioNextBtn) chatScenarioNextBtn.textContent = no === SCENARIO_PROMPTS.length ? '沒有，完成' : '沒有，下一題';
     addChatMessage('assistant', SCENARIO_PROMPTS[no - 1], { meta: { scenario: no } });
     logScenarioShown(no);
     renderChatSuggestions([]); // (the buttons come with AI replies only)

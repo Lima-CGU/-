@@ -215,7 +215,7 @@ const CSV_COLUMNS = [
   // every photo's AI draft in this meal, oldest first (e.g. failed(timeout)+ok
   // = the first photo failed, the retaken one worked)
   'aiDraftAttempts',
-  // (11/01) the scenario questions: question 1 shown -> question 4 answered (part of
+  // (11/01) the scenario questions: question 1 shown -> the last question answered (part of
   // correctionSec), and each question's answers in order (none / edit / text, joined by +)
   'scenarioSec', 'scenario1', 'scenario2', 'scenario3', 'scenario4',
   'dishNo', 'dishSource', 'aiName', 'aiConfidence', 'finalName', 'renamedFrom',
