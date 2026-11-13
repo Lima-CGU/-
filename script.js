@@ -250,8 +250,12 @@
   function carryPreviousAttempt(prev, task){
     if (!prev || !prev.events || !prev.events.length) return;
     prev.events.slice(-PREVIOUS_ATTEMPT_MAX).forEach(e => {
+      const d = e.detail || {};
       task.events.push({ ...e, seq: task.events.length + 1, elapsedMs: 0, attemptId: null,
-        detail: { ...(e.detail || {}), previousAttempt: true, prevElapsedMs: e.elapsedMs } });
+        detail: { ...d, previousAttempt: true,
+          // (carried twice: keep the original numbers)
+          prevElapsedMs: d.previousAttempt ? d.prevElapsedMs : e.elapsedMs,
+          ...(e.attemptId || d.prevAttemptId ? { prevAttemptId: d.prevAttemptId || e.attemptId } : {}) } });
     });
   }
   function flushPreTask(task){
@@ -1108,6 +1112,12 @@
     const size = () => new Blob([JSON.stringify(record)]).size;
     if (!Array.isArray(record.events) || size() <= MAX_RECORD_UPLOAD_BYTES) return;
     const total = record.events.length;
+    // (11/13) an earlier unsaved attempt's carried events go first
+    const carried = e => e && e.detail && e.detail.previousAttempt;
+    if (record.events.some(carried)){
+      record.events = record.events.filter(e => !carried(e));
+      record.events.forEach((e, i) => { e.seq = i + 1; });
+    }
     while (record.events.length && size() > MAX_RECORD_UPLOAD_BYTES){
       record.events = record.events.slice(0, Math.floor(record.events.length * 0.9));
     }
