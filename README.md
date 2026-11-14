@@ -437,6 +437,16 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 `page_view`、`back`、`cancel`、`step_next` / `step_back`(**是否計入待老師確認**)、`photo_expanded` / `photo_collapsed`、`actor = system / ai` 的事件不算。沒有 AI 初稿(辨識失敗)或沒按完成時是 `null`。**這只是暫定的計數;原始事件全部保留在 `events`(和 `format=events` 匯出)裡,分析時可以用不同規則重算。**
 
+### 修正嘗試次數(11/14,論文 Table 4 次要指標)
+
+依 RA 規範「Interaction Effort Coding Protocol」的 Number of correction attempts。**不改任何受試者畫面、操作次數或事件**;後端(`backend/records.js` 的 `correctionAttempts`)在匯出 CSV 和後台總覽時從 `events` 算出來,舊紀錄也算得出來,**不存回 Firestore**。
+
+- `correctionAttemptCount` = 這一餐裡 `actor = user` 的事件所帶的**不同 `attemptId` 數**。一次提交算 1 次:A 組改一個欄位(每次點卡片、改菜名、數量 ±、新增、刪除一道菜都各有一個 attemptId)、B/C 組送出一則訊息(訊息和它的 AI 回覆、`record_updated` 共用一個 attemptId,所以一則訊息改了 2 個欄位仍是 1 次)。
+- 不算的事件:`detail.previousAttempt`(沒存檔就放棄的前一次)、`detail.beforeTask`(開始前)、`detail.afterFinal` 和 `diary_*`(存檔後在日記裡的修改)、`detail.sourceOnly`。
+- 取消或失敗的不算,另記 `cancelledAttemptCount`:同一個 attemptId 有任何事件 `status` 是 `cancelled` / `failed`(例如 B/C 訊息送出但連線失敗),以及 A 組改菜名、刪除、新增菜色時按「取消」(`cancel` 事件,`detail.what` 是 `rename` / `delete` / `add-dish`;還沒提交,所以沒有 attemptId)。
+- 沒有 `events` 的紀錄是空白(不知道),不是 0。
+- 紀錄 CSV 有 `correctionAttemptCount`、`cancelledAttemptCount` 兩欄;後台總覽多一列「修正嘗試次數 平均 ± 標準差」。
+
 **下載事件**:`format=events` 是一列一個事件的 CSV(`recordId`、`pid`、`group`、`mealId` + 事件所有欄位;`before`/`after`/`detail` 是 JSON 字串),一樣需要 ADMIN_TOKEN,也可以用 `pid`、`group`、`meal` 篩選。
 
 ### 每個按鈕對應的事件(11/13 補強)
@@ -542,7 +552,7 @@ Render 免費方案的伺服器閒置約 15 分鐘就會休眠,休眠後第一�
 
 ### 4. 看總覽(論文用)
 
-「總覽」表格是三組各一欄的統計:紀錄筆數、受試者人數、修正時間、總時間、操作次數(平均 ± 標準差)、AI 處理時間(平均)。數字取到小數第 2 位;括號裡的 n 是有這個數字的紀錄筆數(例如 AI 辨識失敗的那一餐沒有修正時間,就不算進去)。表格下方有每個指標的白話說明。
+「總覽」表格是三組各一欄的統計:紀錄筆數、受試者人數、修正時間、總時間、操作次數、修正嘗試次數(平均 ± 標準差)、AI 處理時間(平均)。數字取到小數第 2 位;括號裡的 n 是有這個數字的紀錄筆數(例如 AI 辨識失敗的那一餐沒有修正時間,就不算進去)。表格下方有每個指標的白話說明。
 
 ### 5. 看每一餐的紀錄
 
