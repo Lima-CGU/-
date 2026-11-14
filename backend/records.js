@@ -216,20 +216,21 @@ async function loadRecords(db, { pid, group, mealId } = {}){
    message whose request failed) is not counted but goes to
    cancelledAttemptCount, together with a rename / delete / add-dish the user
    cancelled before committing (a 'cancel' event: it never got an attemptId).
-   No events array -> null (unknown). */
+   No events (missing or empty) -> null (unknown). */
 const CANCELLED_WHAT = ['rename', 'delete', 'add-dish'];
 function correctionAttempts(r){
-  if (!isObj(r) || !Array.isArray(r.events)) return { correctionAttemptCount: null, cancelledAttemptCount: null };
+  if (!isObj(r) || !Array.isArray(r.events) || !r.events.length) return { correctionAttemptCount: null, cancelledAttemptCount: null };
   const own = r.events.filter(e => {
     if (!isObj(e)) return false;
     const d = isObj(e.detail) ? e.detail : {};
     return !d.previousAttempt && !d.beforeTask && !d.afterFinal && !d.sourceOnly && !/^diary_/.test(String(e.event || ''));
   });
-  const userIds = new Set(own.filter(e => e.actor === 'user' && e.attemptId).map(e => String(e.attemptId)));
-  const badIds = new Set(own.filter(e => e.attemptId && (e.status === 'cancelled' || e.status === 'failed')).map(e => String(e.attemptId)));
+  const hasId = e => e.attemptId != null && e.attemptId !== '';
+  const userIds = new Set(own.filter(e => e.actor === 'user' && hasId(e)).map(e => String(e.attemptId)));
+  const badIds = new Set(own.filter(e => hasId(e) && (e.status === 'cancelled' || e.status === 'failed')).map(e => String(e.attemptId)));
   let ok = 0, bad = 0;
   userIds.forEach(id => { if (badIds.has(id)) bad += 1; else ok += 1; });
-  bad += own.filter(e => e.event === 'cancel' && e.actor === 'user' && !e.attemptId && isObj(e.detail) && CANCELLED_WHAT.includes(e.detail.what)).length;
+  bad += own.filter(e => e.event === 'cancel' && e.actor === 'user' && !hasId(e) && isObj(e.detail) && CANCELLED_WHAT.includes(e.detail.what)).length;
   return { correctionAttemptCount: ok, cancelledAttemptCount: bad };
 }
 

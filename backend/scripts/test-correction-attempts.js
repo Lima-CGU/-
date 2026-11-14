@@ -52,6 +52,7 @@ t('failed B/C message does not count (cancelledAttemptCount instead)', () => {
 });
 t('a record without events: unknown (null), not 0', () => {
   assert.deepStrictEqual(count({ id: 'x', group: 'A' }), { correctionAttemptCount: null, cancelledAttemptCount: null });
+  assert.deepStrictEqual(count({ id: 'x', group: 'A', events: [] }), { correctionAttemptCount: null, cancelledAttemptCount: null });
 });
 t('CSV has the two columns', () => {
   const rows = records.toCsv([a3, b1]).replace(/^﻿/, '').split(/\r?\n/);
