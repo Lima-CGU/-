@@ -214,23 +214,24 @@ async function loadRecords(db, { pid, group, mealId } = {}){
    changes after the save (afterFinal) and source-only updates (sourceOnly)
    are left out. An attempt with any cancelled / failed event (e.g. a chat
    message whose request failed) is not counted but goes to
-   cancelledAttemptCount, together with a rename / delete / add-dish the user
-   cancelled before committing (a 'cancel' event: it never got an attemptId).
+   cancelledAttemptCount. ('cancel' events — a rename / delete / add-dish the
+   user backed out of before committing — never got an attemptId, so they
+   are in neither number; they stay in the events.) dish_reviewed (「完成這道
+   菜」, a confirmation) is never an attempt — records from 10/22 fix2 gave it
+   an attemptId by mistake.
    No events (missing or empty) -> null (unknown). */
-const CANCELLED_WHAT = ['rename', 'delete', 'add-dish'];
 function correctionAttempts(r){
   if (!isObj(r) || !Array.isArray(r.events) || !r.events.length) return { correctionAttemptCount: null, cancelledAttemptCount: null };
   const own = r.events.filter(e => {
     if (!isObj(e)) return false;
     const d = isObj(e.detail) ? e.detail : {};
-    return !d.previousAttempt && !d.beforeTask && !d.afterFinal && !d.sourceOnly && !/^diary_/.test(String(e.event || ''));
+    return !d.previousAttempt && !d.beforeTask && !d.afterFinal && !d.sourceOnly && !/^diary_/.test(String(e.event || '')) && e.event !== 'dish_reviewed';
   });
   const hasId = e => e.attemptId != null && e.attemptId !== '';
   const userIds = new Set(own.filter(e => e.actor === 'user' && hasId(e)).map(e => String(e.attemptId)));
   const badIds = new Set(own.filter(e => hasId(e) && (e.status === 'cancelled' || e.status === 'failed')).map(e => String(e.attemptId)));
   let ok = 0, bad = 0;
   userIds.forEach(id => { if (badIds.has(id)) bad += 1; else ok += 1; });
-  bad += own.filter(e => e.event === 'cancel' && e.actor === 'user' && !hasId(e) && isObj(e.detail) && CANCELLED_WHAT.includes(e.detail.what)).length;
   return { correctionAttemptCount: ok, cancelledAttemptCount: bad };
 }
 

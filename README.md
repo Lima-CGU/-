@@ -443,7 +443,7 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 
 - `correctionAttemptCount` = 這一餐裡 `actor = user` 的事件所帶的**不同 `attemptId` 數**。一次提交算 1 次:A 組改一個欄位(每次點卡片、改菜名、數量 ±、新增、刪除一道菜都各有一個 attemptId)、B/C 組送出一則訊息(訊息和它的 AI 回覆、`record_updated` 共用一個 attemptId,所以一則訊息改了 2 個欄位仍是 1 次)。
 - 不算的事件:`detail.previousAttempt`(沒存檔就放棄的前一次)、`detail.beforeTask`(開始前)、`detail.afterFinal` 和 `diary_*`(存檔後在日記裡的修改)、`detail.sourceOnly`。
-- 取消或失敗的不算,另記 `cancelledAttemptCount`:同一個 attemptId 有任何事件 `status` 是 `cancelled` / `failed`(例如 B/C 訊息送出但連線失敗),以及 A 組改菜名、刪除、新增菜色時按「取消」(`cancel` 事件,`detail.what` 是 `rename` / `delete` / `add-dish`;還沒提交,所以沒有 attemptId)。
+- 取消或失敗的不算,另記 `cancelledAttemptCount`:同一個 attemptId 有任何事件 `status` 是 `cancelled` / `failed`(目前實際會出現的是 B/C 訊息送出但連線失敗)。A 組改菜名、刪除時按「取消」還沒提交、沒有 attemptId,兩個數字都不算(`cancel` 事件仍在 `events` 裡)。「完成這道菜」(`dish_reviewed`)是確認、不是修正,不算(10/22 fix2 版的舊紀錄曾誤帶 attemptId,也排除)。
 - 沒有 `events`(或是空的)的紀錄是空白(不知道),不是 0,也不算進總覽的 n。
 - 紀錄 CSV 有 `correctionAttemptCount`、`cancelledAttemptCount` 兩欄;後台總覽多一列「修正嘗試次數 平均 ± 標準差」。
 

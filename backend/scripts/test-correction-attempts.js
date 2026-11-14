@@ -38,12 +38,19 @@ t('earlier unsaved attempt / before the task do not count', () => {
   const r = rec('A', [ev('field_set', { attemptId: 'C01', detail: { previousAttempt: true } }), ev('tutorial_opened', { detail: { beforeTask: true } })].concat(a3.events));
   assert.strictEqual(count(r).correctionAttemptCount, 3);
 });
-t('cancelled does not count (cancelledAttemptCount instead)', () => {
+t('cancelled does not count', () => {
+  // A: a rename / delete backed out of (no attemptId) is no attempt at all
   const r = rec('A', a3.events.concat([
     ev('edit_opened'), ev('cancel', { field: 'name', detail: { what: 'rename' } }),
-    ev('delete_asked'), ev('cancel', { detail: { what: 'delete' } }),
-    ev('cancel', { detail: { what: 'leave' } })])); // leaving the meal is not a correction
-  assert.deepStrictEqual(count(r), { correctionAttemptCount: 3, cancelledAttemptCount: 2 });
+    ev('delete_asked'), ev('cancel', { detail: { what: 'delete' } })]));
+  assert.deepStrictEqual(count(r), { correctionAttemptCount: 3, cancelledAttemptCount: 0 });
+  // an attempt with a cancelled status: cancelledAttemptCount instead
+  const r2 = rec('A', a3.events.concat([ev('field_set', { field: 'sugar', attemptId: 'C04', status: 'cancelled' })]));
+  assert.deepStrictEqual(count(r2), { correctionAttemptCount: 3, cancelledAttemptCount: 1 });
+});
+t('dish_reviewed (old 10/22 fix2 records had an attemptId on it) is not an attempt', () => {
+  const r = rec('A', a3.events.concat([ev('dish_reviewed', { attemptId: 'C05' })]));
+  assert.strictEqual(count(r).correctionAttemptCount, 3);
 });
 t('failed B/C message does not count (cancelledAttemptCount instead)', () => {
   const r = rec('B', b1.events.concat([ev('message_submitted', { page: 'chat', attemptId: 'C02' }),
