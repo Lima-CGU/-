@@ -219,9 +219,10 @@ async function loadRecords(db, { pid, group, mealId } = {}){
    are in neither number; they stay in the events.) dish_reviewed (「完成這道
    菜」, a confirmation) is never an attempt — records from 10/22 fix2 gave it
    an attemptId by mistake.
-   No events (missing or empty) -> null (unknown). */
+   No events (missing or empty), or events trimmed on the device
+   (eventsTruncated / eventsCapped) -> null (unknown, not an undercount). */
 function correctionAttempts(r){
-  if (!isObj(r) || !Array.isArray(r.events) || !r.events.length) return { correctionAttemptCount: null, cancelledAttemptCount: null };
+  if (!isObj(r) || !Array.isArray(r.events) || !r.events.length || r.eventsTruncated || r.eventsCapped) return { correctionAttemptCount: null, cancelledAttemptCount: null };
   const own = r.events.filter(e => {
     if (!isObj(e)) return false;
     const d = isObj(e.detail) ? e.detail : {};
