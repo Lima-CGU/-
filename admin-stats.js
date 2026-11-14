@@ -5,7 +5,7 @@
  *     rows: the summaries from GET /api/admin/records
  *     -> { A: {...}, B: {...}, C: {...} } with, per group:
  *        records, participants,
- *        correctionSec / totalSec / userActionCount: { mean, sd, n },
+ *        correctionSec / totalSec / userActionCount / correctionAttemptCount: { mean, sd, n },
  *        aiProcessingSec: { mean, n }
  *
  * mean / sd use only the meals that have the value (n of them); sd is the
@@ -44,6 +44,7 @@
         correctionSec: describe(rs.map(r => r.correctionSec)),
         totalSec: describe(rs.map(r => r.totalSec)),
         userActionCount: describe(rs.map(r => r.userActionCount)),
+        correctionAttemptCount: describe(rs.map(r => r.correctionAttemptCount)),
         aiProcessingSec: { mean: ai.mean, n: ai.n }
       };
     });

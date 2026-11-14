@@ -204,9 +204,43 @@ async function loadRecords(db, { pid, group, mealId } = {}){
   }).sort((a, b) => String(a.times && a.times.doneAt).localeCompare(String(b.times && b.times.doneAt)));
 }
 
+/* ---------- correction attempts (RA 「Interaction Effort Coding Protocol」,
+   Table 4 secondary measure) ----------
+   Computed at export / overview time from record.events (also for old
+   records), never stored. One attempt = one distinct attemptId carried by a
+   user event of this meal (A: one committed change — a field, a rename, a
+   count step, an add, a delete; B/C: one message). Events of an earlier
+   unsaved attempt (previousAttempt), from before the meal (beforeTask), Diary
+   changes after the save (afterFinal) and source-only updates (sourceOnly)
+   are left out. An attempt with any cancelled / failed event (e.g. a chat
+   message whose request failed) is not counted but goes to
+   cancelledAttemptCount. ('cancel' events — a rename / delete / add-dish the
+   user backed out of before committing — never got an attemptId, so they
+   are in neither number; they stay in the events.) dish_reviewed (「完成這道
+   菜」, a confirmation) is never an attempt — records from 10/22 fix2 gave it
+   an attemptId by mistake.
+   No events (missing or empty), or events trimmed on the device
+   (eventsTruncated / eventsCapped) -> null (unknown, not an undercount). */
+function correctionAttempts(r){
+  if (!isObj(r) || !Array.isArray(r.events) || !r.events.length || r.eventsTruncated || r.eventsCapped) return { correctionAttemptCount: null, cancelledAttemptCount: null };
+  const own = r.events.filter(e => {
+    if (!isObj(e)) return false;
+    const d = isObj(e.detail) ? e.detail : {};
+    return !d.previousAttempt && !d.beforeTask && !d.afterFinal && !d.sourceOnly && !/^diary_/.test(String(e.event || '')) && e.event !== 'dish_reviewed';
+  });
+  const hasId = e => e.attemptId != null && e.attemptId !== '';
+  const userIds = new Set(own.filter(e => e.actor === 'user' && hasId(e)).map(e => String(e.attemptId)));
+  const badIds = new Set(own.filter(e => hasId(e) && (e.status === 'cancelled' || e.status === 'failed')).map(e => String(e.attemptId)));
+  let ok = 0, bad = 0;
+  userIds.forEach(id => { if (badIds.has(id)) bad += 1; else ok += 1; });
+  return { correctionAttemptCount: ok, cancelledAttemptCount: bad };
+}
+
 const CSV_COLUMNS = [
   'recordId', 'pid', 'group', 'mealId', 'appVersion', 'startedAt', 'nextAt', 'doneAt', 'durationSec',
   'totalSec', 'correctionSec', 'aiProcessingSec', 'preEditDelaySec', 'userActionCount',
+  // (11/14) correction attempts, computed from the events (see correctionAttempts)
+  'correctionAttemptCount', 'cancelledAttemptCount',
   // (11/13) the AI draft: aiDraftFailed = detection failed / timed out (then
   // correctionSec starts at the failure message), aiDraftStatus ok / empty /
   // failed (empty = the AI answered but found no food), aiWaitSec = photo ->
@@ -268,6 +302,7 @@ function toCsv(records){
       startedAt: t.startedAt, nextAt: t.nextAt, doneAt: t.doneAt, durationSec: t.durationSec,
       totalSec: t.totalSec, correctionSec: t.correctionSec, aiProcessingSec: t.aiProcessingSec,
       preEditDelaySec: t.preEditDelaySec, userActionCount: r.userActionCount,
+      ...correctionAttempts(r),
       aiDraftFailed: r.aiDraftStatus ? r.aiDraftStatus === 'failed' : (r.aiDraftFailed == null ? null : !!r.aiDraftFailed),
       aiDraftStatus: r.aiDraftStatus || null, aiWaitSec: t.aiWaitSec ?? null,
       aiDraftFailReason: r.aiDraftStatus === 'failed' ? r.aiDraftFailReason || null : null,
@@ -355,6 +390,7 @@ function summarize(r){
     ingredientCount: Array.isArray(r.dishes) ? r.dishes.filter(d => isObj(d) && d.source === 'scenario' && d.scenarioNo === 2).length : 0,
     correctionSec: num(t.correctionSec), totalSec: num(t.totalSec),
     aiProcessingSec: num(t.aiProcessingSec), userActionCount: num(r.userActionCount),
+    ...correctionAttempts(r), // (11/14)
     aiDraftFailed: r.aiDraftStatus === 'failed' || r.aiDraftFailed === true,
     totalKcal: r.nutrition ? num(r.nutrition.totalKcal) : null,
     // dishes saved without a number, as in the participant's Diary:
@@ -399,4 +435,4 @@ async function getPhoto(db, id){
   return snap.get('data');
 }
 
-module.exports = { TEST_PIDS, isHidden, GROUPS, MAX_EVENTS, EXCLUDE_FIELDS, summarize, getRecord, setExcluded, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, toEventsCsv, getPhoto, BadRequest, MEALS, PHOTOS };
+module.exports = { correctionAttempts, TEST_PIDS, isHidden, GROUPS, MAX_EVENTS, EXCLUDE_FIELDS, summarize, getRecord, setExcluded, saveRecord, validateRecord, decodePhoto, checkAdmin, loadRecords, toCsv, toEventsCsv, getPhoto, BadRequest, MEALS, PHOTOS };

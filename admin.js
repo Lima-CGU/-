@@ -172,6 +172,7 @@
       ['修正時間(秒)平均 ± 標準差', g => msd(s[g].correctionSec)],
       ['總時間(秒)平均 ± 標準差', g => msd(s[g].totalSec)],
       ['操作次數 平均 ± 標準差', g => msd(s[g].userActionCount)],
+      ['修正嘗試次數 平均 ± 標準差', g => msd(s[g].correctionAttemptCount)],
       ['AI 處理時間(秒)平均', g => (s[g].aiProcessingSec.n ? cell(s[g].aiProcessingSec) : '—')]
     ];
     $('statsTable').querySelector('tbody').innerHTML = lines
