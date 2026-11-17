@@ -18,6 +18,31 @@ t('seasonings: a negated one is never chosen', () => {
   assert.deepStrictEqual(V.seasonings('醬油跟米酒'), ['醬油', '米酒']);
   assert.deepStrictEqual(V.seasonings('有加醬油'), ['醬油']);
 });
+// (11/17 RA 2) the 調味 page applies a spoken change to the list already chosen
+const NONE = '沒有特別調味';
+const said = (list, text, custom) => V.applySeasoningIntent(list, V.seasoningIntent(text, { custom }), NONE);
+t('seasonings: 醬油＋米酒, 「不要醬油」 → only 米酒 is left', () => {
+  assert.deepStrictEqual(said(['醬油', '米酒'], '不要醬油'), ['米酒']);
+  assert.deepStrictEqual(said(['米酒'], '不要醬油'), ['米酒']);          // other choices stay
+  assert.deepStrictEqual(said(['醬油', '米酒'], '沒有醬油，有米酒'), ['米酒']);
+});
+t('seasonings: only 醬油, 「不要醬油」 → 沒有特別調味', () => {
+  assert.deepStrictEqual(said(['醬油'], '不要醬油'), [NONE]);
+  assert.deepStrictEqual(said([NONE], '不要醬油'), [NONE]);              // only negations, nothing else chosen
+  assert.deepStrictEqual(said([], '沒有加醬油跟米酒'), [NONE]);
+  assert.deepStrictEqual(said(['醬油', '米酒'], '沒有'), [NONE]);
+  assert.deepStrictEqual(said(['醬油', '沙茶'], '不要沙茶', ['沙茶']), ['醬油']); // typed under 其他
+});
+t('seasonings: 「不加冰」 (not a seasoning) → nothing chosen, asked again', () => {
+  assert.strictEqual(said(['醬油'], '不加冰'), null);
+  assert.strictEqual(said([NONE], '不要冰塊'), null);
+  assert.strictEqual(said(['醬油'], '醬油，不加冰'), null);
+  assert.strictEqual(said([], '不要沙茶'), null);                       // 沙茶 was not typed under 其他
+  assert.strictEqual(said(['醬油'], '好'), null);
+  assert.deepStrictEqual(V.seasoningIntent('不加冰').unclear, true);
+  assert.deepStrictEqual(said([], '沒有加任何東西'), [NONE]);
+  assert.deepStrictEqual(said(['米酒'], '有加醬油'), ['米酒', '醬油']);
+});
 t('sugar / salt: 不加糖 = 無糖; a negated level is not picked', () => {
   assert.deepStrictEqual(pick('不加糖', 'sugar'), ['無糖']);
   assert.deepStrictEqual(pick('沒有加糖', 'sugar'), ['無糖']);

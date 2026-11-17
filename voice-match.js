@@ -292,32 +292,69 @@
   const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|不要|不用|不放|別|沒|不)[加放用要]?$/;
   // (11/17 RA) 「沒有加醬油跟米酒」: the negation covers the whole list
   const LIST_JOIN = /^(跟|和|及|以及|還有|與|或|或是)$/;
-  function seasonings(text){
+  // (11/17 RA 2) what a negation may cover and still mean 「沒有特別調味」:
+  // 「沒有」「沒加調味」「都沒有放任何東西」 — anything else after 不加 / 不要 …
+  // (「不加冰」) is not a seasoning: nothing is chosen and the page asks again
+  const NEGATION_AT = /(都沒有|都沒|沒有|沒加|不加|沒放|不要|不用|不放|沒)(加|放|用|要)?/g;
+  const NONE_OBJECT = /^(任何|特別|什麼)?(的)?(調味料?|東西|醬料)?(都)?(沒有|沒)?(了|喔|啊|耶|欸|呢|啦|呀)*$/;
+  /** -> { add: [], remove: [], none, unclear } for the 調味 page.
+   *  opts.custom: seasonings typed under 「其他」 (said exactly, they count too) */
+  function seasoningIntent(text, opts = {}){
     // a comma / space ends a phrase: 「沒有，醬油有」 is not 「沒有醬油」
     const t = String(text || '').replace(/[\s，,。、;；!！?？]+/g, '|');
-    const out = [];
-    let named = false;
-    // every seasoning mentioned, in the order said
+    const words = SEASONING_WORDS.slice();
+    (Array.isArray(opts.custom) ? opts.custom : []).forEach(c => {
+      const w = String(c || '').trim();
+      if (w && w !== '沒有特別調味' && !words.some(([ws]) => ws.includes(w))) words.push([[w], w]);
+    });
+    // every seasoning mentioned, in the order said (a longer word wins an overlap)
     const hits = [];
-    SEASONING_WORDS.forEach(([words, value]) => words.forEach(w => {
+    words.forEach(([ws, value]) => ws.forEach(w => {
       for (let k = t.indexOf(w); k >= 0; k = t.indexOf(w, k + 1)) hits.push({ k, end: k + w.length, value });
     }));
-    hits.sort((a, b) => a.k - b.k);
-    let negated = false;
-    let prevEnd = -1;
+    hits.sort((a, b) => a.k - b.k || b.end - a.end);
+    const add = [], remove = [];
+    let negated = false, prevEnd = -1;
     hits.forEach(h => {
-      named = true;
+      if (h.k < prevEnd) return; // inside a longer word already read
       const gap = prevEnd >= 0 ? t.slice(prevEnd, h.k) : null;
       // negated right before it, or joined by 跟 / 和 … to a negated one
       negated = NEGATED_BEFORE.test(t.slice(Math.max(0, h.k - 3), h.k)) || (negated && gap !== null && LIST_JOIN.test(gap));
-      if (!negated && !out.includes(h.value)) out.push(h.value);
+      const list = negated ? remove : add;
+      if (!list.includes(h.value)) list.push(h.value);
       prevEnd = h.end;
     });
-    // (11/17 RA) only negated ones (「不要醬油」「沒有加醬油跟米酒」): 沒有特別調味
-    if (named && !out.length) return ['沒有特別調味'];
-    if (out.length || named) return out;
-    return /沒有|沒加|不加|沒放|都沒|無調味/.test(t) ? ['沒有特別調味'] : [];
+    // a negation whose object is neither a seasoning nor 「調味 / 東西 …」
+    let unclear = false, plainNone = false;
+    t.replace(NEGATION_AT, (m, a, b, at) => {
+      const rest = t.slice(at + m.length).split('|')[0];
+      if (hits.some(h => h.k === at + m.length || (h.k > at + m.length && /^(的)?$/.test(t.slice(at + m.length, h.k))))) return m;
+      if (NONE_OBJECT.test(rest)) plainNone = true; else unclear = true;
+      return m;
+    });
+    const none = !hits.length && !unclear && (plainNone || /無調味/.test(t)) && /沒有|沒加|不加|沒放|都沒|無調味/.test(t);
+    return { add, remove: remove.filter(v => !add.includes(v)), none, unclear };
+  }
+  /** The 調味 list after a spoken intent; null = nothing to apply (ask again).
+   *  「不要醬油」 removes only 醬油; 沒有特別調味 only when nothing is left, or
+   *  when only negations were said and no other seasoning was chosen. */
+  function applySeasoningIntent(list, intent, NONE = '沒有特別調味'){
+    const cur = (Array.isArray(list) ? list : []).slice();
+    if (!intent || intent.unclear) return null;
+    if (intent.none) return [NONE];
+    if (!intent.add.length && !intent.remove.length) return null;
+    let next = cur.filter(v => v !== NONE && !intent.remove.includes(v));
+    intent.add.forEach(v => { if (!next.includes(v)) next.push(v); });
+    if (!next.length) return [NONE];
+    return next;
+  }
+  /** older call shape: the values heard (never both a seasoning and 沒有特別調味) */
+  function seasonings(text){
+    const i = seasoningIntent(text);
+    if (i.add.length) return i.add;
+    if (i.remove.length || i.none) return ['沒有特別調味'];
+    return [];
   }
 
-  return { match, command, count, normalize, fixHomophones, fixFoodWords, FOOD_ALWAYS, FOOD_IN_LIST, seasonings, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
+  return { match, command, count, normalize, fixHomophones, fixFoodWords, FOOD_ALWAYS, FOOD_IN_LIST, seasonings, seasoningIntent, applySeasoningIntent, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
 });
