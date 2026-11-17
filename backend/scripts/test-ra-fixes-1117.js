@@ -34,6 +34,9 @@ t('size: 大概 / 不大 are not 大 (L); a real size still is', () => {
   assert.deepStrictEqual(pick('大概吃了半份', 'size'), ['XS']);
   assert.deepStrictEqual(pick('大概一份', 'size'), ['M']);
   assert.deepStrictEqual(['小', '中份', '大', '大份', '很大', '兩份'].map(x => pick(x, 'size')[0]), ['S', 'M', 'L', 'L', 'L', 'XL']);
+  for (const x of ['不太大', '沒有很大', '不會太大', '不要太大', '差不多大']) assert.deepStrictEqual(pick(x, 'size'), [], x);
+  assert.deepStrictEqual(pick('很大份', 'size'), ['L']);
+  assert.deepStrictEqual(pick('我沒有很餓吃小份', 'size'), ['S']);
 });
 t('CSV: text starting with = + - @ gets a leading quote; numbers / data unchanged', () => {
   const r = { id: 'm-test-ra1117-0001', pid: 'DEVTEST', group: 'A', times: { totalSec: 12.5 }, userActionCount: 3,
@@ -47,6 +50,8 @@ t('CSV: text starting with = + - @ gets a leading quote; numbers / data unchange
   const cols = head.split(',');
   assert.strictEqual(row.split(',')[cols.indexOf('totalSec')], '12.5');
   assert.strictEqual(JSON.stringify(r), before); // export only
+  const ids = records.toCsv([{ ...r, pid: '-P01' }]).replace(/^\uFEFF/, '').split(/\r?\n/)[1];
+  assert.ok(ids.includes(',-P01,') && !ids.includes("'-P01")); // an id is not quoted
   const ev = records.toEventsCsv([{ ...r, events: [{ seq: 1, event: 'dish_renamed', at: '2026-11-17T00:00:00.000Z', elapsedMs: 0, actor: 'user', before: '白飯', after: '=1+1' }] }]);
   assert.ok(ev.includes("'=1+1"));
 });

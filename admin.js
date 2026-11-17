@@ -339,12 +339,14 @@
     const prompts = Array.isArray(sc.prompts) ? sc.prompts : [];
     const answers = Array.isArray(sc.answers) ? sc.answers.filter(a => a && typeof a === 'object') : [];
     const added = Array.isArray(sc.added) ? sc.added.filter(a => a && typeof a === 'object') : [];
-    const n = Math.max(prompts.length, ...answers.map(a => Number(a.no) || 0), ...added.map(a => Number(a.no) || 0), 0);
+    const qNo = a => (Number.isInteger(Number(a.no)) ? Number(a.no) : 0);
+    // (at most 10 questions: odd data never makes a huge table)
+    const n = Math.min(10, Math.max(prompts.length, ...answers.map(qNo), ...added.map(qNo), 0));
     if (!n) return '';
     const rows = [];
     for (let no = 1; no <= n; no++){
-      const ans = answers.filter(a => a.no === no);
-      const adds = added.filter(a => a.no === no);
+      const ans = answers.filter(a => qNo(a) === no);
+      const adds = added.filter(a => qNo(a) === no);
       const ansText = ans.length
         ? ans.map(a => `${SCENARIO_ANSWER[a.answer] || a.answer || '—'}${a.input ? `(${SCENARIO_INPUT[a.input] || a.input})` : ''}`).join(' → ')
         : '(沒有回答)';

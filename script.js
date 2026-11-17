@@ -2037,7 +2037,8 @@
 
   // (11/17 RA) Enter in the name box = 確認 (the same as tapping it)
   candidateCustomInput?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); candidateConfirmBtn.click(); }
+    // (Safari ends an IME choice with keyCode 229 and isComposing false)
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){ e.preventDefault(); candidateConfirmBtn.click(); }
   });
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;

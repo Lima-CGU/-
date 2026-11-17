@@ -147,10 +147,11 @@
   }
 
   // (11/17 RA) 「不要…」「沒有加…」「不是…」 right before a value word
-  const NEGATION_BEFORE = /(不要|不想|不用|不加|不放|不是|沒有|沒加|沒放|別|沒|不)(加|放|用|要)?$/;
+  // (also 「不太大」「沒有很大」「不會太大」: a degree word between)
+  const NEGATION_BEFORE = /(不要|不想|不用|不加|不放|不是|沒有|沒加|沒放|別|沒|不)(加|放|用|要)?(太|很|會太|會很|會|那麼|算)?$/;
   const NEGATIVE_VALUES = ['無糖', '無鹽', '不適用'];
   // a size character inside an ordinary word
-  const NOT_A_SIZE = /大概|大約|大致|大家|大部分|大多|大多數|大小|不大|中間|中午|小心|小時|不小|大部份/g;
+  const NOT_A_SIZE = /大概|大約|大致|大家|大部分|大多|大多數|大小|不大|中間|中午|小心|小時|不小|大部份|差不多大(?!份)/g;
 
   // opts.fields: only these fields (e.g. the one on the current page)
   function match(text, opts = {}){
