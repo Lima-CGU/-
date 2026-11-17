@@ -3062,13 +3062,16 @@
       if (detailDraft[k] && detailDraft[k] !== prevDetail[k]) setFieldSource(detailAdjustTarget, k, 'user');
     });
     detailAdjustTarget.detail = { ...detailDraft };
-    // (11/17) a size picked in the sheet for a dish with typed grams: the size is used again
+    // (11/13) what the USER set in the sheet, before a rename re-applies presets
+    const diaryUserDetail = diaryRec ? JSON.parse(JSON.stringify(detailAdjustTarget.detail)) : null;
+    // (11/17) a size picked in the sheet for a dish with typed grams: the size is
+    // used again (logged below as a system change, reason 'size-picked')
+    let gramsClearedFrom = null;
     if (Number.isInteger(detailAdjustTarget.detail.portionGrams) && detailAdjustTarget.detail.size !== prevDetail.size){
+      gramsClearedFrom = detailAdjustTarget.detail.portionGrams;
       delete detailAdjustTarget.detail.portionGrams;
       if (detailAdjustTarget.fieldSource) delete detailAdjustTarget.fieldSource.portionGrams;
     }
-    // (11/13) what the USER set in the sheet, before a rename re-applies presets
-    const diaryUserDetail = diaryRec ? JSON.parse(JSON.stringify(detailAdjustTarget.detail)) : null;
     if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
       detailAdjustTarget.count = detailCountDraft;
       detailAdjustTarget.countEdits = (detailAdjustTarget.countEdits || 0) + 1;
@@ -3114,6 +3117,9 @@
       const countAfterUser = detailCountDraft || diaryBefore.count;
       if ((detailAdjustTarget.count ?? null) !== (countAfterUser ?? null)){
         logAfterFinal(diaryRec, 'diary_count_changed', { actor: 'system', target: no, field: 'count', before: countAfterUser ?? null, after: detailAdjustTarget.count ?? null, detail: { reason: 'rename' } });
+      }
+      if (gramsClearedFrom != null){
+        logAfterFinal(diaryRec, 'diary_field_changed', { actor: 'system', target: no, field: 'portionGrams', before: gramsClearedFrom, after: null, detail: { reason: 'size-picked' } });
       }
       const newName = stripConfidenceText(detailAdjustTarget.name || '');
       if (newName !== diaryBefore.name){
@@ -3667,6 +3673,7 @@
       reportGramsBtn.classList.toggle('is-open', !!det.gramsOpen);
     }
     if (reportGramsRow) reportGramsRow.hidden = !(isSize && det.gramsOpen);
+    if (reportGramsMsg && !(isSize && det.gramsOpen)) reportGramsMsg.hidden = true;
     if (isSize && Number.isInteger(grams)){
       reportStepCurrent.hidden = false;
       reportStepCurrent.textContent = `目前:${grams} 克`;
@@ -3821,6 +3828,7 @@
         reportGramsMsg.textContent = `請輸入 ${FIELD_DEFAULTS.PORTION_GRAMS_MIN}～${FIELD_DEFAULTS.PORTION_GRAMS_MAX} 的整數`;
         reportGramsMsg.hidden = false;
       }
+      if (reportActive && !chatMode) sizeReportPhotoSlot(); // (the line must not push the page past the screen)
       return;
     }
     if (reportGramsMsg) reportGramsMsg.hidden = true;

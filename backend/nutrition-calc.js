@@ -45,7 +45,7 @@ function compute(item, input){
   if (salt === undefined) return { status: 'unsupported', reason: 'salt' };
   if (!isNum(item.kcal)) return { status: 'unsupported', reason: 'no-kcal' };
 
-  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula, countUsed = null;
+  let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula, countUsed = null, usedGrams = false;
   const itemUnit = unitLabel(item.unit);
 
   const userGrams = Number.isInteger(input.portionGrams) && input.portionGrams > 0 ? input.portionGrams : null;
@@ -58,6 +58,7 @@ function compute(item, input){
     amountUnit = 'g';
     factor = userGrams / base;
     grams = userGrams;
+    usedGrams = true;
     const baseU = /毫升|ml|c\.?c/i.test(itemUnit) ? 'ml' : 'g';
     formula = `每 ${base}${baseU} ${item.kcal} kcal × ${userGrams}g`;
     how = `以「${item.name}」每 ${base} ${item.basis === 'per100g' ? '公克' : (itemUnit || '公克')}為基準,使用者輸入 ${userGrams} 公克(÷ ${base} × ${userGrams})`;
@@ -68,6 +69,7 @@ function compute(item, input){
     amountUnit = 'g';
     factor = userGrams / item.weightG;
     grams = userGrams;
+    usedGrams = true;
     formula = `${item.name} 1 ${itemUnit}(${item.weightG}g)${item.kcal} kcal × ${userGrams}g ÷ ${item.weightG}g`;
     how = `以「${item.name} 1 ${itemUnit}」約 ${item.weightG} 公克為基準,使用者輸入 ${userGrams} 公克(÷ ${item.weightG} × ${userGrams})`;
   } else if (!input.size){
@@ -155,7 +157,7 @@ function compute(item, input){
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
     basisKind, multiplier, amount, amountUnit, countUsed,
-    portionGramsUsed: !!userGrams && grams === userGrams,
+    portionGramsUsed: usedGrams,
     // the matched item is counted per 隻/顆/個 … (the page shows the 數量 row)
     countable: basisKind === 'discrete' && cfg.COUNTABLE_UNITS.includes(itemUnit),
     itemUnit,

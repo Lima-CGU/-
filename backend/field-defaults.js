@@ -241,7 +241,24 @@
   const PORTION_GRAMS_MAX = 2000;
   const validGrams = n => Number.isInteger(n) && n >= PORTION_GRAMS_MIN && n <= PORTION_GRAMS_MAX;
   // 「180克」「50g」「5公克」「180 公克」, with 大概 / 約 before or 左右 after
-  const GRAMS_RE = /(大概|大約|約|差不多)?\s*([0-9０-９]{1,5}(?:[.．][0-9０-９]+)?)\s*(公克|克|grams?|g)(?![a-zA-Z])\s*(左右)?\s*(的)?/gi;
+  const GRAMS_RE = /(大概|大約|約|差不多)?\s*([0-9０-９]{1,5}(?:[.．][0-9０-９]+)?|[零一二兩三四五六七八九十百千]{1,8})\s*(公克|克|grams?|g)(?![a-zA-Z])\s*(左右)?\s*(的)?/gi;
+  // 「兩百」「一百五十」「一千二」 -> 200 / 150 / 1200 (spoken amounts); Arabic digits as they are
+  const CN_DIGIT = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const CN_UNIT = { 十: 10, 百: 100, 千: 1000 };
+  function amountOf(t){
+    // (a decimal, 1.5 克: not a whole gram — not read, the text stays as typed)
+    if (/[.．]/.test(t)) return NaN;
+    if (/^[0-9０-９]+$/.test(t)) return Number(t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    let total = 0, digit = null, lastUnit = 1;
+    for (const c of t){
+      if (c in CN_DIGIT) digit = CN_DIGIT[c];
+      else if (c in CN_UNIT){ total += (digit == null ? 1 : digit) * CN_UNIT[c]; lastUnit = CN_UNIT[c]; digit = null; }
+      else return NaN;
+    }
+    // 「一千二」 = 1200, 「兩百五」 = 250 (a trailing digit after a unit is one unit lower)
+    if (digit != null) total += lastUnit > 1 ? digit * (lastUnit / 10) : digit;
+    return total;
+  }
   /** 「鴨肉180克」 -> { name: '鴨肉', grams: 180, raw: '鴨肉180克' }.
    *  Exactly one gram amount, 1–2000, and a food name left over — otherwise
    *  nothing is read (grams null, name = the text as typed): not sure = no change. */
@@ -250,8 +267,7 @@
     const hits = [...raw.matchAll(GRAMS_RE)];
     if (hits.length !== 1) return { name: raw, grams: null, raw };
     const h = hits[0];
-    const digits = h[2].replace(/[０-９．]/g, c => (c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
-    const grams = Math.round(Number(digits));
+    const grams = amountOf(h[2]);
     if (!validGrams(grams)) return { name: raw, grams: null, raw };
     const name = (raw.slice(0, h.index) + ' ' + raw.slice(h.index + h[0].length))
       .replace(/\s+/g, ' ').replace(/^[\s,，、:：的]+|[\s,，、。:：]+$/g, '').trim();
@@ -262,7 +278,7 @@
    *  only record grams the user actually said). */
   function gramsIn(text){
     return [...String(text || '').matchAll(GRAMS_RE)]
-      .map(h => Math.round(Number(h[2].replace(/[０-９．]/g, c => (c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0))))))
+      .map(h => amountOf(h[2]))
       .filter(validGrams);
   }
 
