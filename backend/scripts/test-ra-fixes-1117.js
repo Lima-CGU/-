@@ -32,6 +32,11 @@ t('seasonings: only 醬油, 「不要醬油」 → 沒有特別調味', () => {
   assert.deepStrictEqual(said([], '沒有加醬油跟米酒'), [NONE]);
   assert.deepStrictEqual(said(['醬油', '米酒'], '沒有'), [NONE]);
   assert.deepStrictEqual(said(['醬油', '沙茶'], '不要沙茶', ['沙茶']), ['醬油']); // typed under 其他
+  assert.deepStrictEqual(said(['醬油', '米酒'], '醬油不要了'), ['米酒']);  // negation after the word
+  assert.deepStrictEqual(said(['米酒'], '醬油不要'), ['米酒']);
+  assert.deepStrictEqual(said(['醬油', '米酒'], '醬油拿掉'), ['米酒']);
+  assert.deepStrictEqual(said(['醬油', '米酒'], '不需要醬油'), ['米酒']);
+  assert.deepStrictEqual(said(['豆油', '米酒'], '不要豆油', ['豆油']), ['米酒']); // a typed name equal to a built-in word
 });
 t('seasonings: 「不加冰」 (not a seasoning) → nothing chosen, asked again', () => {
   assert.strictEqual(said(['醬油'], '不加冰'), null);

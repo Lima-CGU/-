@@ -289,7 +289,8 @@
   const SEASONING_WORDS = [[['醬油', '豆油', '醬由'], '醬油'], [['米酒'], '米酒']];
   // 「沒有醬油」「不加米酒」 name a seasoning that was NOT used: it is skipped
   // (and does not mean 沒有特別調味 either — other seasonings may be used)
-  const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|不要|不用|不放|別|沒|不)[加放用要]?$/;
+  const NEGATED_BEFORE = /(不需要|沒有|沒加|不加|沒放|不要|不用|不放|別|沒|不)[加放用要]?$/;
+  const NEGATED_AFTER = /^(也|就|都)?(不需要|不要|不用|沒有加|沒有放|沒有用|沒有|沒加|沒放|不加|不放|拿掉|去掉|刪掉)(了|啦|喔|啊|耶)*$/;
   // (11/17 RA) 「沒有加醬油跟米酒」: the negation covers the whole list
   const LIST_JOIN = /^(跟|和|及|以及|還有|與|或|或是)$/;
   // (11/17 RA 2) what a negation may cover and still mean 「沒有特別調味」:
@@ -302,11 +303,13 @@
   function seasoningIntent(text, opts = {}){
     // a comma / space ends a phrase: 「沒有，醬油有」 is not 「沒有醬油」
     const t = String(text || '').replace(/[\s，,。、;；!！?？]+/g, '|');
-    const words = SEASONING_WORDS.slice();
+    // typed 其他 names first: one equal to a built-in word (豆油) stays itself
+    const words = [];
     (Array.isArray(opts.custom) ? opts.custom : []).forEach(c => {
       const w = String(c || '').trim();
       if (w && w !== '沒有特別調味' && !words.some(([ws]) => ws.includes(w))) words.push([[w], w]);
     });
+    SEASONING_WORDS.forEach(e => words.push(e));
     // every seasoning mentioned, in the order said (a longer word wins an overlap)
     const hits = [];
     words.forEach(([ws, value]) => ws.forEach(w => {
@@ -319,7 +322,9 @@
       if (h.k < prevEnd) return; // inside a longer word already read
       const gap = prevEnd >= 0 ? t.slice(prevEnd, h.k) : null;
       // negated right before it, or joined by 跟 / 和 … to a negated one
-      negated = NEGATED_BEFORE.test(t.slice(Math.max(0, h.k - 3), h.k)) || (negated && gap !== null && LIST_JOIN.test(gap));
+      negated = NEGATED_BEFORE.test(t.slice(Math.max(0, h.k - 4), h.k)) || (negated && gap !== null && LIST_JOIN.test(gap))
+        // 「醬油不要了」「米酒拿掉」: the negation right after it, in the same phrase
+        || NEGATED_AFTER.test(t.slice(h.end).split('|')[0]);
       const list = negated ? remove : add;
       if (!list.includes(h.value)) list.push(h.value);
       prevEnd = h.end;
