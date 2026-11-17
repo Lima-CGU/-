@@ -78,8 +78,9 @@ t('CSV: seasonings, seasoningsSource, scenarioSec, scenario1..4', () => {
 
 t('voice: a negated seasoning is not added', () => {
   const v = require('../../voice-match');
-  assert.deepStrictEqual(v.seasonings('沒有醬油'), []);
-  assert.deepStrictEqual(v.seasonings('不加米酒'), []);
+  // (11/17 RA) only negated seasonings -> 沒有特別調味 (never the seasoning itself)
+  assert.deepStrictEqual(v.seasonings('沒有醬油'), ['沒有特別調味']);
+  assert.deepStrictEqual(v.seasonings('不加米酒'), ['沒有特別調味']);
   assert.deepStrictEqual(v.seasonings('醬油但沒有米酒'), ['醬油']);
   assert.deepStrictEqual(v.seasonings('有醬油跟米酒'), ['醬油', '米酒']);
   assert.deepStrictEqual(v.seasonings('沒有'), ['沒有特別調味']);

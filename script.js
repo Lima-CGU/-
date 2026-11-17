@@ -2035,6 +2035,11 @@
     closeCandidateDialog();
   });
 
+  // (11/17 RA) Enter in the name box = 確認 (the same as tapping it)
+  candidateCustomInput?.addEventListener('keydown', e => {
+    // (Safari ends an IME choice with keyCode 229 and isComposing false)
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){ e.preventDefault(); candidateConfirmBtn.click(); }
+  });
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;
     const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim().slice(0, DISH_NAME_MAX); // (a longer name made the record fail validation)
@@ -4370,13 +4375,19 @@
         picked = `數量 ${n} ${det.countUnit || '個'}`;
       }
     } else if (field === 'seasonings'){
-      // 「醬油」「米酒」 add; 「沒有」 = 沒有特別調味 (11/01)
-      const said = VOICE_MATCH.seasonings ? VOICE_MATCH.seasonings(text) : [];
-      if (said.length){
-        let next = seasoningsOf(det);
-        said.forEach(v => { if (!next.includes(v)) next = toggledSeasonings(next, v); });
-        setReportSeasonings(det, next, 'voice');
-        picked = `調味 ${said.join('、')}`;
+      // 「醬油」「米酒」 add; 「沒有」 = 沒有特別調味 (11/01). (11/17 RA 2)
+      // 「不要醬油」 removes only 醬油 (others stay; 沒有特別調味 only when
+      // nothing is left); 「不加冰」 (not a seasoning, not one typed under
+      // 其他) chooses nothing, so the page asks again
+      const NONE = FIELD_DEFAULTS.SEASONING_NONE;
+      const cur = seasoningsOf(det);
+      const custom = cur.filter(v => v !== NONE && !FIELD_DEFAULTS.SEASONING_OPTIONS.includes(v));
+      const intent = VOICE_MATCH.seasoningIntent ? VOICE_MATCH.seasoningIntent(text, { custom }) : null;
+      const next = intent ? VOICE_MATCH.applySeasoningIntent(cur, intent, NONE) : null;
+      if (next){
+        const clean = FIELD_DEFAULTS.cleanSeasonings(next);
+        setReportSeasonings(det, clean, 'voice');
+        picked = `調味 ${clean.join('、')}`;
       }
     } else {
       const m = VOICE_MATCH.match(text, { category, fields: [field] }).matches

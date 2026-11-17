@@ -258,6 +258,7 @@
           <p class="meta">紀錄 ID:${esc(record.id)}・受試者 ${esc(record.pid)}・${esc(record.group)} 組${record.mealId ? `・便當 ${esc(record.mealId)}` : ''}・總時間 ${num2(record.times && record.times.totalSec)} 秒・AI 處理 ${num2(record.times && record.times.aiProcessingSec)} 秒</p>${aiDraftNote(record)}
           <h3>AI 初稿 ↔ 受試者最後的結果</h3>
           <div class="table-scroll">${compareTable(record)}</div>
+          ${scenarioHtml(record.scenario)}
           ${record.chat && Array.isArray(record.chat.messages) ? chatHtml(record.chat) : ''}
           <div class="exclude-box"></div>
         </div>
@@ -326,6 +327,38 @@
     deleted.forEach(x => out.push(`<tr><td>—</td><td>${esc(x.aiName || x.name)}</td><td><span class="changed">(受試者刪除)</span></td></tr>`));
     if (!out.length) return '<p class="muted">沒有菜色。</p>';
     return `<table class="compare"><thead><tr><th>#</th><th>AI 初稿</th><th>受試者最後</th></tr></thead><tbody>${out.join('')}</tbody></table>`;
+  }
+
+  /* (11/17 RA) the scenario questions: how each one was answered and what
+     was added, from record.scenario ({prompts, answers, added}) as saved —
+     old records keep their 4 questions */
+  const SCENARIO_ANSWER = { none: '沒有', text: '有(補充/回答)', edit: '有，回去修改' };
+  const SCENARIO_INPUT = { button: '按按鈕', typed: '打字送出', message: '用訊息回答', suggestion: '點提示按鈕' };
+  function scenarioHtml(sc){
+    if (!sc || typeof sc !== 'object') return '';
+    const prompts = Array.isArray(sc.prompts) ? sc.prompts : [];
+    const answers = Array.isArray(sc.answers) ? sc.answers.filter(a => a && typeof a === 'object') : [];
+    const added = Array.isArray(sc.added) ? sc.added.filter(a => a && typeof a === 'object') : [];
+    const qNo = a => (Number.isInteger(Number(a.no)) ? Number(a.no) : 0);
+    // (at most 10 questions: odd data never makes a huge table)
+    const n = Math.min(10, Math.max(prompts.length, ...answers.map(qNo), ...added.map(qNo), 0));
+    if (!n) return '';
+    const rows = [];
+    for (let no = 1; no <= n; no++){
+      const ans = answers.filter(a => qNo(a) === no);
+      const adds = added.filter(a => qNo(a) === no);
+      const ansText = ans.length
+        ? ans.map(a => `${SCENARIO_ANSWER[a.answer] || a.answer || '—'}${a.input ? `(${SCENARIO_INPUT[a.input] || a.input})` : ''}`).join(' → ')
+        : '(沒有回答)';
+      const addText = adds.map(a => {
+        const name = a.finalName || a.name || '';
+        const grams = Number.isInteger(a.portionGrams) ? ` ${a.portionGrams} 克` : '';
+        const typed = a.text && a.text !== name ? `(原始輸入:${a.text})` : '';
+        return `＋${name}${grams}${typed}${a.deleted ? '(之後刪除)' : ''}`;
+      }).join('、');
+      rows.push(`<tr><td>第 ${no} 題</td><td>${esc(prompts[no - 1] || '—')}</td><td>${esc(ansText)}${addText ? `<div class="fields">補充:${esc(addText)}</div>` : ''}</td></tr>`);
+    }
+    return `<h3 style="margin-top:16px">情境題回答</h3><div class="table-scroll"><table class="compare scenario"><thead><tr><th>題號</th><th>題目</th><th>回答</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   }
 
   function chatHtml(chat){
