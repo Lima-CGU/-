@@ -2035,6 +2035,10 @@
     closeCandidateDialog();
   });
 
+  // (11/17 RA) Enter in the name box = 確認 (the same as tapping it)
+  candidateCustomInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); candidateConfirmBtn.click(); }
+  });
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;
     const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim().slice(0, DISH_NAME_MAX); // (a longer name made the record fail validation)

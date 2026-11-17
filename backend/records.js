@@ -278,7 +278,11 @@ const CSV_COLUMNS = [
 
 function csvCell(v){
   if (v == null) return '';
-  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  // (11/17 RA) text a participant typed (dish names, notes, input text …) that
+  // starts with = + - @ is not run as a formula by Excel: a leading ' is added.
+  // Export only — the stored data is unchanged; numbers are left as they are.
+  if (typeof v === 'string' && /^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 const names = list => (Array.isArray(list) ? list.map(x => (isObj(x) ? x.name : x)).filter(Boolean).join('; ') : '');

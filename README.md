@@ -544,6 +544,14 @@ node scripts/delete-records.js --pid=DEVTEST --yes   # 刪除 meals 和 photos
 - **AI 辨識失敗或逾時**:`ai_request_failed` 的 detail 有 `reason`(`timeout` / `network` / `http-500` / `bad-response` …)、`httpStatus`、`latencyMs`(等了多久);接著失敗訊息出現在畫面上時記 `ai_failure_displayed`。這時沒有 AI 初稿,所以 `correctionSec`、`preEditDelaySec` 和 `userActionCount` 從 `ai_failure_displayed` 開始算(其他規則不變),`aiProcessingSec` 維持「照片 → AI 初稿」(失敗時是空的),等待失敗的時間另記 `times.aiWaitSec`(照片 → 失敗訊息)、`times.aiFailedAt`。紀錄上有 `aiDraftFailed: true`、`aiDraftStatus: 'failed'`、`aiDraftFailReason`;後台展開時顯示「AI 辨識失敗」,CSV 有 `aiDraftFailed`、`aiDraftStatus`、`aiWaitSec`、`aiDraftFailReason`、`aiDraftAttempts` 欄。代理伺服器回的錯誤網頁(502/504/524,不是 JSON)也照 HTTP 狀態判斷,504/524/408 記成 `timeout`。
 - **辨識成功但沒找到食物**:照舊有 `ai_draft_displayed`(`dishCount: 0`),`aiDraftStatus: 'empty'`、`aiDraftFailed: false`;後台顯示「AI 沒有辨識到食物」。所以「失敗/逾時」和「沒找到食物」可以分開。
 
+## 研究助理 11/17 決定的修正
+
+- **A 組語音否定句**:調味頁說「不要醬油」「沒有加醬油」「沒有加醬油跟米酒」不會選成醬油/米酒,只有否定時改選「沒有特別調味」;糖、鹽頁說「不加糖」「沒有加糖」「不要鹽」選無糖/無鹽,說「不要全糖」「不是炸的」這類否定一個選項時不選,畫面請受試者再說一次。
+- **A 組份量頁語音**:「大概」「不大」「大部分」這類詞裡的大/小/中不算份量;只有明確說「小、中、大、半份、一份、兩份…」才選。
+- **A 組改名視窗**改成中文:「你記錄的菜名是：」「取消」「確認」,提示「自己輸入菜名」,在輸入框按 Enter 等於按確認(流程與操作次數規則不變)。
+- **後台**展開一筆紀錄時多一段「情境題回答」:第 1～3 題(舊紀錄 4 題)的題目、怎麼回答(沒有/有/回去修改,以及按按鈕、打字或用訊息)、補充了哪些食物(含克數、原始輸入、之後是否刪除)。
+- **CSV 防公式**:匯出時,文字欄位(菜名、備註、輸入文字、事件的 before/after…)開頭是 = + - @ 的,前面加一個單引號 ',Excel 就不會當成公式;資料本身不變,數字欄位不受影響。
+
 ## 後台使用說明(給研究助理)
 
 研究管理後台是一個網頁,手機和電腦都能用:**https://lima-cgu.github.io/-/admin.html**。App 裡沒有連到這裡的按鈕,也不會被搜尋引擎收錄;請直接輸入網址或存成書籤。

@@ -55,14 +55,14 @@
       [['不適用', '沒有', '都不是'], '不適用']
     ],
     sugar: [
-      [['無糖', '沒糖', '不加糖', '沒有糖', '吳糖', '無堂'], '無糖'],
+      [['無糖', '沒糖', '不加糖', '沒有糖', '沒加糖', '沒有加糖', '不要糖', '不要加糖', '吳糖', '無堂'], '無糖'],
       [['微糖', '一分糖', '二分糖', '四分之一', '圍糖'], '微糖(四分之一)'],
       [['半糖', '一半', '五分糖', '伴糖', '二分之一'], '半糖'],
       [['少糖', '七分糖', '七分', '四分之三'], '少糖(四分之三)'],
       [['全糖', '正常糖', '全甜', '泉糖'], '全糖']
     ],
     salt: [
-      [['無鹽', '沒鹽', '不加鹽', '沒有鹽', '吳鹽', '無言'], '無鹽'],
+      [['無鹽', '沒鹽', '不加鹽', '沒有鹽', '沒加鹽', '沒有加鹽', '不要鹽', '不要加鹽', '吳鹽', '無言'], '無鹽'],
       [['四分之一', '少鹽', '一點點鹽', '一點鹽'], '1/4 茶匙'],
       [['二分之一', '一半', '半茶匙', '半匙'], '1/2 茶匙'],
       [['四分之三'], '3/4 茶匙'],
@@ -146,6 +146,12 @@
     return null;
   }
 
+  // (11/17 RA) 「不要…」「沒有加…」「不是…」 right before a value word
+  const NEGATION_BEFORE = /(不要|不想|不用|不加|不放|不是|沒有|沒加|沒放|別|沒|不)(加|放|用|要)?$/;
+  const NEGATIVE_VALUES = ['無糖', '無鹽', '不適用'];
+  // a size character inside an ordinary word
+  const NOT_A_SIZE = /大概|大約|大致|大家|大部分|大多|大多數|大小|不大|中間|中午|小心|小時|不小|大部份/g;
+
   // opts.fields: only these fields (e.g. the one on the current page)
   function match(text, opts = {}){
     const category = opts.category === 'beverage' ? 'beverage' : 'food';
@@ -161,12 +167,23 @@
     }));
     cands.sort((a, b) => b.word.length - a.word.length);
 
+    // (11/17 RA) words that only look like a size: 「大概」「不大」 is not 大 (L)
+    if (fields.includes('size')) rest = rest.replace(NOT_A_SIZE, '·');
+
     const matches = [];
     const ambiguous = [];
     const taken = new Set();
     const useUp = word => { rest = rest.split(word).join('·'); };
     for (const c of cands){
       if (!rest.includes(c.word)) continue;
+      // (11/17 RA) 「不要全糖」「不是炸的」: a negated value is never picked — not
+      // understood, the page asks again (「沒有加糖」「不要鹽」 are 無糖 / 無鹽 words)
+      const before = rest.slice(0, rest.indexOf(c.word));
+      if (NEGATION_BEFORE.test(before) && !NEGATIVE_VALUES.includes(c.value)){
+        if (!ambiguous.includes(c.word)) ambiguous.push(c.word);
+        useUp(c.word);
+        continue;
+      }
       // every field (not decided yet) that has this exact word
       const owners = cands.filter(o => o.word === c.word && !taken.has(o.field));
       if (!owners.length) continue;
@@ -271,18 +288,32 @@
   const SEASONING_WORDS = [[['醬油', '豆油', '醬由'], '醬油'], [['米酒'], '米酒']];
   // 「沒有醬油」「不加米酒」 name a seasoning that was NOT used: it is skipped
   // (and does not mean 沒有特別調味 either — other seasonings may be used)
-  const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|沒|不)[加放用]?$/;
+  const NEGATED_BEFORE = /(沒有|沒加|不加|沒放|不要|不用|不放|別|沒|不)[加放用要]?$/;
+  // (11/17 RA) 「沒有加醬油跟米酒」: the negation covers the whole list
+  const LIST_JOIN = /^(跟|和|及|以及|還有|與|或|或是)$/;
   function seasonings(text){
     // a comma / space ends a phrase: 「沒有，醬油有」 is not 「沒有醬油」
     const t = String(text || '').replace(/[\s，,。、;；!！?？]+/g, '|');
     const out = [];
     let named = false;
+    // every seasoning mentioned, in the order said
+    const hits = [];
     SEASONING_WORDS.forEach(([words, value]) => words.forEach(w => {
-      for (let k = t.indexOf(w); k >= 0; k = t.indexOf(w, k + 1)){
-        named = true;
-        if (!NEGATED_BEFORE.test(t.slice(Math.max(0, k - 3), k)) && !out.includes(value)) out.push(value);
-      }
+      for (let k = t.indexOf(w); k >= 0; k = t.indexOf(w, k + 1)) hits.push({ k, end: k + w.length, value });
     }));
+    hits.sort((a, b) => a.k - b.k);
+    let negated = false;
+    let prevEnd = -1;
+    hits.forEach(h => {
+      named = true;
+      const gap = prevEnd >= 0 ? t.slice(prevEnd, h.k) : null;
+      // negated right before it, or joined by 跟 / 和 … to a negated one
+      negated = NEGATED_BEFORE.test(t.slice(Math.max(0, h.k - 3), h.k)) || (negated && gap !== null && LIST_JOIN.test(gap));
+      if (!negated && !out.includes(h.value)) out.push(h.value);
+      prevEnd = h.end;
+    });
+    // (11/17 RA) only negated ones (「不要醬油」「沒有加醬油跟米酒」): 沒有特別調味
+    if (named && !out.length) return ['沒有特別調味'];
     if (out.length || named) return out;
     return /沒有|沒加|不加|沒放|都沒|無調味/.test(t) ? ['沒有特別調味'] : [];
   }

@@ -140,3 +140,6 @@ thead th{ font-size: 13px; color: var(--ink-soft); font-weight: 700; white-space
   .records > tbody > tr.row > td > .cell-val{ min-width: 0; text-align: right; overflow-wrap: anywhere; }
 }
 .compare .kcal-missing{ color: #b23a28; }
+
+/* (11/17 RA) scenario answers in a record: 「第 n 題」 stays on one line */
+.compare.scenario td:first-child, .compare.scenario th:first-child{ white-space: nowrap; }
