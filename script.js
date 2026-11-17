@@ -683,6 +683,8 @@
     const reader = new FileReader();
     reader.onload = ev => useDataUrl(ev.target.result, 'library');
     reader.readAsDataURL(file);
+    // (audit 11/17) the same photo picked again after 重拍 must fire 'change' again
+    fileInput.value = '';
   });
 
   /* ---------- confirm upload -> log entry ---------- */
@@ -2043,6 +2045,13 @@
     }
     const onConfirm = candidateOnConfirm;
     const prevCategory = det ? det.category : null;
+    if (det && custom && custom === splitNameConfidence(det.name || '').name){
+      // (audit 11/17) the same name typed again: nothing changes (no rename, the
+      // confidence stays) — the sheet just closes
+      closeCandidateDialog();
+      if (onConfirm) onConfirm(det, prevCategory, { inputType: 'typed', unchanged: true });
+      return;
+    }
     if (det && custom){
       // typed by the user: no AI confidence, category left as it was
       det.name = custom;
@@ -3102,7 +3111,7 @@
       const newName = detailNameInput.value.trim().slice(0, DISH_NAME_MAX);
       const oldName = stripConfidenceText(detailAdjustTarget.name || '');
       const renamed = !!newName && newName !== oldName;
-      if (newName) detailAdjustTarget.name = newName;
+      if (renamed) detailAdjustTarget.name = newName; // (audit 11/17) unchanged: keep 「白飯(92%)」
       // same rule as Group A Page 4: a new name may be another food type —
       // its fields (and a count the user didn't set) follow. A Diary dish
       // belongs to no running meal: no event, no Page-4 page state.
@@ -3940,8 +3949,13 @@
     renderReportStep(det);
     reportPanel.scrollTop = 0;
   }
-  reportStepNext.addEventListener('click', () => goReportStep(1));
-  reportStepBack.addEventListener('click', () => goReportStep(-1));
+  // (audit 11/17) a quick double tap moves one page only, and the second tap of
+  // 「完成這道菜」 never lands on the 「下一道 ›」 that appears in its place
+  let stepTappedAt = -1e9;
+  const STEP_TAP_GUARD_MS = 400;
+  const stepTapTooSoon = () => performance.now() - stepTappedAt < STEP_TAP_GUARD_MS;
+  reportStepNext.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(1); });
+  reportStepBack.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(-1); });
   // the AI put the dish in the wrong type: call back the hidden fields
   reportRevealBtn.addEventListener('click', () => {
     const det = selectedReportDet();
@@ -4829,6 +4843,8 @@
   }
 
   reportNextDishBtn.addEventListener('click', () => {
+    if (stepTapTooSoon()) return; // (the 2nd tap of a double tap on 完成這道菜)
+    stepTappedAt = performance.now();
     const next = nextUnfilledReportDet();
     if (next){
       logReportSelect(next, 'user', 'next');
@@ -4838,7 +4854,12 @@
   });
 
   reportCameraBtn.addEventListener('click', () => {
-    const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean))
+    // (audit 11/17) presets are not the user's input: only a value the user set,
+    // a renamed / deleted / added dish, an added food or a chat message counts
+    const userTouched = d => Object.values(d.fieldSource || {}).includes('user') || !!d.userReviewed || (d.countEdits || 0) > 0;
+    const started = currentDetections.some(userTouched) || reportExtraDets.length > 0
+      || (currentMealMeta && (currentMealMeta.editLog.renameCount > 0 || currentMealMeta.editLog.deletedDishes.length > 0))
+      || currentDetections.some(d => d.addedByUser)
       || (chatMode && chatMessages.some(m => m.role === 'user'));
     if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')){
       logEvent('cancel', { actor: 'user', detail: { what: 'leave' } });
@@ -4878,6 +4899,7 @@
   let chatExtraDets = [];  // dishes added in the chat (not on the photo)
   let chatMealSelected = false;
   let chatBusy = false;
+  let chatSession = 0; // bumped by resetChatState: replies of an earlier chat are dropped
   let chatRenames = [];    // [{ no, from, to }]
   let chatRecognition = null;
   // Group C: the suggestion buttons from the latest AI reply
@@ -4924,6 +4946,7 @@
   }
 
   function resetChatState(){
+    chatSession += 1; // (audit 11/17) a reply still on its way belongs to the old meal
     chatContextDet = null;
     chatScenarioNo = null;
     chatFinishIncomplete = 0;
@@ -4947,7 +4970,7 @@
   /* Group C: up to 4 buttons right above the input, replaced after every AI
      reply and hidden when there are none. Tapping one sends its text exactly
      as if it had been typed (with the current selection). */
-  function renderChatSuggestions(list){
+  function renderChatSuggestions(list, opts = {}){
     chatSuggestions = STUDY_GROUP === 'C' && Array.isArray(list) ? list.slice(0, 4) : [];
     // an index.html without the row (older cached page): no buttons, no error
     if (!chatSuggestRow){ chatSuggestions = []; return; }
@@ -4968,6 +4991,7 @@
       });
       chatSuggestRow.appendChild(btn);
     });
+    if (opts.restored) return; // (the same buttons again after a failed send: already counted as shown)
     chatSuggestionShownCount += chatSuggestions.length;
     if (chatSuggestions.length) logEvent('suggestion_shown', {
       actor: 'system', attemptId: chatAttemptId, detail: { texts: chatSuggestions.slice(), count: chatSuggestions.length }
@@ -5231,6 +5255,8 @@
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
     sizeChatInput();
+    const session = chatSession;
+    const shownBefore = chatSuggestions.slice(); // (C) put back if this send fails
     renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
@@ -5272,6 +5298,9 @@
     }
     const latencyMs = Math.round(performance.now() - started);
     typing.remove();
+    // (audit 11/17) the user left this chat (another meal may be open now): the
+    // late reply is dropped and the new chat's state is not touched
+    if (session !== chatSession) return;
     chatBusy = false;
     updateChatBusy();
     if (!reportActive || !chatMode) return; // left the page meanwhile
@@ -5280,6 +5309,12 @@
       logApiError('chat', latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', { event: false });
       logEvent('error', { actor: 'system', status: 'failed', attemptId, detail: { api: 'chat', reason: latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', latencyMs } });
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
+      // (audit 11/17, C) a failed suggestion tap: the same buttons come back (tap again =
+      // a suggestion, as before); a typed / spoken message goes back into the box
+      if (source === 'suggestion'){
+        renderChatSuggestions(shownBefore, { restored: true });
+        return;
+      }
       if (chatInput){
         if (!chatInput.value) chatInput.value = text; // ready to resend
         sizeChatInput();
@@ -5405,6 +5440,12 @@
       det.renamedFrom = det.renamedFrom || from;
       det.name = r.name;
       det.confidence = null;
+      // (audit 11/17) like Group A's rename: the photo's count of the OLD food
+      // doesn't belong to the new one — unless the user already said how many
+      if (!det.countConfirmed){
+        delete det.count; delete det.countUnit; det.countable = false; det.countAsked = false;
+        if (det.fieldSource) delete det.fieldSource.count;
+      }
       if (r.category && r.category !== det.category){
         det.category = r.category;
         const methods = det.category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;

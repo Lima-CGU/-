@@ -261,7 +261,7 @@ README 「後台使用說明」 is the step-by-step guide for research assistant
 - Live site (`lima-cgu.github.io`): `index.html` registers `./sw.js` on page load.
 - `sw.js` caches the app shell and same-origin GET requests only. Cross-origin backend requests are not intercepted.
 - **Network-first** for navigations and `index.html`, `script.js`, `style.css`, `calorie.js`, `sync.js`, `manifest.json`, `sw.js` (`NETWORK_FIRST`): fetched with `cache: 'no-cache'` (also bypasses GitHub Pages' max-age 600 HTTP cache), the cache is updated on success and used only offline (a navigation falls back to the cached page ignoring the query, then `index.html`). Images / icons stay cache-first. Install uses `cache: 'reload'`. This is what keeps an old index.html from running with a new script.js (that broke 下一步: `chatSuggestRow` was null). `script.js` also null-checks the chat elements and the 數量 rows before use.
-- The cache name is currently `pictameal-shell-v46`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
+- The cache name is currently `pictameal-shell-v47`. Bump it on every frontend change (`index.html`/`style.css`/`script.js`/anything else in `APP_SHELL`), otherwise a previously-installed PWA keeps serving the old cached shell instead of picking up the update.
 - Service Workers require `https://` or `localhost`; they do not work from `file://`.
 
 ## Useful Checks
