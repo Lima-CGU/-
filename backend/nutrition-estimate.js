@@ -146,6 +146,9 @@ async function pickCandidate(input, askAI){
 
 /* ---------- main ---------- */
 
+// a table key of its own (never 'constructor' / 'toString' from the prototype)
+const own = (obj, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(obj, k);
+
 function validate(body){
   const b = body || {};
   const name = String(b.name || '').replace(/\(\d+%\)$/, '').trim();
@@ -159,7 +162,7 @@ function validate(body){
   // with grams the size may be missing (Group B/C: only grams were said)
   const hasGrams = b.portionGrams != null && b.portionGrams !== '';
   if (hasGrams && !fieldDefaults.validGrams(b.portionGrams)) return { error: `portionGrams 必須是 ${fieldDefaults.PORTION_GRAMS_MIN}~${fieldDefaults.PORTION_GRAMS_MAX} 的整數。` };
-  if (!(b.size in cfg.SIZE_MULTIPLIERS.default) && !(hasGrams && (b.size == null || b.size === ''))) return { error: 'size 必須是 XS / S / M / L / XL。' };
+  if (!own(cfg.SIZE_MULTIPLIERS.default, b.size) && !(hasGrams && (b.size == null || b.size === ''))) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   const hasCount = b.count != null && b.count !== '';
   if (hasCount && !(Number.isInteger(b.count) && b.count >= 1 && b.count <= cfg.MAX_COUNT)) return { error: `count 必須是 1~${cfg.MAX_COUNT} 的整數。` };
@@ -167,7 +170,7 @@ function validate(body){
   return {
     input: {
       name, category,
-      size: b.size in cfg.SIZE_MULTIPLIERS.default ? b.size : null,
+      size: own(cfg.SIZE_MULTIPLIERS.default, b.size) ? b.size : null,
       portionGrams: hasGrams ? b.portionGrams : null,
       cookingMethod: String(b.cookingMethod || '').slice(0, 20),   // recorded only
       sugar: String(b.sugar || '').slice(0, 20),

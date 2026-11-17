@@ -20,11 +20,12 @@ const isNum = v => typeof v === 'number' && Number.isFinite(v);
 
 function sizeMultiplier(category, size){
   const set = cfg.SIZE_MULTIPLIERS.byCategory[category] || cfg.SIZE_MULTIPLIERS.default;
-  return set[size];
+  return Object.prototype.hasOwnProperty.call(set, size) ? set[size] : undefined;
 }
 
 function saltTeaspoons(salt){
-  return cfg.SALT_TEASPOONS[String(salt || '').replace(/\s+/g, '')];
+  const k = String(salt || '').replace(/\s+/g, '');
+  return Object.prototype.hasOwnProperty.call(cfg.SALT_TEASPOONS, k) ? cfg.SALT_TEASPOONS[k] : undefined;
 }
 
 function isContinuous(item){
@@ -77,7 +78,7 @@ function compute(item, input){
     return { status: 'needs-portion' };
   } else if (isContinuous(item)){
     // food type × size (the container is no longer used); fruit: grams of one piece × count
-    const type = input.foodType in cfg.FOOD_TYPE_PORTIONS || input.foodType === 'fruit' ? input.foodType : 'other';
+    const type = Object.prototype.hasOwnProperty.call(cfg.FOOD_TYPE_PORTIONS, input.foodType) || input.foodType === 'fruit' ? input.foodType : 'other';
     let portion = cfg.FOOD_TYPE_PORTIONS[type];
     let pieces = null;
     if (type === 'fruit'){
@@ -169,7 +170,8 @@ function compute(item, input){
 /** Teaspoons of cooking oil for this dish (0 when none applies).
  *  × the count only when the calculation used it (countUsed), else × 1. */
 function oilFor(item, input, countUsed){
-  const per = cfg.OIL_TEASPOONS[String(input.cookingMethod || '').trim()];
+  const ck = String(input.cookingMethod || '').trim();
+  const per = Object.prototype.hasOwnProperty.call(cfg.OIL_TEASPOONS, ck) ? cfg.OIL_TEASPOONS[ck] : 0;
   if (!per) return 0;
   // the matched item's name already says how it was cooked: oil included
   // (炸醬 / 紅燒 … are not cooking methods — field-defaults.js COOKING_EXCEPTIONS)

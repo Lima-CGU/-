@@ -51,7 +51,7 @@
   function cleanSeasonings(list){
     const out = [];
     for (const v of Array.isArray(list) ? list : []){
-      const t = typeof v === 'string' ? v.trim().replace(/^其他[::]?/, '') : '';
+      const t = typeof v === 'string' ? v.trim().replace(/^其他[:：]?/, '') : '';
       if (!t || [...t].length > SEASONING_MAX_CHARS || out.includes(t)) continue;
       out.push(t);
     }
@@ -264,20 +264,24 @@
   /** 「鴨肉180克」 -> { name: '鴨肉', grams: 180, raw: '鴨肉180克' }.
    *  Exactly one gram amount, 1–2000, and a food name left over — otherwise
    *  nothing is read (grams null, name = the text as typed): not sure = no change. */
+  // a thousands comma inside a number: 1,500克 -> 1500克
+  const joinThousands = t => String(t || '').replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');
+  // the amount must start the number: not 「1.5」「一點五」, nor the tail of a longer
+  // number (「100500克」, 「2千克」)
+  const amountStartsHere = (text, h) => !/[點.．0-9０-９]$/.test(text.slice(0, h.index + h[0].indexOf(h[2])));
   function parseGrams(text){
-    const raw = String(text || '').trim();
+    const typed = String(text || '').trim();
+    const raw = joinThousands(typed);
     const hits = [...raw.matchAll(GRAMS_RE)];
-    if (hits.length !== 1) return { name: raw, grams: null, raw };
+    if (hits.length !== 1) return { name: typed, grams: null, raw: typed };
     const h = hits[0];
-    // 「1.5 克」「一點五克」: not a whole gram — not read
-    const before = raw.slice(0, h.index + h[0].indexOf(h[2]));
-    if (/[點.．]$/.test(before)) return { name: raw, grams: null, raw };
+    if (!amountStartsHere(raw, h)) return { name: typed, grams: null, raw: typed };
     const grams = amountOf(h[2]);
-    if (!validGrams(grams)) return { name: raw, grams: null, raw };
+    if (!validGrams(grams)) return { name: typed, grams: null, raw: typed };
     const name = (raw.slice(0, h.index) + ' ' + raw.slice(h.index + h[0].length))
       .replace(/\s+/g, ' ').replace(/^[\s,，、:：的]+|[\s,，、。:：]+$/g, '').trim();
-    if (!name) return { name: raw, grams: null, raw };
-    return { name, grams, raw };
+    if (!name) return { name: typed, grams: null, raw: typed };
+    return { name, grams, raw: typed };
   }
   /** (11/17) A scenario food box often holds several foods: 「薑絲5克以及青蔥」
    *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,;
@@ -311,8 +315,9 @@
   /** Every gram amount written in a text (the B/C safety net: the AI may
    *  only record grams the user actually said). */
   function gramsIn(text){
-    return [...String(text || '').matchAll(GRAMS_RE)]
-      .filter(h => !/[點.．]$/.test(String(text || '').slice(0, h.index + h[0].indexOf(h[2]))))
+    const t = joinThousands(text);
+    return [...t.matchAll(GRAMS_RE)]
+      .filter(h => amountStartsHere(t, h))
       .map(h => amountOf(h[2]))
       .filter(validGrams);
   }

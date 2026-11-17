@@ -98,7 +98,7 @@ function validateRecord(r){
   need(Array.isArray(r.dishes) && r.dishes.length <= 60, 'record.dishes must be an array (max 60)');
   r.dishes.forEach((d, i) => {
     need(isObj(d), `record.dishes[${i}] must be an object`);
-    need(typeof d.name === 'string' && d.name.length <= 80, `record.dishes[${i}].name must be a string`);
+    need(typeof d.name === 'string' && d.name.length <= 80, `record.dishes[${i}].name must be a string of at most 80 characters`);
     need(d.detail == null || isObj(d.detail), `record.dishes[${i}].detail must be an object`);
     need(d.nutrition == null || isObj(d.nutrition), `record.dishes[${i}].nutrition must be an object`);
   });

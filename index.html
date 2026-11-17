@@ -295,7 +295,7 @@
           <button type="button" class="chat-mic-btn" id="chatMicBtn" aria-label="語音輸入">
             <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3M9 20h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           </button>
-          <textarea class="chat-input" id="chatInput" rows="1" placeholder="按麥克風說說看，也可以打字" aria-label="輸入你的描述"></textarea>
+          <textarea class="chat-input" id="chatInput" rows="1" maxlength="500" placeholder="按麥克風說說看，也可以打字" aria-label="輸入你的描述"></textarea>
           <button type="submit" class="chat-send-btn" id="chatSendBtn" aria-label="送出">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 12 20 4l-4 16-4-7-8-1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
           </button>
@@ -333,7 +333,7 @@
         <p class="candidate-sheet-title">Meal you report is :</p>
         <div class="candidate-list" id="candidateList"></div>
         <!-- Page 4 (Group A) rename only: type a name instead of picking one -->
-        <input type="text" class="candidate-custom-input" id="candidateCustomInput" placeholder="或自己輸入菜名" hidden>
+        <input type="text" class="candidate-custom-input" id="candidateCustomInput" maxlength="40" placeholder="或自己輸入菜名" hidden>
         <p class="candidate-loading" id="candidateLoading" hidden>正在找候選菜名…</p>
         <div class="candidate-actions">
           <button type="button" class="btn btn-outline candidate-btn-cancel" id="candidateCancelBtn">Cancel</button>
@@ -365,7 +365,7 @@
 
         <div class="voice-state" id="voiceStateFallback" hidden>
           <p class="voice-modal-text voice-fallback-notice">此瀏覽器不支援語音輸入,請改用文字輸入</p>
-          <input type="text" class="voice-fallback-input" id="voiceFallbackInput" placeholder="輸入菜名">
+          <input type="text" class="voice-fallback-input" id="voiceFallbackInput" maxlength="40" placeholder="輸入菜名">
           <button type="button" class="voice-btn-confirm" id="voiceFallbackConfirmBtn">✓ 確認</button>
         </div>
 
@@ -388,7 +388,7 @@
 
         <div class="detail-name-field" id="detailNameField" hidden>
           <p class="detail-option-label">菜名</p>
-          <input type="text" class="detail-name-input" id="detailNameInput" placeholder="輸入菜名">
+          <input type="text" class="detail-name-input" id="detailNameInput" maxlength="40" placeholder="輸入菜名">
         </div>
 
         <!-- Diary dishes with a count only -->

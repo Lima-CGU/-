@@ -217,7 +217,8 @@
       ['上傳狀態', `<span class="tag ok">已上傳${r.uploadCount > 1 ? `(${r.uploadCount} 次)` : ''}</span>${r.photoStored ? '' : ' <span class="tag">無照片</span>'}${r.deletedFromDiary ? ' <span class="tag warn">受試者已從日記刪除</span>' : ''}`],
       ['排除', r.excluded ? `<span class="tag warn">已排除</span><span class="reason">${esc(r.excludeReason)}</span>` : '<span class="tag">否</span>']
     ];
-    tr.innerHTML = cells.map(([label, html]) => `<td data-label="${label}">${html}</td>`).join('');
+    // (one value box per cell: on a phone the label and the value are the only two flex items)
+    tr.innerHTML = cells.map(([label, html]) => `<td data-label="${label}"><span class="cell-val">${html}</span></td>`).join('');
     const toggle = () => toggleDetail(tr, r);
     tr.addEventListener('click', toggle);
     tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
@@ -394,7 +395,8 @@
   /* ---------- downloads (fetched with the header, saved as a file) ---------- */
   document.querySelectorAll('[data-download]').forEach(btn => btn.addEventListener('click', async () => {
     const format = btn.dataset.download;
-    const f = currentFilters();
+    // the same filters as the list and the overview on screen (not unapplied form edits)
+    const f = lastFilters || currentFilters();
     const msg = $('downloadMsg');
     btn.disabled = true;
     showMsg(msg, '準備檔案中…');

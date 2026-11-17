@@ -82,6 +82,7 @@
     const st = states.get(dishId);
     if (!st || st.seq !== seq) return;
     st.timer = null;
+    st.flush = null; // (settle() must not send this one again while it is in flight)
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
     try {

@@ -119,6 +119,9 @@
   const COUNT_MAX = 50;
   // (11/17) grams the user gave stay with the food: 「鴨肉 180 克」
   const gramsText = d => (d && d.detail && Number.isInteger(d.detail.portionGrams) ? ` ${d.detail.portionGrams} 克` : '');
+  // (audit 11/17) input limits that keep a record valid for the backend (records.js)
+  const DISH_NAME_MAX = 40;
+  const CHAT_MESSAGE_MAX = 500;
   const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : d && d.countable ? `${name} ×?` : name) + gramsText(d);
 
   // App version stored with every record = sw.js's CACHE_NAME (read from the
@@ -680,6 +683,8 @@
     const reader = new FileReader();
     reader.onload = ev => useDataUrl(ev.target.result, 'library');
     reader.readAsDataURL(file);
+    // (audit 11/17) the same photo picked again after 重拍 must fire 'change' again
+    fileInput.value = '';
   });
 
   /* ---------- confirm upload -> log entry ---------- */
@@ -1132,7 +1137,11 @@
   // What goes to /api/records: the record without images or UI-only fields.
   const LOCAL_ONLY_KEYS = new Set(['thumbUrl', 'localPhoto', 'syncStatus']);
   function uploadableRecord(record){
-    return JSON.parse(JSON.stringify(record, (k, v) => (LOCAL_ONLY_KEYS.has(k) ? undefined : v)));
+    const up = JSON.parse(JSON.stringify(record, (k, v) => (LOCAL_ONLY_KEYS.has(k) ? undefined : v)));
+    // (audit 11/17) the backend rejects a dish name over 80 characters (the whole
+    // meal would never upload): a too-long name from an old copy is cut
+    if (Array.isArray(up.dishes)) up.dishes.forEach(d => { if (d && typeof d.name === 'string' && d.name.length > 80) d.name = d.name.slice(0, 80); });
+    return up;
   }
   // This device's Diary (records with small thumbnails + a small photo), so
   // it survives a reload. Removed meals are not kept here.
@@ -1146,17 +1155,31 @@
   const syncTimers = new Map();
   function syncRecordSoon(record){
     clearTimeout(syncTimers.get(record.id));
-    syncTimers.set(record.id, setTimeout(() => {
-      syncTimers.delete(record.id);
-      record.syncStatus = 'pending';
-      persistDiary();
-      // (11/13) Diary events after the save make a record grow: the upload
-      // copy is trimmed like at the save (fitRecordSize), the device copy isn't
-      const up = uploadableRecord(record);
-      fitRecordSize(up);
-      window.PictaSync.enqueue(up, null);
-    }, 1200));
+    // (audit 11/17) the device copy is saved at once — a reload / close within
+    // the debounce must not lose a Diary edit or delete
+    persistDiary();
+    syncTimers.set(record.id, setTimeout(() => uploadRecordNow(record), 1200));
   }
+  function uploadRecordNow(record){
+    clearTimeout(syncTimers.get(record.id));
+    syncTimers.delete(record.id);
+    record.syncStatus = 'pending';
+    persistDiary();
+    // (11/13) Diary events after the save make a record grow: the upload
+    // copy is trimmed like at the save (fitRecordSize), the device copy isn't
+    const up = uploadableRecord(record);
+    fitRecordSize(up);
+    window.PictaSync.enqueue(up, null);
+  }
+  // leaving the page: queue every pending Diary upload now (the queue survives a reload)
+  function flushPendingSyncs(){
+    [...syncTimers.keys()].forEach(id => {
+      const record = mealRecords.find(r => r.id === id);
+      if (record) uploadRecordNow(record); else { clearTimeout(syncTimers.get(id)); syncTimers.delete(id); }
+    });
+  }
+  window.addEventListener('pagehide', flushPendingSyncs);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPendingSyncs(); });
   document.addEventListener('pictameal:sync-update', e => {
     const { id, status } = e.detail;
     const record = mealRecords.find(r => r.id === id);
@@ -2014,7 +2037,7 @@
 
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;
-    const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim();
+    const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim().slice(0, DISH_NAME_MAX); // (a longer name made the record fail validation)
     const choice = candidateChoices[candidateSelectedIndex];
     if (det && !custom && !choice && !candidateCustomInput.hidden){
       showToast('請選一個菜名,或自己輸入');
@@ -2022,6 +2045,13 @@
     }
     const onConfirm = candidateOnConfirm;
     const prevCategory = det ? det.category : null;
+    if (det && custom && custom === splitNameConfidence(det.name || '').name){
+      // (audit 11/17) the same name typed again: nothing changes (no rename, the
+      // confidence stays) — the sheet just closes
+      closeCandidateDialog();
+      if (onConfirm) onConfirm(det, prevCategory, { inputType: 'typed', unchanged: true });
+      return;
+    }
     if (det && custom){
       // typed by the user: no AI confidence, category left as it was
       det.name = custom;
@@ -3078,10 +3108,10 @@
       setFieldSource(detailAdjustTarget, 'count', 'user'); // (before the rename below, which keeps user counts)
     }
     if (!detailNameField.hidden){
-      const newName = detailNameInput.value.trim();
+      const newName = detailNameInput.value.trim().slice(0, DISH_NAME_MAX);
       const oldName = stripConfidenceText(detailAdjustTarget.name || '');
       const renamed = !!newName && newName !== oldName;
-      if (newName) detailAdjustTarget.name = newName;
+      if (renamed) detailAdjustTarget.name = newName; // (audit 11/17) unchanged: keep 「白飯(92%)」
       // same rule as Group A Page 4: a new name may be another food type —
       // its fields (and a count the user didn't set) follow. A Diary dish
       // belongs to no running meal: no event, no Page-4 page state.
@@ -3919,8 +3949,13 @@
     renderReportStep(det);
     reportPanel.scrollTop = 0;
   }
-  reportStepNext.addEventListener('click', () => goReportStep(1));
-  reportStepBack.addEventListener('click', () => goReportStep(-1));
+  // (audit 11/17) a quick double tap moves one page only, and the second tap of
+  // 「完成這道菜」 never lands on the 「下一道 ›」 that appears in its place
+  let stepTappedAt = -1e9;
+  const STEP_TAP_GUARD_MS = 300; // (a double tap; a real next tap after reading a page is slower)
+  const stepTapTooSoon = () => performance.now() - stepTappedAt < STEP_TAP_GUARD_MS;
+  reportStepNext.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(1); });
+  reportStepBack.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(-1); });
   // the AI put the dish in the wrong type: call back the hidden fields
   reportRevealBtn.addEventListener('click', () => {
     const det = selectedReportDet();
@@ -4808,6 +4843,8 @@
   }
 
   reportNextDishBtn.addEventListener('click', () => {
+    if (stepTapTooSoon()) return; // (the 2nd tap of a double tap on 完成這道菜)
+    stepTappedAt = performance.now();
     const next = nextUnfilledReportDet();
     if (next){
       logReportSelect(next, 'user', 'next');
@@ -4817,7 +4854,12 @@
   });
 
   reportCameraBtn.addEventListener('click', () => {
-    const started = currentDetections.some(d => d.detail && Object.values(d.detail).some(Boolean))
+    // (audit 11/17) presets are not the user's input: only a value the user set,
+    // a renamed / deleted / added dish, an added food or a chat message counts
+    const userTouched = d => Object.values(d.fieldSource || {}).includes('user') || !!d.userReviewed || (d.countEdits || 0) > 0;
+    const started = currentDetections.some(userTouched) || reportExtraDets.length > 0
+      || (currentMealMeta && (currentMealMeta.editLog.renameCount > 0 || currentMealMeta.editLog.deletedDishes.length > 0))
+      || currentDetections.some(d => d.addedByUser)
       || (chatMode && chatMessages.some(m => m.role === 'user'));
     if (started && !window.confirm('這一餐還沒完成,離開的話剛剛填的不會儲存。確定要離開嗎?')){
       logEvent('cancel', { actor: 'user', detail: { what: 'leave' } });
@@ -4857,6 +4899,7 @@
   let chatExtraDets = [];  // dishes added in the chat (not on the photo)
   let chatMealSelected = false;
   let chatBusy = false;
+  let chatSession = 0; // bumped by resetChatState: replies of an earlier chat are dropped
   let chatRenames = [];    // [{ no, from, to }]
   let chatRecognition = null;
   // Group C: the suggestion buttons from the latest AI reply
@@ -4903,6 +4946,7 @@
   }
 
   function resetChatState(){
+    chatSession += 1; // (audit 11/17) a reply still on its way belongs to the old meal
     chatContextDet = null;
     chatScenarioNo = null;
     chatFinishIncomplete = 0;
@@ -4912,6 +4956,7 @@
     chatRenames = [];
     chatMealSelected = false;
     chatBusy = false;
+    updateChatBusy(); // (audit 11/17) a request left pending must not keep the new chat disabled
     if (chatLog) chatLog.textContent = '';
     if (chatInput) chatInput.value = '';
     sizeChatInput();
@@ -4926,7 +4971,7 @@
   /* Group C: up to 4 buttons right above the input, replaced after every AI
      reply and hidden when there are none. Tapping one sends its text exactly
      as if it had been typed (with the current selection). */
-  function renderChatSuggestions(list){
+  function renderChatSuggestions(list, opts = {}){
     chatSuggestions = STUDY_GROUP === 'C' && Array.isArray(list) ? list.slice(0, 4) : [];
     // an index.html without the row (older cached page): no buttons, no error
     if (!chatSuggestRow){ chatSuggestions = []; return; }
@@ -4947,6 +4992,7 @@
       });
       chatSuggestRow.appendChild(btn);
     });
+    if (opts.restored) return; // (the same buttons again after a failed send: already counted as shown)
     chatSuggestionShownCount += chatSuggestions.length;
     if (chatSuggestions.length) logEvent('suggestion_shown', {
       actor: 'system', attemptId: chatAttemptId, detail: { texts: chatSuggestions.slice(), count: chatSuggestions.length }
@@ -5176,6 +5222,9 @@
 
   async function sendChat(text, source = 'typed'){
     if (chatBusy) return;
+    // (audit 11/17) one message ≤ 500 characters (what the server reads anyway); a
+    // longer one made the saved record fail validation, so the meal never uploaded
+    text = String(text || '').slice(0, CHAT_MESSAGE_MAX);
     const sel = chatSelection();
     // 🎤 text: fix speech homophones (真的雞 → 蒸的雞) before the AI sees it;
     // the record keeps both versions
@@ -5207,6 +5256,8 @@
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
     sizeChatInput();
+    const session = chatSession;
+    const shownBefore = chatSuggestions.slice(); // (C) put back if this send fails
     renderChatSuggestions([]); // no buttons while waiting
     // the selection applies to this message only
     chatMealSelected = false;
@@ -5248,6 +5299,9 @@
     }
     const latencyMs = Math.round(performance.now() - started);
     typing.remove();
+    // (audit 11/17) the user left this chat (another meal may be open now): the
+    // late reply is dropped and the new chat's state is not touched
+    if (session !== chatSession) return;
     chatBusy = false;
     updateChatBusy();
     if (!reportActive || !chatMode) return; // left the page meanwhile
@@ -5256,6 +5310,12 @@
       logApiError('chat', latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', { event: false });
       logEvent('error', { actor: 'system', status: 'failed', attemptId, detail: { api: 'chat', reason: latencyMs >= CHAT_TIMEOUT_MS ? 'timeout' : 'request failed', latencyMs } });
       addChatMessage('assistant', '連線有點慢,請再送一次', { meta: { failed: true, latencyMs } });
+      // (audit 11/17, C) a failed suggestion tap: the same buttons come back (tap again =
+      // a suggestion, as before); a typed / spoken message goes back into the box
+      if (source === 'suggestion'){
+        renderChatSuggestions(shownBefore, { restored: true });
+        return;
+      }
       if (chatInput){
         if (!chatInput.value) chatInput.value = text; // ready to resend
         sizeChatInput();
@@ -5381,6 +5441,12 @@
       det.renamedFrom = det.renamedFrom || from;
       det.name = r.name;
       det.confidence = null;
+      // (audit 11/17) like Group A's rename: the photo's count of the OLD food
+      // doesn't belong to the new one — unless the user already said how many
+      if (!det.countConfirmed){
+        delete det.count; delete det.countUnit; det.countable = false; det.countAsked = false;
+        if (det.fieldSource) delete det.fieldSource.count;
+      }
       if (r.category && r.category !== det.category){
         det.category = r.category;
         const methods = det.category === 'beverage' ? BEVERAGE_COOKING_METHODS : FOOD_COOKING_METHODS;
@@ -5995,7 +6061,7 @@
     applyVoiceResult(candidate);
   });
   voiceFallbackConfirmBtn.addEventListener('click', () => {
-    const text = voiceFallbackInput.value.trim();
+    const text = voiceFallbackInput.value.trim().slice(0, DISH_NAME_MAX);
     if (!text) return;
     const originalName = voiceTargetDet ? stripConfidenceText(voiceTargetDet.name || '') : '';
     const normalizedOriginal = normalizeRenameText(originalName);
