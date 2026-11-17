@@ -5410,6 +5410,13 @@
         fields.seasonings.forEach(v => { if (!next.includes(v)) next = toggledSeasonings(next, v); });
         fields.seasonings = next;
       }
+      // (11/17) a size the user said now, without grams: the size is used again
+      // (like Group A picking a size card after typing grams)
+      if (fields.size && !u.autoSize && !Number.isInteger(fields.portionGrams) && Number.isInteger((det.detail || {}).portionGrams)){
+        det.detail = { ...det.detail };
+        delete det.detail.portionGrams;
+        if (det.fieldSource) delete det.fieldSource.portionGrams;
+      }
       det.detail = { ...(det.detail || {}), ...fields };
       if (u.autoSize) chatAutoSized.add(det);
       // "雞腿吃了 4 隻": what the user ate wins over the photo's count
@@ -5596,6 +5603,7 @@
     if (chatBusy || isSavingMeal || chatScenarioNo) return;
     const all = chatAllDets();
     const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !(d.detail.size || Number.isInteger(d.detail.portionGrams))
+      || (Calorie.getState(d.id) || {}).status === 'needs-portion' // (11/17) grams the item can't use, and no size
       || ((d.count || d.countable) && !d.countConfirmed)).length; // count not confirmed yet
     logEvent('finish_pressed', { actor: 'user', detail: { incomplete } });
     if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)){
