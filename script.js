@@ -3952,7 +3952,7 @@
   // (audit 11/17) a quick double tap moves one page only, and the second tap of
   // 「完成這道菜」 never lands on the 「下一道 ›」 that appears in its place
   let stepTappedAt = -1e9;
-  const STEP_TAP_GUARD_MS = 400;
+  const STEP_TAP_GUARD_MS = 300; // (a double tap; a real next tap after reading a page is slower)
   const stepTapTooSoon = () => performance.now() - stepTappedAt < STEP_TAP_GUARD_MS;
   reportStepNext.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(1); });
   reportStepBack.addEventListener('click', () => { if (stepTapTooSoon()) return; stepTappedAt = performance.now(); goReportStep(-1); });
@@ -4956,6 +4956,7 @@
     chatRenames = [];
     chatMealSelected = false;
     chatBusy = false;
+    updateChatBusy(); // (audit 11/17) a request left pending must not keep the new chat disabled
     if (chatLog) chatLog.textContent = '';
     if (chatInput) chatInput.value = '';
     sizeChatInput();
