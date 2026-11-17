@@ -39,6 +39,7 @@ t('splitFoods: several foods in one send, each with its own grams', () => {
   assert.deepStrictEqual(each('薑絲和青蔥'), [['薑絲', null], ['青蔥', null]]);
   assert.deepStrictEqual(each('只有鴨肉'), [['只有鴨肉', null]]);
   assert.deepStrictEqual(fd.splitFoods('鴨肉'), ['鴨肉']);
+  assert.deepStrictEqual(fd.splitFoods('1,000克米飯'), ['1000克米飯']); // a thousands comma is not a separator
   // homophones are fixed before splitting: 殭屍5克以及青蔥 -> 薑絲 5 克 + 青蔥
   assert.deepStrictEqual(fd.splitFoods(vm.fixFoodWords('殭屍5克以及青蔥', { foodInput: true }).text), ['薑絲5克', '青蔥']);
 });

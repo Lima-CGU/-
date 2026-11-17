@@ -284,7 +284,8 @@
    *  one piece (or nothing to split) -> [the text as it is]. */
   const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
   function splitFoods(text){
-    const raw = String(text || '').trim();
+    // a thousands comma is part of a number, not a separator: 1,000克 -> 1000克
+    const raw = String(text || '').trim().replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');
     const parts = raw.split(FOOD_SEPARATORS).map(x => x.trim()).filter(Boolean);
     return parts.length > 1 ? parts : (raw ? [raw] : []);
   }
