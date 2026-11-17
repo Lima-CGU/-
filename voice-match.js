@@ -132,14 +132,17 @@
     return n || null;
   }
   function count(text){
+    // (11/17) a decimal (3.5 / 三點五) is not a count; only whole numbers 1–50
+    if (/[0-9０-９][.．點][0-9０-９]|[一二兩三四五六七八九十]點[一二三四五六七八九]/.test(String(text || ''))) return null;
+    const inRange = n => (Number.isInteger(n) && n >= 1 && n <= 50 ? n : null);
     const t = normalize(text).replace(NOT_A_COUNT, '·');
     if (/全部|全吃|都吃完|吃光/.test(t)) return 'all';
-    const d = /(\d{1,2})/.exec(t);
-    if (d) return Number(d[1]) || null;
+    const d = /(\d+)/.exec(t);
+    if (d) return inRange(Number(d[1]));
     const withUnit = new RegExp(CN_NUM + '[' + COUNT_UNITS + ']').exec(t);
-    if (withUnit) return cnNumber(withUnit[1]);
+    if (withUnit) return inRange(cnNumber(withUnit[1]));
     const alone = t.replace(/^(吃了|我吃了|有|共|總共)/, '').replace(/[了啦喔吧]$/, '');
-    if (new RegExp('^' + CN_NUM + '$').test(alone) && alone !== '一') return cnNumber(alone);
+    if (new RegExp('^' + CN_NUM + '$').test(alone) && alone !== '一') return inRange(cnNumber(alone));
     return null;
   }
 
@@ -187,7 +190,9 @@
   /* ---------- Groups B/C: fix speech homophones before the text goes to the AI ----------
      Only in a cooking / size / sugar / salt context, so ordinary words stay:
      「真的雞」→「蒸的雞」, but 「真的很好吃」 is left alone. */
-  const FOOD_AFTER = '(?=[\\u4e00-\\u9fff]{0,4}(雞|鴨|鵝|豬|牛|羊|魚|蝦|蟹|蛋|肉|排|翅|腿|菜|豆|飯|麵|餃|包|粿|糕|餅|薯|瓜|筍|菇|花枝|魷|蚵|丸|腸|塊|片|的))';
+  // (11/17) a food word right after (at most one character between), so 「真的雞」 is
+  // 蒸的雞 but 「我真的吃了牛肉」「真的很好吃的」 stay as they are
+  const FOOD_AFTER = '(?=[\\u4e00-\\u9fff]?(雞|鴨|鵝|豬|牛|羊|魚|蝦|蟹|蛋|肉|排|翅|腿|菜|豆|飯|麵|餃|包|粿|糕|餅|薯|瓜|筍|菇|花枝|魷|蚵|丸|腸|塊|片))';
   const HOMOPHONE_RULES = [
     // cooking: 「X的 + food」 or 「用X的」
     [new RegExp('(真|針|貞|爭)的' + FOOD_AFTER, 'g'), '蒸的'],
@@ -203,10 +208,11 @@
     [/吵(?=(青菜|高麗菜|空心菜|菠菜|地瓜葉|飯|麵|蛋|肉|蝦|豆))/g, '炒'],
     [/魯(?=(肉|蛋|豆干|雞腿|牛肉|味))/g, '滷'],
     // salt / sugar
-    [/(少|多|加|無|沒|不加|一點)(言|嚴|顏|研)/g, '$1鹽'],
+    // (only as the end of a phrase: 「少言」「多言一點」, not 「很多顏色」「多研究」)
+    [/(少|多|加|無|沒|不加|一點)(言|嚴|顏|研)(?=$|[\s，。,.!！?？、]|一點|點|些)/g, '$1鹽'],
     [/(無|微|半|少|全|去|沒)(唐|堂|塘)/g, '$1糖'],
     // size: 大分 / 小分 / 半分 / 兩分 → 份 (not 分之 / 分糖)
-    [/([大小半兩一])分(?![之糖鐘鍾])/g, '$1份']
+    [/([大小半兩一])分(?![之糖鐘鍾熟])/g, '$1份']
   ];
   /** -> { text, changed } — the corrected text and whether anything changed. */
   function fixHomophones(text){
