@@ -27,6 +27,8 @@ t('parseGrams: not sure = no change', () => {
   assert.strictEqual(fd.parseGrams('鴨肉180克高麗菜50克').grams, null); // two amounts
   assert.strictEqual(fd.parseGrams('雞腿 1.5 克').grams, null);           // not a whole gram
   assert.strictEqual(fd.parseGrams('飯兩百克').grams, 200);              // spoken numerals
+  assert.strictEqual(fd.parseGrams('飯一百零五克').grams, 105);
+  assert.strictEqual(fd.parseGrams('雞腿一點五克').grams, null);
   assert.deepStrictEqual([fd.parseGrams('鴨肉大概180克左右').name, fd.parseGrams('180克的鴨肉').name], ['鴨肉', '鴨肉']);
   assert.strictEqual(fd.parseGrams('豬肉１２０公克').grams, 120);
 });

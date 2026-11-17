@@ -5420,7 +5420,7 @@
       }
       // (11/17) a size the user said now, without grams: the size is used again
       // (like Group A picking a size card after typing grams)
-      if (fields.size && !u.autoSize && !Number.isInteger(fields.portionGrams) && Number.isInteger((det.detail || {}).portionGrams)){
+      if (fields.size && fields.size !== (det.detail || {}).size && !u.autoSize && !Number.isInteger(fields.portionGrams) && Number.isInteger((det.detail || {}).portionGrams)){
         det.detail = { ...det.detail };
         delete det.detail.portionGrams;
         if (det.fieldSource) delete det.fieldSource.portionGrams;

@@ -249,14 +249,16 @@
     // (a decimal, 1.5 克: not a whole gram — not read, the text stays as typed)
     if (/[.．]/.test(t)) return NaN;
     if (/^[0-9０-９]+$/.test(t)) return Number(t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
-    let total = 0, digit = null, lastUnit = 1;
+    let total = 0, digit = null, lastUnit = 1, zero = false;
     for (const c of t){
-      if (c in CN_DIGIT) digit = CN_DIGIT[c];
-      else if (c in CN_UNIT){ total += (digit == null ? 1 : digit) * CN_UNIT[c]; lastUnit = CN_UNIT[c]; digit = null; }
+      if (c === '零'){ zero = true; digit = null; }
+      else if (c in CN_DIGIT) digit = CN_DIGIT[c];
+      else if (c in CN_UNIT){ total += (digit == null ? 1 : digit) * CN_UNIT[c]; lastUnit = CN_UNIT[c]; digit = null; zero = false; }
       else return NaN;
     }
-    // 「一千二」 = 1200, 「兩百五」 = 250 (a trailing digit after a unit is one unit lower)
-    if (digit != null) total += lastUnit > 1 ? digit * (lastUnit / 10) : digit;
+    // 「一千二」 = 1200, 「兩百五」 = 250 (a trailing digit right after a unit is one
+    // unit lower); after 零 it is the digit itself: 「一百零五」 = 105
+    if (digit != null) total += lastUnit > 1 && !zero ? digit * (lastUnit / 10) : digit;
     return total;
   }
   /** 「鴨肉180克」 -> { name: '鴨肉', grams: 180, raw: '鴨肉180克' }.
@@ -267,6 +269,9 @@
     const hits = [...raw.matchAll(GRAMS_RE)];
     if (hits.length !== 1) return { name: raw, grams: null, raw };
     const h = hits[0];
+    // 「1.5 克」「一點五克」: not a whole gram — not read
+    const before = raw.slice(0, h.index + h[0].indexOf(h[2]));
+    if (/[點.．]$/.test(before)) return { name: raw, grams: null, raw };
     const grams = amountOf(h[2]);
     if (!validGrams(grams)) return { name: raw, grams: null, raw };
     const name = (raw.slice(0, h.index) + ' ' + raw.slice(h.index + h[0].length))
@@ -278,6 +283,7 @@
    *  only record grams the user actually said). */
   function gramsIn(text){
     return [...String(text || '').matchAll(GRAMS_RE)]
+      .filter(h => !/[點.．]$/.test(String(text || '').slice(0, h.index + h[0].indexOf(h[2]))))
       .map(h => amountOf(h[2]))
       .filter(validGrams);
   }
