@@ -279,6 +279,15 @@
     if (!name) return { name: raw, grams: null, raw };
     return { name, grams, raw };
   }
+  /** (11/17) A scenario food box often holds several foods: 「薑絲5克以及青蔥」
+   *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,;
+   *  one piece (or nothing to split) -> [the text as it is]. */
+  const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
+  function splitFoods(text){
+    const raw = String(text || '').trim();
+    const parts = raw.split(FOOD_SEPARATORS).map(x => x.trim()).filter(Boolean);
+    return parts.length > 1 ? parts : (raw ? [raw] : []);
+  }
   /** Every gram amount written in a text (the B/C safety net: the AI may
    *  only record grams the user actually said). */
   function gramsIn(text){
@@ -289,7 +298,7 @@
   }
 
   return {
-    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn,
+    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods,
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
     SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,

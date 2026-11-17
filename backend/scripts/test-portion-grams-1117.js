@@ -32,6 +32,16 @@ t('parseGrams: not sure = no change', () => {
   assert.deepStrictEqual([fd.parseGrams('鴨肉大概180克左右').name, fd.parseGrams('180克的鴨肉').name], ['鴨肉', '鴨肉']);
   assert.strictEqual(fd.parseGrams('豬肉１２０公克').grams, 120);
 });
+t('splitFoods: several foods in one send, each with its own grams', () => {
+  const each = t => fd.splitFoods(t).map(x => { const p = fd.parseGrams(x); return [p.name, p.grams]; });
+  assert.deepStrictEqual(each('薑絲5克以及青蔥'), [['薑絲', 5], ['青蔥', null]]);
+  assert.deepStrictEqual(each('鴨肉180克、高麗菜50克'), [['鴨肉', 180], ['高麗菜', 50]]);
+  assert.deepStrictEqual(each('薑絲和青蔥'), [['薑絲', null], ['青蔥', null]]);
+  assert.deepStrictEqual(each('只有鴨肉'), [['只有鴨肉', null]]);
+  assert.deepStrictEqual(fd.splitFoods('鴨肉'), ['鴨肉']);
+  // homophones are fixed before splitting: 殭屍5克以及青蔥 -> 薑絲 5 克 + 青蔥
+  assert.deepStrictEqual(fd.splitFoods(vm.fixFoodWords('殭屍5克以及青蔥', { foodInput: true }).text), ['薑絲5克', '青蔥']);
+});
 t('gramsIn: every amount said', () => assert.deepStrictEqual(fd.gramsIn('飯大概200克，青菜50g'), [200, 50]));
 
 /* food homophones */

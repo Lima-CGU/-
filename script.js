@@ -4735,43 +4735,57 @@
     // too) and a gram amount (「鴨肉180克」 -> 鴨肉 + portionGrams 180); the typed
     // text is kept (inputText) when it was changed
     const food = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(typed, { foodInput: true }) : { text: typed, changed: false, fixes: [] };
-    const parsed = FIELD_DEFAULTS.parseGrams(food.text);
-    const name = parsed.name.slice(0, 30);
-    const grams = parsed.grams;
+    // (11/17) several foods in one send (「薑絲5克以及青蔥」): one added food each,
+    // each with its own grams; homophones are fixed first. Still ONE answer and
+    // ONE attempt (the counting is unchanged); one system dish_added per food.
+    const pieces = FIELD_DEFAULTS.splitFoods(food.text);
+    const split = pieces.length > 1;
     const no = st.next;
-    const det = {
-      id: `scn${Date.now()}_${reportExtraDets.length}`,
-      name, confidence: null, category: 'food',
-      detail: {}, notes: [], onPhoto: false, source: 'scenario', scenarioNo: no,
-      ...(name !== typed ? { inputText: typed } : {})
-    };
-    det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
-    reportExtraDets.push(det);
-    applyFieldDefaults(det, currentDetections.length + reportExtraDets.length, 'scenario');
-    if (Number.isInteger(grams)){
-      det.detail = { ...(det.detail || {}), portionGrams: grams };
-      setFieldSource(det, 'portionGrams', 'user');
-    }
-    // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
-    if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
-      det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
-      setFieldSource(det, 'count', 'default');
-      logEvent('default_applied', { actor: 'system', target: currentDetections.length + reportExtraDets.length, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
-    }
-    if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
-    // the dish itself (system — the user's action is the scenario_answered below)
-    // one attempt for this send: the answer and the dish it added
     const aid = nextAttemptId();
-    const extraInfo = { ...(name !== typed ? { text: typed } : {}), ...(food.changed ? { foodWordFixes: food.fixes } : {}), ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) };
-    logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, attemptId: aid,
-      detail: { via: 'scenario', scenarioNo: no, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(food.changed ? { foodWordsFixed: true } : {}) } });
-    st.added.push({ no, name, dishId: det.id, ...extraInfo });
-    recordScenarioAnswer(no, 'text', { added: name, ...extraInfo }, 'typed', aid);
-    // calories from the presets, like any dish (a per-piece item may stay 待補數量)
-    if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
-    // still missing a field (rare since 11/07: every cooking field has a preset 水煮): 資料不足，未估算 —
-    // nothing is guessed; the user can open its chip and fill it in
-    else markExtraIncomplete(det);
+    const items = [];
+    pieces.forEach(piece => {
+      const parsed = FIELD_DEFAULTS.parseGrams(piece);
+      const name = parsed.name.slice(0, 30);
+      const grams = parsed.grams;
+      const det = {
+        id: `scn${Date.now()}_${reportExtraDets.length}`,
+        name, confidence: null, category: 'food',
+        detail: {}, notes: [], onPhoto: false, source: 'scenario', scenarioNo: no,
+        ...(name !== typed ? { inputText: typed } : {}) // the whole text as typed
+      };
+      det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
+      reportExtraDets.push(det);
+      const target = currentDetections.length + reportExtraDets.length;
+      applyFieldDefaults(det, target, 'scenario');
+      if (Number.isInteger(grams)){
+        det.detail = { ...(det.detail || {}), portionGrams: grams };
+        setFieldSource(det, 'portionGrams', 'user');
+      }
+      // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
+      if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
+        det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+        setFieldSource(det, 'count', 'default');
+        logEvent('default_applied', { actor: 'system', target, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
+      }
+      if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
+      // the dish itself (system — the user's action is the scenario_answered below)
+      logEvent('dish_added', { actor: 'system', target, after: name, attemptId: aid,
+        detail: { via: 'scenario', scenarioNo: no, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(food.changed ? { foodWordsFixed: true } : {}), ...(split ? { splitFrom: pieces.length } : {}) } });
+      const extraInfo = { ...(name !== typed ? { text: typed } : {}), ...(food.changed ? { foodWordFixes: food.fixes } : {}), ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) };
+      st.added.push({ no, name, dishId: det.id, ...extraInfo });
+      items.push({ name, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) });
+      // calories from the presets, like any dish (a per-piece item may stay 待補數量)
+      if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
+      // still missing a field: 資料不足，未估算 — nothing is guessed
+      else markExtraIncomplete(det);
+    });
+    // one answer for this send (input 'typed' = 2, as before)
+    recordScenarioAnswer(no, 'text', {
+      added: items.map(x => x.name).join('、'),
+      ...(items.map(x => x.name).join('、') !== typed ? { text: typed } : {}),
+      ...(food.changed ? { foodWordFixes: food.fixes } : {}),
+      ...(split ? { items } : items[0] && items[0].portionGrams ? { portionGrams: items[0].portionGrams } : {})
+    }, 'typed', aid);
     showReportScenario(true);
   }
   document.getElementById('reportScenarioSubmit')?.addEventListener('click', submitScenarioFood);
