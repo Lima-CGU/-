@@ -45,6 +45,11 @@ t('splitFoods: several foods in one send, each with its own grams', () => {
   assert.deepStrictEqual(fd.splitFoods('和牛漢堡和薯條'), ['和牛漢堡', '薯條']);
   assert.deepStrictEqual(fd.splitFoods('及第粥'), ['及第粥']);
   assert.deepStrictEqual(fd.splitFoods('和菓子跟和式煎餅'), ['和菓子', '和式煎餅']);
+  // 和牛 only as the first word of a food; 及第 not inside 以及
+  assert.deepStrictEqual(fd.splitFoods('豬肉和牛肉'), ['豬肉', '牛肉']);
+  assert.deepStrictEqual(fd.splitFoods('雞肉和牛奶'), ['雞肉', '牛奶']);
+  assert.deepStrictEqual(fd.splitFoods('薯條和和牛漢堡'), ['薯條', '和牛漢堡']);
+  assert.deepStrictEqual(fd.splitFoods('白飯以及第二碗湯'), ['白飯', '第二碗湯']);
   // homophones are fixed before splitting: 殭屍5克以及青蔥 -> 薑絲 5 克 + 青蔥
   assert.deepStrictEqual(fd.splitFoods(vm.fixFoodWords('殭屍5克以及青蔥', { foodInput: true }).text), ['薑絲5克', '青蔥']);
 });

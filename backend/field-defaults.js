@@ -284,13 +284,26 @@
    *  one piece (or nothing to split) -> [the text as it is]. */
   const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
   // (11/17) food words whose 和 / 及 is not a separator: 鮭魚和風沙拉, 和牛漢堡, 及第粥
+  // (和牛 only as the first word of a food; 及第 not inside 以及 — see splitFoods)
   const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第'];
   function splitFoods(text){
     // a thousands comma is part of a number, not a separator: 1,000克 -> 1000克
     const raw = String(text || '').trim().replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');
     // protected words are swapped for placeholders (private-use characters) while splitting
+    // 和牛 only at the start or right after a separator (「豬肉和牛肉」 is 豬肉 + 牛肉);
+    // 及第 not inside 以及 (「白飯以及第二碗湯」); the others anywhere
+    const protectAt = (w, before) => (w === '和牛' ? before === '' || /(以及|還有|和|跟|及|[、，,\s])$/.test(before)
+      : w === '及第' ? !/以$/.test(before) : true);
     let masked = raw;
-    SPLIT_PROTECTED.forEach((w, i) => { masked = masked.split(w).join(String.fromCharCode(0xE000 + i)); });
+    SPLIT_PROTECTED.forEach((w, i) => {
+      let k = masked.indexOf(w);
+      while (k >= 0){
+        if (protectAt(w, masked.slice(0, k))){
+          masked = masked.slice(0, k) + String.fromCharCode(0xE000 + i) + masked.slice(k + w.length);
+          k = masked.indexOf(w, k + 1);
+        } else k = masked.indexOf(w, k + w.length);
+      }
+    });
     const unmask = t => SPLIT_PROTECTED.reduce((acc, w, i) => acc.split(String.fromCharCode(0xE000 + i)).join(w), t);
     const parts = masked.split(FOOD_SEPARATORS).map(x => unmask(x).trim()).filter(Boolean);
     return parts.length > 1 ? parts : (raw ? [raw] : []);
