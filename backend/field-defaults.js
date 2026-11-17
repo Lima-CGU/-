@@ -231,7 +231,94 @@
     return hit ? hit[0] : 'other';
   }
 
+  /* ---------- portion in grams (teacher 11/14, 11/15) ----------
+     A dish may carry detail.portionGrams (an integer, 1–2000 g): typed on
+     Group A's 份量 page (「其他（輸入公克）」), written in a food added at a
+     scenario question (「鴨肉180克」), or said in the B/C chat. When it is
+     there the calorie calculation uses it instead of the grams that
+     food type × size would give; detail.size keeps its value. */
+  const PORTION_GRAMS_MIN = 1;
+  const PORTION_GRAMS_MAX = 2000;
+  const validGrams = n => Number.isInteger(n) && n >= PORTION_GRAMS_MIN && n <= PORTION_GRAMS_MAX;
+  // 「180克」「50g」「5公克」「180 公克」, with 大概 / 約 before or 左右 after
+  const GRAMS_RE = /(大概|大約|約|差不多)?\s*([0-9０-９]{1,5}(?:[.．][0-9０-９]+)?|[零一二兩三四五六七八九十百千]{1,8})\s*(公克|克|grams?|g)(?![a-zA-Z])\s*(左右)?\s*(的)?/gi;
+  // 「兩百」「一百五十」「一千二」 -> 200 / 150 / 1200 (spoken amounts); Arabic digits as they are
+  const CN_DIGIT = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const CN_UNIT = { 十: 10, 百: 100, 千: 1000 };
+  function amountOf(t){
+    // (a decimal, 1.5 克: not a whole gram — not read, the text stays as typed)
+    if (/[.．]/.test(t)) return NaN;
+    if (/^[0-9０-９]+$/.test(t)) return Number(t.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    let total = 0, digit = null, lastUnit = 1, zero = false;
+    for (const c of t){
+      if (c === '零'){ zero = true; digit = null; }
+      else if (c in CN_DIGIT) digit = CN_DIGIT[c];
+      else if (c in CN_UNIT){ total += (digit == null ? 1 : digit) * CN_UNIT[c]; lastUnit = CN_UNIT[c]; digit = null; zero = false; }
+      else return NaN;
+    }
+    // 「一千二」 = 1200, 「兩百五」 = 250 (a trailing digit right after a unit is one
+    // unit lower); after 零 it is the digit itself: 「一百零五」 = 105
+    if (digit != null) total += lastUnit > 1 && !zero ? digit * (lastUnit / 10) : digit;
+    return total;
+  }
+  /** 「鴨肉180克」 -> { name: '鴨肉', grams: 180, raw: '鴨肉180克' }.
+   *  Exactly one gram amount, 1–2000, and a food name left over — otherwise
+   *  nothing is read (grams null, name = the text as typed): not sure = no change. */
+  function parseGrams(text){
+    const raw = String(text || '').trim();
+    const hits = [...raw.matchAll(GRAMS_RE)];
+    if (hits.length !== 1) return { name: raw, grams: null, raw };
+    const h = hits[0];
+    // 「1.5 克」「一點五克」: not a whole gram — not read
+    const before = raw.slice(0, h.index + h[0].indexOf(h[2]));
+    if (/[點.．]$/.test(before)) return { name: raw, grams: null, raw };
+    const grams = amountOf(h[2]);
+    if (!validGrams(grams)) return { name: raw, grams: null, raw };
+    const name = (raw.slice(0, h.index) + ' ' + raw.slice(h.index + h[0].length))
+      .replace(/\s+/g, ' ').replace(/^[\s,，、:：的]+|[\s,，、。:：]+$/g, '').trim();
+    if (!name) return { name: raw, grams: null, raw };
+    return { name, grams, raw };
+  }
+  /** (11/17) A scenario food box often holds several foods: 「薑絲5克以及青蔥」
+   *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,;
+   *  one piece (or nothing to split) -> [the text as it is]. */
+  const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
+  // (11/17) food words whose 和 / 及 is not a separator: 鮭魚和風沙拉, 和牛漢堡, 及第粥
+  // (和牛 only as the first word of a food; 及第 not inside 以及 — see splitFoods)
+  const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第'];
+  function splitFoods(text){
+    // a thousands comma is part of a number, not a separator: 1,000克 -> 1000克
+    const raw = String(text || '').trim().replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');
+    // protected words are swapped for placeholders (private-use characters) while splitting
+    // 和牛 only at the start or right after a separator (「豬肉和牛肉」 is 豬肉 + 牛肉);
+    // 及第 not inside 以及 (「白飯以及第二碗湯」); the others anywhere
+    const protectAt = (w, before) => (w === '和牛' ? before === '' || /(以及|還有|和|跟|及|[、，,\s])$/.test(before)
+      : w === '及第' ? !/以$/.test(before) : true);
+    let masked = raw;
+    SPLIT_PROTECTED.forEach((w, i) => {
+      let k = masked.indexOf(w);
+      while (k >= 0){
+        if (protectAt(w, masked.slice(0, k))){
+          masked = masked.slice(0, k) + String.fromCharCode(0xE000 + i) + masked.slice(k + w.length);
+          k = masked.indexOf(w, k + 1);
+        } else k = masked.indexOf(w, k + w.length);
+      }
+    });
+    const unmask = t => SPLIT_PROTECTED.reduce((acc, w, i) => acc.split(String.fromCharCode(0xE000 + i)).join(w), t);
+    const parts = masked.split(FOOD_SEPARATORS).map(x => unmask(x).trim()).filter(Boolean);
+    return parts.length > 1 ? parts : (raw ? [raw] : []);
+  }
+  /** Every gram amount written in a text (the B/C safety net: the AI may
+   *  only record grams the user actually said). */
+  function gramsIn(text){
+    return [...String(text || '').matchAll(GRAMS_RE)]
+      .filter(h => !/[點.．]$/.test(String(text || '').slice(0, h.index + h[0].indexOf(h[2]))))
+      .map(h => amountOf(h[2]))
+      .filter(validGrams);
+  }
+
   return {
+    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods, SPLIT_PROTECTED,
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
     SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,

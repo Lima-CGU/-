@@ -230,8 +230,15 @@
               </div>
               <div class="report-step-tools">
                 <button type="button" class="report-other-btn" id="reportOtherBtn">其他 ↻</button>
+                <button type="button" class="report-other-btn report-grams-btn" id="reportGramsBtn" hidden>其他（輸入公克）</button>
                 <button type="button" class="report-reveal-btn" id="reportRevealBtn" hidden>還要補充其他欄位</button>
               </div>
+              <div class="report-season-other report-grams-row" id="reportGramsRow" hidden>
+                <input type="text" inputmode="numeric" pattern="[0-9]*" class="report-season-input report-grams-input" id="reportGramsInput" maxlength="4" placeholder="輸入重量" aria-label="輸入重量(公克)">
+                <span class="report-grams-unit">克</span>
+                <button type="button" class="btn btn-primary report-season-add" id="reportGramsOk">確定</button>
+              </div>
+              <p class="report-grams-msg" id="reportGramsMsg" role="alert" hidden></p>
               <div class="report-step-nav">
                 <button type="button" class="btn btn-outline" id="reportStepBack">上一步</button>
                 <button type="button" class="btn btn-primary" id="reportStepNext">下一步</button>

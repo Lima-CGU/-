@@ -2577,6 +2577,12 @@ body.candidate-sheet-open .toast{
 .report-season-input{ flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 12px; font-family: var(--font-body); font-size: 15px; color: var(--ink); background: #fff; }
 .report-season-input:focus{ outline: none; border-color: var(--purple); }
 .report-season-add{ flex: 0 0 auto; height: 40px; padding: 0 16px; }
+/* (11/17) 份量 page: grams box (1–2000 克) */
+.report-grams-unit{ flex: 0 0 auto; font-size: 15px; font-weight: 700; color: var(--ink); }
+.report-grams-msg{ margin: 2px 0 0; font-size: 13px; color: var(--danger, #c0392b); }
+.report-grams-msg[hidden]{ display: none; }
+.report-grams-row .report-season-add{ box-shadow: none; }
+.report-other-btn.is-open{ background: var(--purple-tint, #f1edff); }
 
 /* (11/01) Group A: the scenario questions after 「完成」 replace the dish
    panel and the footer, one question per page, under the photo */

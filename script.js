@@ -117,7 +117,9 @@
   // Countable foods (/api/detect count): the units, and 1..COUNT_MAX
   const COUNT_UNITS = ['隻', '顆', '個', '片', '根', '塊', '粒', '條'];
   const COUNT_MAX = 50;
-  const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : d && d.countable ? `${name} ×?` : name);
+  // (11/17) grams the user gave stay with the food: 「鴨肉 180 克」
+  const gramsText = d => (d && d.detail && Number.isInteger(d.detail.portionGrams) ? ` ${d.detail.portionGrams} 克` : '');
+  const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : d && d.countable ? `${name} ×?` : name) + gramsText(d);
 
   // App version stored with every record = sw.js's CACHE_NAME (read from the
   // cached sw.js, so it is the version of the shell actually running).
@@ -363,6 +365,8 @@
   function userActionWeight(e){
     if (e.event === 'message_submitted') return e.source === 'suggestion' ? 1 : 2;
     if (e.event === 'dish_renamed') return e.detail && e.detail.inputType === 'typed' ? 2 : 1;
+    // (11/17) grams typed on the 份量 page: input 1 + confirm 1 (like a typed rename)
+    if ((e.event === 'field_set' || e.event === 'field_changed') && e.field === 'portionGrams' && e.detail && e.detail.inputType === 'typed') return 2;
     // (11/01 fix) a scenario answer: a button = 1; text typed and sent = 2
     // (input + send, like a typed rename); a chat message = 0 here, because
     // its message_submitted already counts the 2
@@ -2546,7 +2550,9 @@
     return {
       ...Object.fromEntries(REPORT_FIELDS.map(k => [k, k === 'containerType' ? null : x[k] || null])),
       // 調味 (11/01): a list ([] = nothing picked), null where it doesn't apply
-      seasonings: Array.isArray(x.seasonings) ? x.seasonings.slice() : null
+      seasonings: Array.isArray(x.seasonings) ? x.seasonings.slice() : null,
+      // (11/17) grams the user gave (A typed / scenario food, B/C said in the chat); null = none
+      portionGrams: Number.isInteger(x.portionGrams) ? x.portionGrams : null
     };
   }
   function savedFieldSource(d){
@@ -2582,6 +2588,8 @@
           box: null, displayBox: null, source: d.source || 'chat', tapPoint: null,
           foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
           ...(d.scenarioNo ? { scenarioNo: d.scenarioNo } : {}),
+          // (11/17) what the user typed, when the name was cleaned (殭屍 → 薑絲, 180克 → portionGrams)
+          ...(d.inputText ? { inputText: d.inputText } : {}),
           // (A: an added food can be walked through to 完成這道菜 too)
           ...(chatMode ? {} : { userReviewed: !!d.userReviewed }),
           notes: [...(d.notes || [])],
@@ -3056,6 +3064,14 @@
     detailAdjustTarget.detail = { ...detailDraft };
     // (11/13) what the USER set in the sheet, before a rename re-applies presets
     const diaryUserDetail = diaryRec ? JSON.parse(JSON.stringify(detailAdjustTarget.detail)) : null;
+    // (11/17) a size picked in the sheet for a dish with typed grams: the size is
+    // used again (logged below as a system change, reason 'size-picked')
+    let gramsClearedFrom = null;
+    if (Number.isInteger(detailAdjustTarget.detail.portionGrams) && detailAdjustTarget.detail.size !== prevDetail.size){
+      gramsClearedFrom = detailAdjustTarget.detail.portionGrams;
+      delete detailAdjustTarget.detail.portionGrams;
+      if (detailAdjustTarget.fieldSource) delete detailAdjustTarget.fieldSource.portionGrams;
+    }
     if (detailCountDraft && detailCountDraft !== detailAdjustTarget.count){
       detailAdjustTarget.count = detailCountDraft;
       detailAdjustTarget.countEdits = (detailAdjustTarget.countEdits || 0) + 1;
@@ -3083,7 +3099,7 @@
       const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
       let changes = 0;
       // the user's changes (sheet) …
-      REPORT_FIELDS.concat('seasonings').forEach(k => {
+      REPORT_FIELDS.concat('seasonings', 'portionGrams').forEach(k => {
         if (same(diaryBefore.detail[k], diaryUserDetail[k])) return;
         changes += 1;
         logAfterFinal(diaryRec, 'diary_field_changed', { target: no, field: k, before: diaryBefore.detail[k] ?? null, after: diaryUserDetail[k] ?? null });
@@ -3101,6 +3117,9 @@
       const countAfterUser = detailCountDraft || diaryBefore.count;
       if ((detailAdjustTarget.count ?? null) !== (countAfterUser ?? null)){
         logAfterFinal(diaryRec, 'diary_count_changed', { actor: 'system', target: no, field: 'count', before: countAfterUser ?? null, after: detailAdjustTarget.count ?? null, detail: { reason: 'rename' } });
+      }
+      if (gramsClearedFrom != null){
+        logAfterFinal(diaryRec, 'diary_field_changed', { actor: 'system', target: no, field: 'portionGrams', before: gramsClearedFrom, after: null, detail: { reason: 'size-picked' } });
       }
       const newName = stripConfidenceText(detailAdjustTarget.name || '');
       if (newName !== diaryBefore.name){
@@ -3158,6 +3177,12 @@
   const reportOtherBtn    = document.getElementById('reportOtherBtn');
   const reportRevealBtn   = document.getElementById('reportRevealBtn');
   const reportSeasonOther = document.getElementById('reportSeasonOther');
+  // (11/17) 份量 page: grams typed by the user
+  const reportGramsBtn = document.getElementById('reportGramsBtn');
+  const reportGramsRow = document.getElementById('reportGramsRow');
+  const reportGramsInput = document.getElementById('reportGramsInput');
+  const reportGramsOk = document.getElementById('reportGramsOk');
+  const reportGramsMsg = document.getElementById('reportGramsMsg');
   const reportSeasonInput = document.getElementById('reportSeasonInput');
   const reportSeasonAdd   = document.getElementById('reportSeasonAdd');
   const reportStepBack    = document.getElementById('reportStepBack');
@@ -3639,6 +3664,20 @@
     } else {
       reportStepCurrent.hidden = true;
     }
+    // (11/17) 份量: 「其他（輸入公克）」 opens a grams box; with grams the
+    // 「目前」 line shows them (the size card stays as it was, not highlighted)
+    const isSize = field === 'size';
+    const grams = (det.detail || {}).portionGrams;
+    if (reportGramsBtn){
+      reportGramsBtn.hidden = !isSize;
+      reportGramsBtn.classList.toggle('is-open', !!det.gramsOpen);
+    }
+    if (reportGramsRow) reportGramsRow.hidden = !(isSize && det.gramsOpen);
+    if (reportGramsMsg && !(isSize && det.gramsOpen)) reportGramsMsg.hidden = true;
+    if (isSize && Number.isInteger(grams)){
+      reportStepCurrent.hidden = false;
+      reportStepCurrent.textContent = `目前:${grams} 克`;
+    }
     reportOtherBtn.hidden = isCount || groups.length < 2;
     const last = idx === steps.length - 1;
     reportRevealBtn.hidden = !last || !hiddenFields(det).length;
@@ -3653,7 +3692,9 @@
     reportStepCards.querySelectorAll('.detail-choice').forEach(btn => {
       const kind = btn.dataset.kind;
       btn.classList.toggle('selected', kind === 'seasonings' ? seasoningsOf(det).includes(btn.dataset.value)
-        : kind === 'seasonings-other' ? false : btn.dataset.value === d[kind]);
+        : kind === 'seasonings-other' ? false
+        : kind === 'size' && Number.isInteger(d.portionGrams) ? false // (11/17) grams replace the size card
+        : btn.dataset.value === d[kind]);
       if (kind === 'seasonings-other') btn.classList.toggle('is-open', !!det.seasonOtherOpen); // (open box, not a pick)
     });
   }
@@ -3759,8 +3800,68 @@
     setReportField(btn.dataset.kind, btn.dataset.value);
   });
   reportSeasonAdd?.addEventListener('click', addReportSeasoningText);
+
+  /* (11/17, teacher) 份量 page: 「其他（輸入公克）」 -> a number box (1–2000 克).
+     The grams are kept in detail.portionGrams and replace food type × size in
+     the calorie calculation; detail.size keeps its value. One typed entry
+     confirmed = field_set / field_changed 'portionGrams' (input 1 + confirm 1). */
+  reportGramsBtn?.addEventListener('click', () => {
+    const det = selectedReportDet();
+    if (!det || det.loading) return;
+    det.gramsOpen = !det.gramsOpen;
+    logUserAction('other_input_toggled', { target: dishNoOf(det), field: 'portionGrams', after: det.gramsOpen ? 'open' : 'closed' });
+    if (reportGramsMsg) reportGramsMsg.hidden = true;
+    if (det.gramsOpen && reportGramsInput){
+      const g = (det.detail || {}).portionGrams;
+      reportGramsInput.value = Number.isInteger(g) ? String(g) : '';
+    }
+    renderReportStep(det);
+    if (det.gramsOpen) reportGramsInput?.focus();
+  });
+  function confirmReportGrams(){
+    const det = selectedReportDet();
+    if (!det || det.loading || !reportGramsInput) return;
+    const text = String(reportGramsInput.value || '').trim().replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    const n = /^\d+$/.test(text) ? Number(text) : NaN;
+    if (!FIELD_DEFAULTS.validGrams(n)){
+      if (reportGramsMsg){
+        reportGramsMsg.textContent = `請輸入 ${FIELD_DEFAULTS.PORTION_GRAMS_MIN}～${FIELD_DEFAULTS.PORTION_GRAMS_MAX} 的整數`;
+        reportGramsMsg.hidden = false;
+      }
+      if (reportActive && !chatMode) sizeReportPhotoSlot(); // (the line must not push the page past the screen)
+      return;
+    }
+    if (reportGramsMsg) reportGramsMsg.hidden = true;
+    setReportGrams(det, n);
+  }
+  function setReportGrams(det, grams){
+    const wasComplete = isDishComplete(det);
+    const prev = (det.detail || {}).portionGrams;
+    det.gramsOpen = false;
+    if (prev === grams){ renderReportStep(det); return; }
+    if (currentMealMeta){
+      currentMealMeta.editLog.fieldSetCount += 1;
+      if (Number.isInteger(prev)) currentMealMeta.editLog.fieldChangeCount += 1;
+    }
+    logEvent(Number.isInteger(prev) ? 'field_changed' : 'field_set', {
+      actor: 'user', target: dishNoOf(det), field: 'portionGrams', before: Number.isInteger(prev) ? prev : null, after: grams,
+      attemptId: nextAttemptId(), source: 'typed', detail: { inputType: 'typed', unit: 'g' }
+    });
+    setFieldSource(det, 'portionGrams', 'user');
+    det.detail = { ...(det.detail || {}), portionGrams: grams };
+    renderReportStep(det);
+    refreshMarkerStates();
+    updateReportDone();
+    renderReportExtraChips();
+    if (isDishComplete(det)) notifyDishDetailComplete(det, wasComplete ? 'changed' : 'completed');
+    else markExtraIncomplete(det);
+  }
+  reportGramsOk?.addEventListener('click', confirmReportGrams);
+  reportGramsInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); confirmReportGrams(); }
+  });
   // a phone keyboard would cover these low input rows: bring them into view
-  ['reportSeasonInput', 'reportScenarioInput', 'detailSeasonInput'].forEach(id => {
+  ['reportSeasonInput', 'reportScenarioInput', 'detailSeasonInput', 'reportGramsInput'].forEach(id => {
     document.getElementById(id)?.addEventListener('focus', e => {
       setTimeout(() => { try { e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (err){ /* old browsers */ } }, 300);
     });
@@ -3850,16 +3951,26 @@
     // one tap (or one spoken option) = one committed change = one attempt.
     // Tapping the preset value itself confirms it: field_set, before = after.
     const source = opts.source === 'voice' ? 'voice' : null;
+    // (11/17) a size card picked after grams were typed: the size is used again
+    const gramsBefore = kind === 'size' ? (det.detail || {}).portionGrams : null;
+    const clearsGrams = Number.isInteger(gramsBefore);
+    const aid = prev !== value || fromDefault || clearsGrams ? nextAttemptId() : null;
     if (prev !== value) logEvent(prev ? 'field_changed' : 'field_set', {
-      actor: 'user', target: dishNoOf(det), field: kind, before: prev || null, after: value, attemptId: nextAttemptId(), source,
+      actor: 'user', target: dishNoOf(det), field: kind, before: prev || null, after: value, attemptId: aid, source,
       detail: fromDefault ? { fromDefault: true } : null
     });
-    else if (fromDefault) logEvent('field_set', {
-      actor: 'user', target: dishNoOf(det), field: kind, before: prev, after: value, attemptId: nextAttemptId(), source,
-      detail: { confirmedDefault: true }
+    else if (fromDefault || clearsGrams) logEvent('field_set', {
+      actor: 'user', target: dishNoOf(det), field: kind, before: prev, after: value, attemptId: aid, source,
+      detail: fromDefault ? { confirmedDefault: true } : { replacesGrams: true }
     });
     setFieldSource(det, kind, 'user');
     det.detail = { ...(det.detail || {}), [kind]: value };
+    if (clearsGrams){
+      delete det.detail.portionGrams;
+      if (det.fieldSource) delete det.fieldSource.portionGrams;
+      det.gramsOpen = false;
+      logEvent('field_changed', { actor: 'system', target: dishNoOf(det), field: 'portionGrams', before: gramsBefore, after: null, attemptId: aid, detail: { reason: 'size-picked' } });
+    }
     renderReportStep(det); // selected card + the 「目前:…」 line
     refreshMarkerStates();
     updateReportDone();
@@ -4212,6 +4323,8 @@
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const field = currentStepField(det);
     let picked = null;
+    // (11/17) food homophones first (殭屍 → 薑絲), like every food text
+    if (VOICE_MATCH.fixFoodWords) text = VOICE_MATCH.fixFoodWords(text).text;
     const cmd = VOICE_MATCH.command(text);
     if (field === 'count'){
       // a command (下一步 / 換一組 / 上一步 …) is never read as a number
@@ -4561,7 +4674,7 @@
       chip.className = 'report-extra-chip';
       chip.classList.toggle('is-done', isDishReviewed(det));
       chip.dataset.id = det.id;
-      chip.textContent = `＋${splitNameConfidence(det.name || '').name}`;
+      chip.textContent = `＋${splitNameConfidence(det.name || '').name}${gramsText(det)}`;
       // same states as the photo markers: hollow = not finished (a field may
       // still be empty → 資料不足，未估算), green + ✓ = 完成這道菜
       chip.setAttribute('aria-label', `補充的菜:${splitNameConfidence(det.name || '').name}(${isDishReviewed(det) ? '已完成' : '還沒填完'},點一下修改)`);
@@ -4616,35 +4729,63 @@
   });
   function submitScenarioFood(){
     const st = scenarioState();
-    const name = reportScenarioInput ? reportScenarioInput.value.trim().slice(0, 30) : '';
-    if (!st || !name || isSavingMeal) return;
+    const typed = reportScenarioInput ? reportScenarioInput.value.trim().slice(0, 30) : '';
+    if (!st || !typed || isSavingMeal) return;
+    // (11/17) food homophones (殭屍 → 薑絲; this box holds food names, so 輕鬆 → 青蔥
+    // too) and a gram amount (「鴨肉180克」 -> 鴨肉 + portionGrams 180); the typed
+    // text is kept (inputText) when it was changed
+    const food = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(typed, { foodInput: true }) : { text: typed, changed: false, fixes: [] };
+    // (11/17) several foods in one send (「薑絲5克以及青蔥」): one added food each,
+    // each with its own grams; homophones are fixed first. Still ONE answer and
+    // ONE attempt (the counting is unchanged); one system dish_added per food.
+    const pieces = FIELD_DEFAULTS.splitFoods(food.text);
+    const split = pieces.length > 1;
     const no = st.next;
-    const det = {
-      id: `scn${Date.now()}_${reportExtraDets.length}`,
-      name, confidence: null, category: 'food',
-      detail: {}, notes: [], onPhoto: false, source: 'scenario', scenarioNo: no
-    };
-    det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
-    reportExtraDets.push(det);
-    applyFieldDefaults(det, currentDetections.length + reportExtraDets.length, 'scenario');
-    // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
-    if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
-      det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
-      setFieldSource(det, 'count', 'default');
-      logEvent('default_applied', { actor: 'system', target: currentDetections.length + reportExtraDets.length, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
-    }
-    if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
-    // the dish itself (system — the user's action is the scenario_answered below)
-    // one attempt for this send: the answer and the dish it added
     const aid = nextAttemptId();
-    logEvent('dish_added', { actor: 'system', target: currentDetections.length + reportExtraDets.length, after: name, attemptId: aid, detail: { via: 'scenario', scenarioNo: no } });
-    st.added.push({ no, name, dishId: det.id });
-    recordScenarioAnswer(no, 'text', { added: name }, 'typed', aid);
-    // calories from the presets, like any dish (a per-piece item may stay 待補數量)
-    if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
-    // still missing a field (rare since 11/07: every cooking field has a preset 水煮): 資料不足，未估算 —
-    // nothing is guessed; the user can open its chip and fill it in
-    else markExtraIncomplete(det);
+    const items = [];
+    pieces.forEach(piece => {
+      const parsed = FIELD_DEFAULTS.parseGrams(piece);
+      const name = parsed.name.slice(0, 30);
+      const grams = parsed.grams;
+      const det = {
+        id: `scn${Date.now()}_${reportExtraDets.length}`,
+        name, confidence: null, category: 'food',
+        detail: {}, notes: [], onPhoto: false, source: 'scenario', scenarioNo: no,
+        ...(name !== typed ? { inputText: typed } : {}) // the whole text as typed
+      };
+      det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
+      reportExtraDets.push(det);
+      const target = currentDetections.length + reportExtraDets.length;
+      applyFieldDefaults(det, target, 'scenario');
+      if (Number.isInteger(grams)){
+        det.detail = { ...(det.detail || {}), portionGrams: grams };
+        setFieldSource(det, 'portionGrams', 'user');
+      }
+      // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
+      if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
+        det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+        setFieldSource(det, 'count', 'default');
+        logEvent('default_applied', { actor: 'system', target, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
+      }
+      if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
+      // the dish itself (system — the user's action is the scenario_answered below)
+      logEvent('dish_added', { actor: 'system', target, after: name, attemptId: aid,
+        detail: { via: 'scenario', scenarioNo: no, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(food.changed ? { foodWordsFixed: true } : {}), ...(split ? { splitFrom: pieces.length } : {}) } });
+      const extraInfo = { ...(name !== typed ? { text: typed } : {}), ...(food.changed ? { foodWordFixes: food.fixes } : {}), ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) };
+      st.added.push({ no, name, dishId: det.id, ...extraInfo });
+      items.push({ name, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) });
+      // calories from the presets, like any dish (a per-piece item may stay 待補數量)
+      if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
+      // still missing a field: 資料不足，未估算 — nothing is guessed
+      else markExtraIncomplete(det);
+    });
+    // one answer for this send (input 'typed' = 2, as before)
+    recordScenarioAnswer(no, 'text', {
+      added: items.map(x => x.name).join('、'),
+      ...(items.map(x => x.name).join('、') !== typed ? { text: typed } : {}),
+      ...(food.changed ? { foodWordFixes: food.fixes } : {}),
+      ...(split ? { items } : items[0] && items[0].portionGrams ? { portionGrams: items[0].portionGrams } : {})
+    }, 'typed', aid);
     showReportScenario(true);
   }
   document.getElementById('reportScenarioSubmit')?.addEventListener('click', submitScenarioFood);
@@ -4861,6 +5002,7 @@
     const fields = dishFields(det);
     const parts = [];
     if (fields.includes('size') && v.size) parts.push(CHAT_SIZE_WORDS[v.size] || v.size);
+    if (Number.isInteger(v.portionGrams)) parts.push(`${v.portionGrams} 克`); // (11/17)
     if (det.count && det.countConfirmed) parts.push(`${det.count} ${det.countUnit || '個'}`); // the photo count isn't what was eaten
     if (fields.includes('containerType') && v.containerType) parts.push(FIELD_DEFAULTS.CONTAINER_LABELS[v.containerType] || v.containerType);
     if (fields.includes('cookingMethod') && v.cookingMethod) parts.push(v.cookingMethod);
@@ -5038,7 +5180,13 @@
     // 🎤 text: fix speech homophones (真的雞 → 蒸的雞) before the AI sees it;
     // the record keeps both versions
     const voice = source === 'typed' && chatVoiceUsed;
-    const fixed = voice && VOICE_MATCH && VOICE_MATCH.fixHomophones ? VOICE_MATCH.fixHomophones(text) : { text, changed: false };
+    const fixedVoice = voice && VOICE_MATCH && VOICE_MATCH.fixHomophones ? VOICE_MATCH.fixHomophones(text) : { text, changed: false };
+    // (11/17) food homophones (殭屍 → 薑絲), for typed text too — the phone
+    // keyboard's dictation arrives as typing; a real word (輕鬆) only where it
+    // stands like a list item. The bubble shows the corrected text; the
+    // record keeps the original (textRaw).
+    const food = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(fixedVoice.text) : { text: fixedVoice.text, changed: false };
+    const fixed = { text: food.text, changed: fixedVoice.changed };
     const said = fixed.text;
     const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${said}`
       : sel && sel.type === 'meal' ? `關於整餐:${said}` : said;
@@ -5049,13 +5197,13 @@
       actor: 'user', target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, attemptId,
       source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed'),
       // contextDish: the dish this message is about (selected, or the recent one; 'meal' for 整餐)
-      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
+      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, foodWordsFixed: food.changed, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
     });
     if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,
       thumb: sel && sel.type === 'dish' ? ensureReportThumb(sel.det) : null,
-      meta: { source, ...(voice ? { voiceRaw: text, voiceFixed: said } : {}) }
+      meta: { source, ...(voice ? { voiceRaw: text, voiceFixed: said } : {}), ...(food.changed ? { textRaw: text, foodWordFixes: food.fixes } : {}) }
     });
     if (source === 'typed' && chatInput) chatInput.value = '';
     sizeChatInput();
@@ -5284,6 +5432,13 @@
         fields.seasonings.forEach(v => { if (!next.includes(v)) next = toggledSeasonings(next, v); });
         fields.seasonings = next;
       }
+      // (11/17) a size the user said now, without grams: the size is used again
+      // (like Group A picking a size card after typing grams)
+      if (fields.size && fields.size !== (det.detail || {}).size && !u.autoSize && !Number.isInteger(fields.portionGrams) && Number.isInteger((det.detail || {}).portionGrams)){
+        det.detail = { ...det.detail };
+        delete det.detail.portionGrams;
+        if (det.fieldSource) delete det.fieldSource.portionGrams;
+      }
       det.detail = { ...(det.detail || {}), ...fields };
       if (u.autoSize) chatAutoSized.add(det);
       // "雞腿吃了 4 隻": what the user ate wins over the photo's count
@@ -5323,7 +5478,8 @@
       };
       if (det.source === 'scenario'){
         const st = scenarioState();
-        if (st) st.added.push({ no: det.scenarioNo, name: det.name, dishId: det.id });
+        if (st) st.added.push({ no: det.scenarioNo, name: det.name, dishId: det.id,
+          ...(Number.isInteger((nd.fields || {}).portionGrams) ? { portionGrams: nd.fields.portionGrams } : {}) });
       }
       // presets by food type (guessed from the name), then what the AI recorded
       det.foodType = FIELD_DEFAULTS.guessFoodType(det.name, det.category);
@@ -5363,8 +5519,8 @@
         det.kcalStarted = false;
         return;
       }
-      if (!det.detail || !det.detail.size){
-        Calorie.markNeedsPortion(det.id); // 待補份量
+      if (!det.detail || !(det.detail.size || Number.isInteger(det.detail.portionGrams))){
+        Calorie.markNeedsPortion(det.id); // 待補份量 (11/17: grams are a portion too)
         det.kcalStarted = false;
         return;
       }
@@ -5468,7 +5624,8 @@
   chatDoneBtn?.addEventListener('click', () => {
     if (chatBusy || isSavingMeal || chatScenarioNo) return;
     const all = chatAllDets();
-    const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !d.detail.size
+    const incomplete = all.filter(d => !d.chatDescribed || !d.detail || !(d.detail.size || Number.isInteger(d.detail.portionGrams))
+      || (Calorie.getState(d.id) || {}).status === 'needs-portion' // (11/17) grams the item can't use, and no size
       || ((d.count || d.countable) && !d.countConfirmed)).length; // count not confirmed yet
     logEvent('finish_pressed', { actor: 'user', detail: { incomplete } });
     if (incomplete && !window.confirm(`還有 ${incomplete} 道菜的資訊不完整,確定要完成嗎?`)){

@@ -283,6 +283,9 @@
     const x = d.detail || {};
     const parts = FIELDS.filter(k => x[k]).map(k => `${FIELD_LABEL[k]}:${k === 'containerType' ? CONTAINER_LABEL[x[k]] || x[k] : x[k]}`);
     if (d.count) parts.push(`數量:${d.count}${d.countUnit ? ` ${d.countUnit}` : ''}`);
+    // (11/17) grams the user gave, and where they came from
+    if (Number.isInteger(x.portionGrams)) parts.push(`重量:${x.portionGrams} 克(${{ user: '使用者輸入', ai: '對話中說的' }[(d.fieldSource || {}).portionGrams] || '來源不明'})`);
+    if (d.inputText) parts.push(`原始輸入:${d.inputText}`);
     // (11/01) 調味: the list, or 未選 when nothing was picked (fruit / beverage: none)
     if (Array.isArray(x.seasonings)) parts.push(`調味:${x.seasonings.length ? x.seasonings.join('、') : '未選'}`);
     return parts.length ? parts.join('、') : '(沒有填欄位)';
