@@ -119,6 +119,9 @@
   const COUNT_MAX = 50;
   // (11/17) grams the user gave stay with the food: 「鴨肉 180 克」
   const gramsText = d => (d && d.detail && Number.isInteger(d.detail.portionGrams) ? ` ${d.detail.portionGrams} 克` : '');
+  // (audit 11/17) input limits that keep a record valid for the backend (records.js)
+  const DISH_NAME_MAX = 40;
+  const CHAT_MESSAGE_MAX = 500;
   const withCount = (name, d) => (d && d.count ? `${name} ×${d.count}` : d && d.countable ? `${name} ×?` : name) + gramsText(d);
 
   // App version stored with every record = sw.js's CACHE_NAME (read from the
@@ -1132,7 +1135,11 @@
   // What goes to /api/records: the record without images or UI-only fields.
   const LOCAL_ONLY_KEYS = new Set(['thumbUrl', 'localPhoto', 'syncStatus']);
   function uploadableRecord(record){
-    return JSON.parse(JSON.stringify(record, (k, v) => (LOCAL_ONLY_KEYS.has(k) ? undefined : v)));
+    const up = JSON.parse(JSON.stringify(record, (k, v) => (LOCAL_ONLY_KEYS.has(k) ? undefined : v)));
+    // (audit 11/17) the backend rejects a dish name over 80 characters (the whole
+    // meal would never upload): a too-long name from an old copy is cut
+    if (Array.isArray(up.dishes)) up.dishes.forEach(d => { if (d && typeof d.name === 'string' && d.name.length > 80) d.name = d.name.slice(0, 80); });
+    return up;
   }
   // This device's Diary (records with small thumbnails + a small photo), so
   // it survives a reload. Removed meals are not kept here.
@@ -1146,17 +1153,31 @@
   const syncTimers = new Map();
   function syncRecordSoon(record){
     clearTimeout(syncTimers.get(record.id));
-    syncTimers.set(record.id, setTimeout(() => {
-      syncTimers.delete(record.id);
-      record.syncStatus = 'pending';
-      persistDiary();
-      // (11/13) Diary events after the save make a record grow: the upload
-      // copy is trimmed like at the save (fitRecordSize), the device copy isn't
-      const up = uploadableRecord(record);
-      fitRecordSize(up);
-      window.PictaSync.enqueue(up, null);
-    }, 1200));
+    // (audit 11/17) the device copy is saved at once — a reload / close within
+    // the debounce must not lose a Diary edit or delete
+    persistDiary();
+    syncTimers.set(record.id, setTimeout(() => uploadRecordNow(record), 1200));
   }
+  function uploadRecordNow(record){
+    clearTimeout(syncTimers.get(record.id));
+    syncTimers.delete(record.id);
+    record.syncStatus = 'pending';
+    persistDiary();
+    // (11/13) Diary events after the save make a record grow: the upload
+    // copy is trimmed like at the save (fitRecordSize), the device copy isn't
+    const up = uploadableRecord(record);
+    fitRecordSize(up);
+    window.PictaSync.enqueue(up, null);
+  }
+  // leaving the page: queue every pending Diary upload now (the queue survives a reload)
+  function flushPendingSyncs(){
+    [...syncTimers.keys()].forEach(id => {
+      const record = mealRecords.find(r => r.id === id);
+      if (record) uploadRecordNow(record); else { clearTimeout(syncTimers.get(id)); syncTimers.delete(id); }
+    });
+  }
+  window.addEventListener('pagehide', flushPendingSyncs);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPendingSyncs(); });
   document.addEventListener('pictameal:sync-update', e => {
     const { id, status } = e.detail;
     const record = mealRecords.find(r => r.id === id);
@@ -2014,7 +2035,7 @@
 
   candidateConfirmBtn.addEventListener('click', () => {
     const det = candidateTargetDet;
-    const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim();
+    const custom = candidateCustomInput.hidden ? '' : candidateCustomInput.value.trim().slice(0, DISH_NAME_MAX); // (a longer name made the record fail validation)
     const choice = candidateChoices[candidateSelectedIndex];
     if (det && !custom && !choice && !candidateCustomInput.hidden){
       showToast('請選一個菜名,或自己輸入');
@@ -3078,7 +3099,7 @@
       setFieldSource(detailAdjustTarget, 'count', 'user'); // (before the rename below, which keeps user counts)
     }
     if (!detailNameField.hidden){
-      const newName = detailNameInput.value.trim();
+      const newName = detailNameInput.value.trim().slice(0, DISH_NAME_MAX);
       const oldName = stripConfidenceText(detailAdjustTarget.name || '');
       const renamed = !!newName && newName !== oldName;
       if (newName) detailAdjustTarget.name = newName;
@@ -5176,6 +5197,9 @@
 
   async function sendChat(text, source = 'typed'){
     if (chatBusy) return;
+    // (audit 11/17) one message ≤ 500 characters (what the server reads anyway); a
+    // longer one made the saved record fail validation, so the meal never uploaded
+    text = String(text || '').slice(0, CHAT_MESSAGE_MAX);
     const sel = chatSelection();
     // 🎤 text: fix speech homophones (真的雞 → 蒸的雞) before the AI sees it;
     // the record keeps both versions
@@ -5995,7 +6019,7 @@
     applyVoiceResult(candidate);
   });
   voiceFallbackConfirmBtn.addEventListener('click', () => {
-    const text = voiceFallbackInput.value.trim();
+    const text = voiceFallbackInput.value.trim().slice(0, DISH_NAME_MAX);
     if (!text) return;
     const originalName = voiceTargetDet ? stripConfidenceText(voiceTargetDet.name || '') : '';
     const normalizedOriginal = normalizeRenameText(originalName);

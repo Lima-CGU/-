@@ -83,7 +83,8 @@
       photoInline: old && old.photoInline,
       attempts: old ? old.attempts : 0,
       errors: old ? old.errors : [],
-      queuedAt: old ? old.queuedAt : new Date().toISOString()
+      queuedAt: old ? old.queuedAt : new Date().toISOString(),
+      fresh: true // (audit 11/17) queued since the last upload run: sent right after it
     };
     if (photoDataUrl){
       try { await putPhoto(record.id, photoDataUrl); entry.photoInline = undefined; }
@@ -132,6 +133,7 @@
     flushing = (async () => {
       for (const entry of snapshot){
         if (!queue.includes(entry)) continue;           // replaced meanwhile by a newer version
+        entry.fresh = false;
         try {
           await uploadOne(entry);
           if (queue.includes(entry)){                   // not re-queued while it was in flight
@@ -151,7 +153,7 @@
     })().finally(() => {
       flushing = null;
       // a record (re)queued while this run was going goes up right away
-      if (queue.some(e => !snapshot.includes(e) && e.attempts === 0)) setTimeout(flush, 0);
+      if (queue.some(e => !snapshot.includes(e) && (e.attempts === 0 || e.fresh))) setTimeout(flush, 0);
     });
     return flushing;
   }
