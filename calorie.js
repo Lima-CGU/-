@@ -47,7 +47,9 @@
       count: Number.isInteger(d.count) ? d.count : undefined,
       countUnit: d.countUnit || undefined,
       // grams of a per-100 g item = food type × size (fruit: per piece × count)
-      foodType: d.foodType || undefined
+      foodType: d.foodType || undefined,
+      // (11/17) grams the user gave replace food type × size
+      portionGrams: Number.isInteger(x.portionGrams) ? x.portionGrams : undefined
     };
   }
 

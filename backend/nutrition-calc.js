@@ -48,7 +48,32 @@ function compute(item, input){
   let factor, grams, basisKind, amount = null, amountUnit = null, multiplier = null, how, formula, countUsed = null;
   const itemUnit = unitLabel(item.unit);
 
-  if (isContinuous(item)){
+  const userGrams = Number.isInteger(input.portionGrams) && input.portionGrams > 0 ? input.portionGrams : null;
+  if (userGrams && isContinuous(item)){
+    // (11/17) grams the user gave replace food type × size (and fruit pieces)
+    const base = item.weightG;
+    if (!isNum(base) || base <= 0) return { status: 'unsupported', reason: 'no-portion' };
+    basisKind = 'continuous';
+    amount = userGrams;
+    amountUnit = 'g';
+    factor = userGrams / base;
+    grams = userGrams;
+    const baseU = /毫升|ml|c\.?c/i.test(itemUnit) ? 'ml' : 'g';
+    formula = `每 ${base}${baseU} ${item.kcal} kcal × ${userGrams}g`;
+    how = `以「${item.name}」每 ${base} ${item.basis === 'per100g' ? '公克' : (itemUnit || '公克')}為基準,使用者輸入 ${userGrams} 公克(÷ ${base} × ${userGrams})`;
+  } else if (userGrams && isNum(item.weightG) && item.weightG > 0){
+    // (11/17) a per-unit item whose unit weight is known: grams ÷ that weight
+    basisKind = 'continuous';
+    amount = userGrams;
+    amountUnit = 'g';
+    factor = userGrams / item.weightG;
+    grams = userGrams;
+    formula = `${item.name} 1 ${itemUnit}(${item.weightG}g)${item.kcal} kcal × ${userGrams}g ÷ ${item.weightG}g`;
+    how = `以「${item.name} 1 ${itemUnit}」約 ${item.weightG} 公克為基準,使用者輸入 ${userGrams} 公克(÷ ${item.weightG} × ${userGrams})`;
+  } else if (!input.size){
+    // grams were given but this item's unit has no known weight, and no size: not guessed
+    return { status: 'needs-portion' };
+  } else if (isContinuous(item)){
     // food type × size (the container is no longer used); fruit: grams of one piece × count
     const type = input.foodType in cfg.FOOD_TYPE_PORTIONS || input.foodType === 'fruit' ? input.foodType : 'other';
     let portion = cfg.FOOD_TYPE_PORTIONS[type];
@@ -108,7 +133,8 @@ function compute(item, input){
   if (salt > 0) how += `;鹽 ${String(input.salt).replace(/\s+/g, '')} → 鈉 +${round(salt * cfg.SODIUM_MG_PER_TEASPOON)} mg`;
 
   // cooking oil: by method × size × count, unless the item already includes it
-  const oil = oilFor(item, input, countUsed);
+  // (11/17) grams without a size (B/C): oil at size M (× 1) — the oil rule is by size
+  const oil = oilFor(item, input.size ? input : { ...input, size: 'M' }, countUsed);
   const foodKcal = round(kcal);
   const oilKcal = round(oil * cfg.OIL_PER_TEASPOON.kcal);
   const fatG = isNum(item.fatG) || oil ? round((isNum(item.fatG) ? item.fatG * factor : 0) + oil * cfg.OIL_PER_TEASPOON.fatG, 1) : null;
@@ -129,6 +155,7 @@ function compute(item, input){
     sodiumMg,
     sodiumItemMissing: !isNum(item.sodiumMg),
     basisKind, multiplier, amount, amountUnit, countUsed,
+    portionGramsUsed: !!userGrams && grams === userGrams,
     // the matched item is counted per 隻/顆/個 … (the page shows the 數量 row)
     countable: basisKind === 'discrete' && cfg.COUNTABLE_UNITS.includes(itemUnit),
     itemUnit,

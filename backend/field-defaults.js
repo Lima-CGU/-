@@ -231,7 +231,43 @@
     return hit ? hit[0] : 'other';
   }
 
+  /* ---------- portion in grams (teacher 11/14, 11/15) ----------
+     A dish may carry detail.portionGrams (an integer, 1–2000 g): typed on
+     Group A's 份量 page (「其他（輸入公克）」), written in a food added at a
+     scenario question (「鴨肉180克」), or said in the B/C chat. When it is
+     there the calorie calculation uses it instead of the grams that
+     food type × size would give; detail.size keeps its value. */
+  const PORTION_GRAMS_MIN = 1;
+  const PORTION_GRAMS_MAX = 2000;
+  const validGrams = n => Number.isInteger(n) && n >= PORTION_GRAMS_MIN && n <= PORTION_GRAMS_MAX;
+  // 「180克」「50g」「5公克」「180 公克」, with 大概 / 約 before or 左右 after
+  const GRAMS_RE = /(大概|大約|約|差不多)?\s*([0-9０-９]{1,5}(?:[.．][0-9０-９]+)?)\s*(公克|克|grams?|g)(?![a-zA-Z])\s*(左右)?\s*(的)?/gi;
+  /** 「鴨肉180克」 -> { name: '鴨肉', grams: 180, raw: '鴨肉180克' }.
+   *  Exactly one gram amount, 1–2000, and a food name left over — otherwise
+   *  nothing is read (grams null, name = the text as typed): not sure = no change. */
+  function parseGrams(text){
+    const raw = String(text || '').trim();
+    const hits = [...raw.matchAll(GRAMS_RE)];
+    if (hits.length !== 1) return { name: raw, grams: null, raw };
+    const h = hits[0];
+    const digits = h[2].replace(/[０-９．]/g, c => (c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    const grams = Math.round(Number(digits));
+    if (!validGrams(grams)) return { name: raw, grams: null, raw };
+    const name = (raw.slice(0, h.index) + ' ' + raw.slice(h.index + h[0].length))
+      .replace(/\s+/g, ' ').replace(/^[\s,，、:：的]+|[\s,，、。:：]+$/g, '').trim();
+    if (!name) return { name: raw, grams: null, raw };
+    return { name, grams, raw };
+  }
+  /** Every gram amount written in a text (the B/C safety net: the AI may
+   *  only record grams the user actually said). */
+  function gramsIn(text){
+    return [...String(text || '').matchAll(GRAMS_RE)]
+      .map(h => Math.round(Number(h[2].replace(/[０-９．]/g, c => (c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0))))))
+      .filter(validGrams);
+  }
+
   return {
+    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn,
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
     SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,

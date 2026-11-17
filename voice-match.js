@@ -216,6 +216,50 @@
     return { text: out, changed: out !== raw };
   }
 
+  /* ---------- food homophones (teacher 11/15: 「薑絲」 heard as 「殭屍」) ----------
+     Speech (the App's 🎤 or the phone keyboard's dictation) can turn a food
+     into a common word. A FIXED table, no AI. Two kinds:
+     - ALWAYS: never a word in a meal description -> always the food;
+     - IN_LIST: a real word too (輕鬆 = relaxed): only changed in a field
+       that holds food names (opts.foodInput), or in a chat message when it
+       stands like a list item (after 加 / 有 / 和 / 、 … or the start, and
+       before 和 / 以及 / 、 / ， … or the end). Otherwise the text stays. */
+  const FOOD_ALWAYS = [
+    [['殭屍', '僵屍', '薑屍', '江絲', '姜絲'], '薑絲'],
+    [['九成塔', '酒層塔', '九層踏', '九曾塔'], '九層塔'],
+    [['算頭', '蒜投'], '蒜頭'],
+    [['算末'], '蒜末'],
+    [['聰花', '沖花'], '蔥花'],
+    [['清聰', '青聰'], '青蔥'],
+    [['香彩'], '香菜']
+  ];
+  const FOOD_IN_LIST = [
+    [['輕鬆', '青松', '清松'], '青蔥'],
+    [['將士'], '薑絲']
+  ];
+  const LIST_BEFORE = /(^|[加有放和跟及、，,。\s了])$/;
+  const LIST_AFTER = /^($|[以和跟及、，,。！!？?\s等])/;
+  /** -> { text, changed, fixes: [{ from, to }] } */
+  function fixFoodWords(text, opts = {}){
+    const raw = String(text || '');
+    let out = raw;
+    const fixes = [];
+    const swap = (from, to, test) => {
+      let k = out.indexOf(from);
+      while (k >= 0){
+        if (!test || test(out.slice(0, k), out.slice(k + from.length))){
+          out = out.slice(0, k) + to + out.slice(k + from.length);
+          fixes.push({ from, to });
+          k = out.indexOf(from, k + to.length);
+        } else k = out.indexOf(from, k + from.length);
+      }
+    };
+    FOOD_ALWAYS.forEach(([words, to]) => words.forEach(w => swap(w, to)));
+    FOOD_IN_LIST.forEach(([words, to]) => words.forEach(w => swap(w, to,
+      opts.foodInput ? null : (before, after) => LIST_BEFORE.test(before) && LIST_AFTER.test(after))));
+    return { text: out, changed: out !== raw, fixes };
+  }
+
   /** 調味 page (11/01): 「醬油」「米酒」, or 「沒有 / 沒加 / 不加」 = 沒有特別調味.
    *  -> the values heard (never both a seasoning and 沒有特別調味). */
   const SEASONING_WORDS = [[['醬油', '豆油', '醬由'], '醬油'], [['米酒'], '米酒']];
@@ -237,5 +281,5 @@
     return /沒有|沒加|不加|沒放|都沒|無調味/.test(t) ? ['沒有特別調味'] : [];
   }
 
-  return { match, command, count, normalize, fixHomophones, seasonings, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
+  return { match, command, count, normalize, fixHomophones, fixFoodWords, FOOD_ALWAYS, FOOD_IN_LIST, seasonings, TABLE, FIELD_WORDS, COMMANDS, NOT_A_COUNT };
 });

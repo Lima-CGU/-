@@ -79,7 +79,7 @@ function buildPrompt(input, candidates){
   const lines = `A. 以「份、碗、顆、根、片、個、杯…」計的品項:\n${listA}\n\nB. 以每 100 g(或公克、毫升)計的品項:\n${listB}`;
   return `你是食物營養資料庫的「比對助手」。使用者記錄了一道菜,請從下面的候選清單中,挑出最能代表這道菜的一筆。
 菜名:${input.name}(${isBev ? '飲料' : '食物'})
-類型:${cfg.FOOD_TYPE_LABELS[input.foodType] || '其他'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}${input.count ? `\n數量:${input.count} ${input.countUnit || '個'}(這道菜是可數的)` : ''}
+類型:${cfg.FOOD_TYPE_LABELS[input.foodType] || '其他'}${isBev ? `\n糖量:${input.sugar || '未記錄'}` : ''}${input.count ? `\n數量:${input.count} ${input.countUnit || '個'}(這道菜是可數的)` : ''}${input.portionGrams ? `\n份量:使用者說吃了 ${input.portionGrams} 公克` : ''}
 
 候選清單:
 ${lines}
@@ -89,6 +89,7 @@ ${lines}
 - 比對程度 match:exact = 同一道菜;close = 同一道菜但做法或名稱略有不同;approx = 不同但最接近(例如煎餃→水餃);none = 差太多,不能拿來代表(此時 pick 填 null)。
 - 一律優先從 A 清單挑:只要 A 裡有同一種食物,即使名稱不完全相同、做法略有不同(例如「水煮蛋」選以「顆」計的雞蛋類品項、「香蕉切片」選以「根」計的香蕉),就選 A 的那一筆,不要選 B 的每 100 g 品項。只有 A 裡完全沒有合適的,才從 B 挑。
 - 這道菜有「數量」時,一樣適合的品項中優先選以「隻、顆、個、片、根、塊、粒、條」計的品項(每一個的熱量),而且單位最好和數量的單位相同(例如 9 隻雞腿 → 以「隻」計的雞腿),不要選「份、碗」或每 100 g 的。
+- 這道菜有「份量公克」時,一樣適合的品項中優先選標明重量的品項(A 清單裡寫了「約 N g」的,或 B 清單的每 100 g 品項),熱量才能用公克換算。
 - 飲料若糖量是「無糖」,優先選不含糖的品項(例如黑咖啡應選美式咖啡,不是冰咖啡)。
 - 像「蘋果切片」這種切開的食物,可以選整顆/整根的品項(吃了多少由尺寸換算),但不要選成別的加工品(例如蘋果汁、蘋果派)。
 - 混合菜餚(例如「甜椒炒香腸」「青椒炒牛肉」「番茄炒蛋」)在清單裡通常沒有整道菜:請改選這道菜的「主要食材」——和上面「類型」相符的那一個(類型是蛋白質就選肉、蛋、香腸這類;主食就選飯、麵;蔬菜就選蔬菜),通常是菜名最後的名詞,match 填 approx。
@@ -111,7 +112,8 @@ const inFlight = new Map();
 function pickKey(input){
   const sugarFree = input.category === 'beverage' ? (input.sugar === '無糖' ? 'sf' : 'sw') : '-';
   // a count changes which item fits best (per piece vs per serving)
-  return [nutrition.normalize(input.name), input.category, input.foodType, sugarFree, input.count ? 'n' : '-'].join('|');
+  // (11/17) grams given: an item with a known weight is preferred
+  return [nutrition.normalize(input.name), input.category, input.foodType, sugarFree, input.count ? 'n' : '-', input.portionGrams ? 'g' : '-'].join('|');
 }
 
 async function pickCandidate(input, askAI){
@@ -153,7 +155,11 @@ function validate(body){
   // containerType (old records: plate / bowl / cup / lunchbox / none) is
   // accepted and ignored — portions come from the food type (10/22).
   const hasSalt = b.salt != null && b.salt !== '';
-  if (!(b.size in cfg.SIZE_MULTIPLIERS.default)) return { error: 'size 必須是 XS / S / M / L / XL。' };
+  // (11/17) grams the user gave (portionGrams, 1–2000) replace food type × size;
+  // with grams the size may be missing (Group B/C: only grams were said)
+  const hasGrams = b.portionGrams != null && b.portionGrams !== '';
+  if (hasGrams && !fieldDefaults.validGrams(b.portionGrams)) return { error: `portionGrams 必須是 ${fieldDefaults.PORTION_GRAMS_MIN}~${fieldDefaults.PORTION_GRAMS_MAX} 的整數。` };
+  if (!(b.size in cfg.SIZE_MULTIPLIERS.default) && !(hasGrams && (b.size == null || b.size === ''))) return { error: 'size 必須是 XS / S / M / L / XL。' };
   if (hasSalt && calc.saltTeaspoons(b.salt) === undefined) return { error: 'salt 不在對照表內。' };
   const hasCount = b.count != null && b.count !== '';
   if (hasCount && !(Number.isInteger(b.count) && b.count >= 1 && b.count <= cfg.MAX_COUNT)) return { error: `count 必須是 1~${cfg.MAX_COUNT} 的整數。` };
@@ -161,7 +167,8 @@ function validate(body){
   return {
     input: {
       name, category,
-      size: b.size,
+      size: b.size in cfg.SIZE_MULTIPLIERS.default ? b.size : null,
+      portionGrams: hasGrams ? b.portionGrams : null,
       cookingMethod: String(b.cookingMethod || '').slice(0, 20),   // recorded only
       sugar: String(b.sugar || '').slice(0, 20),
       salt: hasSalt ? String(b.salt) : null,  // null = not recorded: sodium is the item's own only
@@ -185,7 +192,7 @@ async function estimate(body, askAI){
   await nutrition.init();
 
   const { item, match } = await pickCandidate(input, askAI);
-  const base = { name: input.name, cookingMethod: input.cookingMethod, sugar: input.sugar, salt: input.salt };
+  const base = { name: input.name, cookingMethod: input.cookingMethod, sugar: input.sugar, salt: input.salt, ...(input.portionGrams ? { portionGrams: input.portionGrams } : {}) };
   if (!item){
     return { httpStatus: 200, status: 'none', match: 'none', ...base, explanation: '資料庫中找不到足以代表這道菜的品項,無法估算。' };
   }
@@ -197,6 +204,10 @@ async function estimate(body, askAI){
   }
   if (r.status === 'needs-count'){
     return { httpStatus: 200, status: 'needs-count', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], countable: true, countUnit: r.countUnit, ...base, explanation: `這個品項以「${r.countUnit}」計,需要知道吃了幾${r.countUnit}才能估算熱量。` };
+  }
+  if (r.status === 'needs-portion'){
+    // (11/17) grams given but this item's unit has no weight, and no size: not guessed
+    return { httpStatus: 200, status: 'needs-portion', match, matchedName: item.name, source: item.source, sourceLabel: SOURCE_LABEL[item.source], ...base, explanation: '這個品項以份計、沒有重量資料,需要知道份量大小才能估算熱量。' };
   }
   if (r.status !== 'ok'){
     console.warn(`[nutrition] cannot compute "${input.name}" with "${item.name}" (${item.source}): ${r.reason}`);

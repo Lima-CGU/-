@@ -268,7 +268,12 @@ const CSV_COLUMNS = [
   'suggestionShownCount', 'suggestionTapCount', 'offTopicCount',
   'renameCount', 'fieldChangeCount', 'fieldSetCount', 'deletedDishes', 'addedDishes',
   'apiErrorCount', 'deletedFromDiary', 'photoStored', 'firstReceivedAt', 'receivedAt',
-  'excluded', 'excludeReason'
+  'excluded', 'excludeReason',
+  // (11/17) appended (the columns above keep their order): grams the user gave
+  // for this dish (A typed / a scenario food 「鴨肉180克」 / B·C said in the chat),
+  // their source (user / ai), whether the calculation used them, and the text
+  // the user typed when the name was cleaned (殭屍 → 薑絲, 180克 → portionGrams)
+  'portionGrams', 'portionGramsSource', 'portionGramsUsed', 'inputText'
 ];
 
 function csvCell(v){
@@ -346,7 +351,11 @@ function toCsv(records){
         oilTeaspoons: n.status === 'ok' ? n.oilTeaspoons ?? 0 : null, oilKcal: n.status === 'ok' ? n.oilKcal ?? 0 : null,
         matchedName: n.matchedName, nutritionSource: n.source,
         proteinG: n.proteinG, fatG: n.fatG, carbohydrateG: n.carbohydrateG, sodiumMg: n.sodiumMg,
-        notes: Array.isArray(d.notes) ? d.notes.join('; ') : ''
+        notes: Array.isArray(d.notes) ? d.notes.join('; ') : '',
+        portionGrams: Number.isInteger(x.portionGrams) ? x.portionGrams : null,
+        portionGramsSource: Number.isInteger(x.portionGrams) ? (d.fieldSource && d.fieldSource.portionGrams) || 'unknown' : null,
+        portionGramsUsed: Number.isInteger(x.portionGrams) && n.status === 'ok' ? !!n.portionGramsUsed : null,
+        inputText: d.inputText || null
       } : meal;
       rows.push(CSV_COLUMNS.map(k => csvCell(row[k])).join(','));
     });
