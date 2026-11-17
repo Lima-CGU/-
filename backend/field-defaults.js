@@ -283,10 +283,16 @@
    *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,;
    *  one piece (or nothing to split) -> [the text as it is]. */
   const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
+  // (11/17) food words whose 和 / 及 is not a separator: 鮭魚和風沙拉, 和牛漢堡, 及第粥
+  const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第'];
   function splitFoods(text){
     // a thousands comma is part of a number, not a separator: 1,000克 -> 1000克
     const raw = String(text || '').trim().replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');
-    const parts = raw.split(FOOD_SEPARATORS).map(x => x.trim()).filter(Boolean);
+    // protected words are swapped for placeholders (private-use characters) while splitting
+    let masked = raw;
+    SPLIT_PROTECTED.forEach((w, i) => { masked = masked.split(w).join(String.fromCharCode(0xE000 + i)); });
+    const unmask = t => SPLIT_PROTECTED.reduce((acc, w, i) => acc.split(String.fromCharCode(0xE000 + i)).join(w), t);
+    const parts = masked.split(FOOD_SEPARATORS).map(x => unmask(x).trim()).filter(Boolean);
     return parts.length > 1 ? parts : (raw ? [raw] : []);
   }
   /** Every gram amount written in a text (the B/C safety net: the AI may
@@ -299,7 +305,7 @@
   }
 
   return {
-    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods,
+    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods, SPLIT_PROTECTED,
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
     SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,
