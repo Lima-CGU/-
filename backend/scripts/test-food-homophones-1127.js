@@ -91,6 +91,27 @@ const fixAll = (text, opts) => fixer.fix(vm.fixFoodWords(text, opts).text).text;
     for (const s of ['我今天中午吃了一個便當', '媽媽煮的', '雞腿是炸的然後有一顆滷蛋', '炒魚', '剩下的湯沒有喝', '飲料是半糖去冰的綠茶', '感覺有點鹹'])
       assert.strictEqual(fixAll(s), s, s);
   });
+  await t('(review) option words the app reads are never turned into food: 正常 / 少冰 / 七分糖 …', () => {
+    for (const w of ['正常', '正常份量', '正常糖', '正常鹽', '少冰', '去冰', '一分糖', '二分糖', '五分糖', '七分糖', '半糖', '小份', '一般'])
+      assert.strictEqual(fixAll(w), w, w);
+  });
+  await t('(review) every voice-match option / command word still means the same after fixing', () => {
+    const fields = ['size', 'cookingMethod', 'sugar', 'salt'];
+    const same = [];
+    Object.entries(vm.TABLE).forEach(([key, rows]) => rows.forEach(([words]) => words.forEach(w => {
+      const category = key === 'cookingBeverage' ? 'beverage' : 'food';
+      const before = vm.match(w, { category, fields }).matches.map(m => m.field + m.value).join();
+      const after = vm.match(fixAll(w), { category, fields }).matches.map(m => m.field + m.value).join();
+      if (before !== after) same.push(`${w}: ${before} -> ${after}`);
+    })));
+    vm.COMMANDS.forEach(([words]) => words.forEach(w => { if (vm.command(fixAll(w)) !== vm.command(w)) same.push(`command ${w}`); }));
+    Object.values(vm.FIELD_WORDS).forEach(words => words.forEach(w => { if (fixAll(w) !== w) same.push(`field word ${w}`); }));
+    assert.deepStrictEqual(same, []);
+  });
+  await t('(review) 配 splits, but not inside 配菜 / 搭配 / 配方 / 配料', () => {
+    assert.deepStrictEqual(fd.splitFoods('雞腿配飯'), ['雞腿', '飯']);
+    for (const w of ['炒配菜', '白飯配菜', '原味配方奶', '搭配沙拉', '配料']) assert.deepStrictEqual(fd.splitFoods(w), [w], w);
+  });
   await t('the module writes no word list: food-pinyin.js / server.js hold no food data file', () => {
     const fs = require('fs');
     const src = fs.readFileSync(path.join(__dirname, '..', 'food-pinyin.js'), 'utf8');
@@ -121,6 +142,13 @@ const fixAll = (text, opts) => fixer.fix(vm.fixFoodWords(text, opts).text).text;
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '謝謝' })
       })).json();
       assert.deepStrictEqual(same, { text: '謝謝', changed: false, fixes: [] });
+      // (review) a burst of requests from one address is refused after 30 a minute
+      let refused = 0;
+      for (let i = 0; i < 32; i++){
+        const r = await fetch(`http://127.0.0.1:${port}/api/food-words`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '白飯' }) });
+        if (r.status === 429) refused += 1;
+      }
+      assert.ok(refused >= 1, 'rate limited');
     } finally { srv.kill(); }
   });
 

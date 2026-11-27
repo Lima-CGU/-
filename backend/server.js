@@ -635,7 +635,17 @@ function getFoodPinyinFixer(){
   }
   return foodPinyinFixer;
 }
+// (review 11/27) at most FOOD_WORDS_PER_MIN requests per IP per minute: a person
+// sends a few; a script trying sound after sound to rebuild the food list is slowed
+const FOOD_WORDS_PER_MIN = 30;
+const foodWordsHits = new Map();
 app.post('/api/food-words', (req, res) => {
+  const now = Date.now();
+  const ip = req.ip || 'unknown';
+  const hit = foodWordsHits.get(ip);
+  if (!hit || now - hit.start > 60000) foodWordsHits.set(ip, { start: now, n: 1 });
+  else if (++hit.n > FOOD_WORDS_PER_MIN) return res.status(429).json({ error: 'too many requests' });
+  if (foodWordsHits.size > 5000) for (const [k, v] of foodWordsHits) if (now - v.start > 60000) foodWordsHits.delete(k);
   const text = typeof (req.body && req.body.text) === 'string' ? req.body.text.slice(0, 500) : '';
   if (!text.trim()) return res.json({ text, changed: false, fixes: [] });
   try {

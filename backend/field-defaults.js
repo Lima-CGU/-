@@ -293,7 +293,8 @@
   const FOOD_SEPARATORS = new RegExp(POSITION_SEPARATORS.join('|') + '|以及|還有|和|跟|及|[、，,]');
   // (11/17) food words whose 和 / 及 is not a separator: 鮭魚和風沙拉, 和牛漢堡, 及第粥
   // (和牛 only as the first word of a food; 及第 not inside 以及 — see splitFoods)
-  const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第'];
+  // (11/27 review) 配 is a separator, but not inside 配菜 / 搭配 / 配方 / 配料
+  const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第', '配菜', '搭配', '配方', '配料'];
   function splitFoods(text){
     // a thousands comma is part of a number, not a separator: 1,000克 -> 1000克
     const raw = String(text || '').trim().replace(/([0-9０-９])[,，](?=[0-9０-９]{3})/g, '$1');

@@ -52,7 +52,7 @@ const INGREDIENT_WORDS = [
   '奶茶', '紅茶', '綠茶', '豆漿', '牛奶', '咖啡', '米粉', '冬粉', '粄條', '烏龍麵', '油豆腐', '甜不辣'
 ];
 // protected (never changed, never a target of a change) — same words as field-defaults SPLIT_PROTECTED
-const PROTECTED_WORDS = ['和菓子', '和風', '和牛', '和式', '及第'];
+const PROTECTED_WORDS = ['和菓子', '和風', '和牛', '和式', '及第', '配菜', '搭配', '配方', '配料'];
 // everyday words that must never become a food
 const COMMON_WORDS = [
   '今天', '昨天', '明天', '早餐', '午餐', '晚餐', '宵夜', '點心', '時候', '然後', '因為', '所以', '可以',
@@ -60,6 +60,16 @@ const COMMON_WORDS = [
   '真的', '一起', '全部', '大概', '大約', '差不多', '一樣', '這樣', '那樣', '怎麼', '什麼', '知道', '覺得',
   '東西', '食物', '剩下', '一份', '一碗', '一盤', '一杯', '兩份', '半份', '吃完', '不錯', '方便', '時間',
   '上面', '下面', '旁邊', '裡面', '底下', '下方', '上方', '中間', '左邊', '右邊', '主菜', '配菜', '湯匙', '筷子'
+];
+// (review 11/27) option words the app itself reads (voice-match.js sizes / sugar /
+// salt / ice / commands, chat.js size words): never turned into a food —
+// 「正常」 is not 正鯧, 「少冰」 is not 燒餅, 「七分糖」 is not 七楓糖
+const OPTION_WORDS = [
+  '正常', '正常份量', '正常糖', '正常鹽', '正常冰', '少冰', '去冰', '微冰', '多冰', '常溫', '溫的', '熱的', '冰的',
+  '一般', '普通', '小份', '中份', '大份', '特小', '特大', '超大', '半份', '一份', '兩份', '少量', '很少', '很多',
+  '全糖', '半糖', '少糖', '微糖', '無糖', '全甜', '無鹽', '少鹽', '茶匙', '半匙', '一匙', '整匙',
+  ...'一二三四五六七八九十'.split('').flatMap(n => [n + '分糖', n + '分甜', n + '分']),
+  '分之', '四分之一', '二分之一', '四分之三', '換一組', '下一組', '下一步', '上一步', '下一頁', '上一頁', '好了', '可以了', '確定', '完成'
 ];
 // characters a misheard food never contains (they mark a sentence, not a name)
 const STOP_CHARS = new Set([...'我你他她它們的了是在有沒不很也都就還和跟及與或要想說吃喝這那個些嗎呢吧啊喔哦嗯欸呃啦耶呀謝請給把被讓幫再又才只太']);
@@ -91,7 +101,7 @@ function wordsFromName(name){
   return out;
 }
 
-function createFixer(words){
+function createFixer(words, extraKeep){
   const known = new Set();
   const byKey = new Map(); // loose pinyin -> Set of words
   const add = w => {
@@ -104,7 +114,7 @@ function createFixer(words){
   for (const name of words || []) wordsFromName(name).forEach(add);
   COOKING_WORDS.concat(SEASONING_WORDS, INGREDIENT_WORDS).forEach(add);
   // protected / everyday words: never replaced (they are not targets either)
-  const keep = new Set(PROTECTED_WORDS.concat(COMMON_WORDS));
+  const keep = new Set(PROTECTED_WORDS.concat(COMMON_WORDS, OPTION_WORDS, extraKeep || []));
 
   function fix(text){
     const raw = String(text || '');
@@ -156,4 +166,4 @@ function createFixer(words){
   return { fix, size: () => known.size, has: w => known.has(w) };
 }
 
-module.exports = { createFixer, keyOf, looseSyllable, wordsFromName, COOKING_WORDS, SEASONING_WORDS, INGREDIENT_WORDS, PROTECTED_WORDS, COMMON_WORDS };
+module.exports = { createFixer, keyOf, looseSyllable, wordsFromName, COOKING_WORDS, SEASONING_WORDS, INGREDIENT_WORDS, PROTECTED_WORDS, COMMON_WORDS, OPTION_WORDS };

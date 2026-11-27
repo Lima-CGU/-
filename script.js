@@ -2623,7 +2623,7 @@
           box: null, displayBox: null, source: d.source || 'chat', tapPoint: null,
           foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
           ...(d.scenarioNo ? { scenarioNo: d.scenarioNo } : {}),
-          ...(d.splitFromDish ? { splitFromDish: d.splitFromDish } : {}),
+          ...(d.splitFromDish ? { splitFromDish: d.splitFromDish, splitFromNo: d.splitFromNo } : {}),
           // (11/17) what the user typed, when the name was cleaned (殭屍 → 薑絲, 180克 → portionGrams)
           ...(d.inputText ? { inputText: d.inputText } : {}),
           // (A: an added food can be walked through to 完成這道菜 too)
@@ -4521,8 +4521,9 @@
         // the scenario ones: chips under the photo, each can be opened / deleted)
         const pieces = how && how.inputType === 'typed' && how.typed && !how.unchanged ? FIELD_DEFAULTS.splitFoods(how.typed) : [];
         const restFoods = pieces.length > 1 ? pieces.slice(1) : [];
+        // the sentence as typed (CSV inputText); a later plain rename clears it
+        if (how && how.inputType === 'typed' && !how.unchanged) target.inputText = restFoods.length ? how.typed : undefined;
         if (restFoods.length){
-          target.inputText = how.typed; // the sentence as typed (CSV inputText)
           const first = pieces[0].slice(0, DISH_NAME_MAX);
           if (first === splitNameConfidence(nameBefore || '').name){
             // the first food is the name it already had: the name stays as it was
@@ -4564,14 +4565,15 @@
         }
         if (restFoods.length){
           const added = restFoods.map(piece => addReportExtraFood(piece, {
-            source: 'rename-split', typed: how.typed, attemptId: renameAid,
+            // (review) the name kept as it was: no dish_renamed, but the added foods still share one attempt
+            source: 'rename-split', typed: how.typed, attemptId: renameAid || nextAttemptId(), nameKept: !renameAid,
             splitFromDish: target.id, splitFromNo: dishNoOf(target), splitCount: pieces.length
           }).name);
           renderReportExtraChips();
           updateReportDone();
           // shown on screen: the chips under the photo (when this dish is closed) + this note
-          setReportVoiceMsg(`已另外加入:${added.join('、')}(在照片下方,點開可刪除)`);
-          showToast(`已另外加入:${added.join('、')}`);
+          // (shown inline; a toast covered 上一步 / 下一步 on small screens)
+          setReportVoiceMsg(`已另外加入：${added.join('、')}（完成這道菜後會出現在照片下方，點開可刪除）`);
         }
       }
     });
@@ -4866,7 +4868,7 @@
       name, confidence: null, category: 'food',
       detail: {}, notes: [], onPhoto: false, source: o.source,
       ...(o.scenarioNo ? { scenarioNo: o.scenarioNo } : {}),
-      ...(o.splitFromDish ? { splitFromDish: o.splitFromDish } : {}),
+      ...(o.splitFromDish ? { splitFromDish: o.splitFromDish, splitFromNo: o.splitFromNo } : {}),
       ...(name !== o.typed ? { inputText: o.typed } : {}) // the whole text as typed
     };
     det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
@@ -4887,7 +4889,7 @@
     // the dish itself (system — the user's action is the answer / rename it came from)
     logEvent('dish_added', { actor: 'system', target, after: name, attemptId: o.attemptId,
       detail: { via: o.source === 'scenario' ? 'scenario' : 'rename-split', ...(o.scenarioNo ? { scenarioNo: o.scenarioNo } : {}),
-        ...(o.splitFromDish ? { renamedDish: o.splitFromNo } : {}),
+        ...(o.splitFromDish ? { renamedDish: o.splitFromNo } : {}), ...(o.nameKept ? { nameKept: true } : {}),
         ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(o.foodWordsFixed ? { foodWordsFixed: true } : {}), ...(o.splitCount > 1 ? { splitFrom: o.splitCount } : {}) } });
     // calories from the presets, like any dish (a per-piece item may stay 待補數量)
     if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
@@ -4906,9 +4908,14 @@
     // (「鴨肉180克」 -> 鴨肉 + portionGrams 180); the typed text is kept
     // (inputText) when it was changed
     scenarioFoodBusy = true;
+    const scenarioCtrls = [reportScenarioInput, document.getElementById('reportScenarioSubmit'), reportScenarioYes, reportScenarioNone];
+    scenarioCtrls.forEach(el => { if (el) el.disabled = true; });
     let food;
     try { food = await fixFoodText(typed, { foodInput: true }); }
-    finally { scenarioFoodBusy = false; }
+    finally {
+      scenarioFoodBusy = false;
+      scenarioCtrls.forEach(el => { if (el) el.disabled = isSavingMeal; });
+    }
     // the question moved on / the meal was left while the server answered
     if (scenarioState() !== st || st.next !== no || !reportScenarioOn || isSavingMeal) return;
     // (11/17) several foods in one send (「薑絲5克以及青蔥」, 11/27 also 「…上有…下方有…」):
@@ -5350,8 +5357,11 @@
     chatBusy = true;
     updateChatBusy();
     let food;
-    try { food = await fixFoodText(fixedVoice.text); }
+    const fixStarted = performance.now();
+    // (review 11/27) a C suggestion button is the app's own text: never "corrected"
+    try { food = source === 'suggestion' ? { text: fixedVoice.text, changed: false, fixes: [] } : await fixFoodText(fixedVoice.text); }
     finally { chatBusy = false; updateChatBusy(); }
+    const fixWaitMs = Math.round(performance.now() - fixStarted);
     if (sessionAtSend !== chatSession) return; // the chat was left meanwhile
     const fixed = { text: food.text, changed: fixedVoice.changed };
     const said = fixed.text;
@@ -5364,7 +5374,7 @@
       actor: 'user', target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, attemptId,
       source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed'),
       // contextDish: the dish this message is about (selected, or the recent one; 'meal' for 整餐)
-      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, foodWordsFixed: food.changed, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
+      detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, foodWordsFixed: food.changed, fixWaitMs, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
     });
     logFoodWordFixes(food.fixes, 'chat', { attemptId, target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed') });
     if (source === 'typed') chatVoiceUsed = false;
