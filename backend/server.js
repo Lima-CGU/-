@@ -619,6 +619,45 @@ app.post('/api/detect', async (req, res) => {
   }
 });
 
+// (11/27) Food homophones by pinyin: 「鄉間旗魚」 -> 「香煎旗魚」. The word list is
+// built in memory from the food data loaded at run time (foods1000 + TFND,
+// nutrition-db.foodNames()) plus the cooking / seasoning lists in
+// food-pinyin.js; it is rebuilt once foods1000 has loaded. The answer holds
+// only the corrected text and each replacement — never the word list.
+let foodPinyinFixer = null;
+let foodPinyinBuiltWith = -1;
+function getFoodPinyinFixer(){
+  const db = require('./nutrition-db');
+  const loaded = db.getStatus().foods1000Count || 0;
+  if (!foodPinyinFixer || foodPinyinBuiltWith !== loaded){
+    foodPinyinFixer = require('./food-pinyin').createFixer(db.foodNames());
+    foodPinyinBuiltWith = loaded;
+  }
+  return foodPinyinFixer;
+}
+// (review 11/27) at most FOOD_WORDS_PER_MIN requests per IP per minute: a script
+// trying sound after sound to rebuild the food list is slowed
+// (one classroom may share one Wi-Fi address, so the limit is generous)
+const FOOD_WORDS_PER_MIN = 300;
+const foodWordsHits = new Map();
+app.post('/api/food-words', (req, res) => {
+  const now = Date.now();
+  const ip = req.ip || 'unknown';
+  const hit = foodWordsHits.get(ip);
+  if (!hit || now - hit.start > 60000) foodWordsHits.set(ip, { start: now, n: 1 });
+  else if (++hit.n > FOOD_WORDS_PER_MIN) return res.status(429).json({ error: 'too many requests' });
+  if (foodWordsHits.size > 5000) for (const [k, v] of foodWordsHits) if (now - v.start > 60000) foodWordsHits.delete(k);
+  const text = typeof (req.body && req.body.text) === 'string' ? req.body.text.slice(0, 500) : '';
+  if (!text.trim()) return res.json({ text, changed: false, fixes: [] });
+  try {
+    const r = getFoodPinyinFixer().fix(text);
+    res.json({ text: r.text, changed: r.changed, fixes: r.fixes.map(f => ({ from: f.from, to: f.to })) });
+  } catch (err){
+    console.error('[food-words] failed:', err.message);
+    res.json({ text, changed: false, fixes: [], error: 'unavailable' });
+  }
+});
+
 // One dish -> calories. The AI only picks a candidate from the nutrition
 // tables (by number); nutrition-calc.js does the math. Returns this dish's
 // figures only — never the candidate list or any table.

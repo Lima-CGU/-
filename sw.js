@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pictameal-shell-v49';
+const CACHE_NAME = 'pictameal-shell-v50';
 const APP_SHELL = [
   './',
   './index.html',

@@ -318,7 +318,7 @@
     const dishes = Array.isArray(record.dishes) ? record.dishes : [];
     const out = dishes.map((d, i) => {
       const ai = d.aiOriginal || null;
-      const aiName = ai && ai.name ? `${esc(ai.name)}${ai.confidence != null ? `(${esc(ai.confidence)}%)` : ''}${ai.count ? ` ×${esc(ai.count)}` : ''}` : (d.source === 'chat' ? '(對話中新增)' : d.source === 'user' ? '(受試者新增)' : d.source === 'scenario' ? (d.scenarioNo === 2 ? '(情境提示補充食材)' : '(情境提示補充食物)') : '—');
+      const aiName = ai && ai.name ? `${esc(ai.name)}${ai.confidence != null ? `(${esc(ai.confidence)}%)` : ''}${ai.count ? ` ×${esc(ai.count)}` : ''}` : (d.source === 'chat' ? '(對話中新增)' : d.source === 'user' ? '(受試者新增)' : d.source === 'scenario' ? (d.scenarioNo === 2 ? '(情境提示補充食材)' : '(情境提示補充食物)') : d.source === 'rename-split' ? '(改菜名時一併輸入的食物)' : '—');
       const finalName = plain(d.name);
       const changed = ai && ai.name && ai.name !== finalName;
       return `<tr><td>${i + 1}</td><td>${aiName}</td><td><span class="${changed ? 'changed' : ''}">${esc(finalName)}</span>${changed ? '(改過菜名)' : ''}<div class="fields">${esc(fieldsText(d))}</div>${Array.isArray(d.notes) && d.notes.length ? `<div class="fields">備註:${esc(d.notes.join(';'))}</div>` : ''}${kcalHtml(d)}</td></tr>`;
