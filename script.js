@@ -4370,7 +4370,9 @@
     const local = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(raw, opts) : { text: raw, fixes: [] };
     const fixes = (local.fixes || []).map(f => ({ from: f.from, to: f.to, method: 'table' }));
     let out = local.text;
+    let pinyin = 'none'; // 'ok' | 'skipped' (server slow / down / busy) | 'none' (nothing to check)
     if (/[\u3400-\u9fff]{2}/.test(out)){
+      pinyin = 'skipped';
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), FOOD_WORDS_TIMEOUT_MS);
       try {
@@ -4379,6 +4381,7 @@
           body: JSON.stringify({ text: out }), signal: ctrl.signal
         });
         const data = res.ok ? await res.json() : null;
+        if (data && typeof data.text === 'string' && !data.error) pinyin = 'ok';
         // a replacement keeps the length (same number of syllables); anything else is ignored
         if (data && typeof data.text === 'string' && data.text.length === out.length && Array.isArray(data.fixes) && data.fixes.length){
           const ok = data.fixes.filter(f => f && typeof f.from === 'string' && typeof f.to === 'string' && f.from.length >= 2 && f.from.length === f.to.length);
@@ -4390,9 +4393,17 @@
       } catch (err){ /* offline / slow: the table's result stands */ }
       finally { clearTimeout(timer); }
     }
-    return { text: out, changed: out !== raw, fixes };
+    return { text: out, changed: out !== raw, fixes, pinyin };
   }
   // one system event per replacement (not counted in userActionCount)
+  // (review) when the pinyin check could not run (server slow / down / too many
+  // requests) the data says so: a system event, not counted
+  function logFoodWordSkip(food, input, o = {}){
+    if (food && food.pinyin === 'skipped') logEvent('homophone_check_skipped', {
+      actor: 'system', target: o.target == null ? null : o.target, attemptId: o.attemptId || null, source: o.source || null,
+      status: 'failed', detail: { input }
+    });
+  }
   function logFoodWordFixes(fixes, input, o = {}){
     (fixes || []).forEach(f => logEvent('homophone_corrected', {
       actor: 'system', target: o.target == null ? null : o.target, field: 'text',
@@ -4413,6 +4424,7 @@
     if (selectedReportDet() !== det || currentStepField(det) !== stepBefore || det.loading) return;
     text = food.text;
     logFoodWordFixes(food.fixes, 'voice', { target: dishNoOf(det), source: 'voice' });
+    logFoodWordSkip(food, 'voice', { target: dishNoOf(det), source: 'voice' });
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const field = currentStepField(det);
     let picked = null;
@@ -4522,7 +4534,8 @@
         const pieces = how && how.inputType === 'typed' && how.typed && !how.unchanged ? FIELD_DEFAULTS.splitFoods(how.typed) : [];
         const restFoods = pieces.length > 1 ? pieces.slice(1) : [];
         // the sentence as typed (CSV inputText); a later plain rename clears it
-        if (how && how.inputType === 'typed' && !how.unchanged) target.inputText = restFoods.length ? how.typed : undefined;
+        // (an added food keeps the text it was typed as)
+        if (how && how.inputType === 'typed' && !how.unchanged && (restFoods.length || target.onPhoto !== false)) target.inputText = restFoods.length ? how.typed : undefined;
         if (restFoods.length){
           const first = pieces[0].slice(0, DISH_NAME_MAX);
           if (first === splitNameConfidence(nameBefore || '').name){
@@ -4925,6 +4938,7 @@
     const split = pieces.length > 1;
     const aid = nextAttemptId();
     logFoodWordFixes(food.fixes, 'scenario', { attemptId: aid, source: 'typed' });
+    logFoodWordSkip(food, 'scenario', { attemptId: aid, source: 'typed' });
     const items = [];
     pieces.forEach(piece => {
       const { det, name, grams } = addReportExtraFood(piece, { source: 'scenario', scenarioNo: no, typed, attemptId: aid, foodWordsFixed: food.changed, splitCount: pieces.length });
@@ -5377,6 +5391,7 @@
       detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, foodWordsFixed: food.changed, fixWaitMs, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
     });
     logFoodWordFixes(food.fixes, 'chat', { attemptId, target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed') });
+    logFoodWordSkip(food, 'chat', { attemptId, target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, source: chatVoiceUsed ? 'voice' : 'typed' });
     if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,

@@ -142,9 +142,9 @@ const fixAll = (text, opts) => fixer.fix(vm.fixFoodWords(text, opts).text).text;
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '謝謝' })
       })).json();
       assert.deepStrictEqual(same, { text: '謝謝', changed: false, fixes: [] });
-      // (review) a burst of requests from one address is refused after 30 a minute
+      // (review) a burst of requests from one address is refused after 300 a minute
       let refused = 0;
-      for (let i = 0; i < 32; i++){
+      for (let i = 0; i < 302; i++){
         const r = await fetch(`http://127.0.0.1:${port}/api/food-words`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '白飯' }) });
         if (r.status === 429) refused += 1;
       }

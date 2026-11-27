@@ -635,9 +635,10 @@ function getFoodPinyinFixer(){
   }
   return foodPinyinFixer;
 }
-// (review 11/27) at most FOOD_WORDS_PER_MIN requests per IP per minute: a person
-// sends a few; a script trying sound after sound to rebuild the food list is slowed
-const FOOD_WORDS_PER_MIN = 30;
+// (review 11/27) at most FOOD_WORDS_PER_MIN requests per IP per minute: a script
+// trying sound after sound to rebuild the food list is slowed
+// (one classroom may share one Wi-Fi address, so the limit is generous)
+const FOOD_WORDS_PER_MIN = 300;
 const foodWordsHits = new Map();
 app.post('/api/food-words', (req, res) => {
   const now = Date.now();
