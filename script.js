@@ -2071,7 +2071,7 @@
       setConfirmState(det, 'confirmed');
     }
     closeCandidateDialog();
-    if (det && onConfirm) onConfirm(det, prevCategory, { inputType: custom ? 'typed' : 'picked' });
+    if (det && onConfirm) onConfirm(det, prevCategory, { inputType: custom ? 'typed' : 'picked', typed: custom || null });
   });
 
   // Low-confidence auto-detected dishes queue up here and are reviewed one
@@ -2623,6 +2623,7 @@
           box: null, displayBox: null, source: d.source || 'chat', tapPoint: null,
           foodType: d.foodType || 'other', fieldSource: savedFieldSource(d),
           ...(d.scenarioNo ? { scenarioNo: d.scenarioNo } : {}),
+          ...(d.splitFromDish ? { splitFromDish: d.splitFromDish } : {}),
           // (11/17) what the user typed, when the name was cleaned (殭屍 → 薑絲, 180克 → portionGrams)
           ...(d.inputText ? { inputText: d.inputText } : {}),
           // (A: an added food can be walked through to 完成這道菜 too)
@@ -2663,6 +2664,8 @@
         ...(d.notes ? { notes: [...d.notes] } : {}),
         ...(d.aiOriginal ? { aiOriginal: { ...d.aiOriginal } } : {}),
         ...(d.renamedFrom ? { renamedFrom: d.renamedFrom } : {}),
+        // (11/27) a rename typed as a sentence and split into several foods: the sentence as typed
+        ...(d.inputText ? { inputText: d.inputText } : {}),
         thumbUrl
       };
     }));
@@ -2674,7 +2677,7 @@
     const meta = currentMealMeta || newMealMeta();
     const doneAt = new Date().toISOString();
     meta.editLog.addedDishes = allDets.filter(d => d.addedByUser || d.onPhoto === false)
-      .map(d => ({ name: splitNameConfidence(d.name || '').name, source: d.source === 'scenario' ? 'scenario' : d.onPhoto === false ? 'chat' : 'user' }));
+      .map(d => ({ name: splitNameConfidence(d.name || '').name, source: d.source === 'scenario' || d.source === 'rename-split' ? d.source : d.onPhoto === false ? 'chat' : 'user' }));
     let photoUpload = null;
     let photoInfo = { saved: false, reason: 'disabled' };
     if (SAVE_PHOTOS){
@@ -4355,16 +4358,64 @@
     }
     reportVoiceBtn?.classList.remove('is-listening');
   }
+  /* (11/27) Food homophones, the same for all groups: first the fixed table
+     (voice-match.js fixFoodWords: 殭屍 → 薑絲 …), then the PINYIN check on the
+     server (/api/food-words: same sound, tones ignored, zh=z ch=c sh=s
+     in=ing en=eng, against the food data loaded there + cooking / seasoning
+     words: 鄉間旗魚 → 香煎旗魚). Server slow or down -> the table's result only.
+     -> { text, changed, fixes: [{ from, to, method: 'table'|'pinyin' }] } */
+  const FOOD_WORDS_TIMEOUT_MS = 2500;
+  async function fixFoodText(text, opts = {}){
+    const raw = String(text || '');
+    const local = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(raw, opts) : { text: raw, fixes: [] };
+    const fixes = (local.fixes || []).map(f => ({ from: f.from, to: f.to, method: 'table' }));
+    let out = local.text;
+    if (/[\u3400-\u9fff]{2}/.test(out)){
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), FOOD_WORDS_TIMEOUT_MS);
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/food-words`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: out }), signal: ctrl.signal
+        });
+        const data = res.ok ? await res.json() : null;
+        // a replacement keeps the length (same number of syllables); anything else is ignored
+        if (data && typeof data.text === 'string' && data.text.length === out.length && Array.isArray(data.fixes) && data.fixes.length){
+          const ok = data.fixes.filter(f => f && typeof f.from === 'string' && typeof f.to === 'string' && f.from.length >= 2 && f.from.length === f.to.length);
+          if (ok.length === data.fixes.length){
+            out = data.text;
+            ok.forEach(f => fixes.push({ from: f.from, to: f.to, method: 'pinyin' }));
+          }
+        }
+      } catch (err){ /* offline / slow: the table's result stands */ }
+      finally { clearTimeout(timer); }
+    }
+    return { text: out, changed: out !== raw, fixes };
+  }
+  // one system event per replacement (not counted in userActionCount)
+  function logFoodWordFixes(fixes, input, o = {}){
+    (fixes || []).forEach(f => logEvent('homophone_corrected', {
+      actor: 'system', target: o.target == null ? null : o.target, field: 'text',
+      before: f.from, after: f.to, attemptId: o.attemptId || null, source: o.source || null,
+      detail: { from: f.from, to: f.to, method: f.method, input }
+    }));
+  }
+
   // Only this page's field (「真的」 on the 烹調方式 page = 蒸), then a command:
   // 「換一組 / 其他」 = 其他 ↻, 「下一步 / 好了」 = 下一步, 「上一步」 = 上一步.
-  function applySpokenOptions(text){
-    const det = selectedReportDet();
+  async function applySpokenOptions(text){
+    let det = selectedReportDet();
     if (!det || det.loading) return;
+    const stepBefore = currentStepField(det);
+    // (11/17, 11/27) food homophones first (殭屍 → 薑絲, 鄉間 → 香煎), like every food text
+    const food = await fixFoodText(text);
+    // the user moved on while the server answered: this speech no longer applies
+    if (selectedReportDet() !== det || currentStepField(det) !== stepBefore || det.loading) return;
+    text = food.text;
+    logFoodWordFixes(food.fixes, 'voice', { target: dishNoOf(det), source: 'voice' });
     const category = det.category === 'beverage' ? 'beverage' : 'food';
     const field = currentStepField(det);
     let picked = null;
-    // (11/17) food homophones first (殭屍 → 薑絲), like every food text
-    if (VOICE_MATCH.fixFoodWords) text = VOICE_MATCH.fixFoodWords(text).text;
     const cmd = VOICE_MATCH.command(text);
     if (field === 'count'){
       // a command (下一步 / 換一組 / 上一步 …) is never read as a number
@@ -4455,6 +4506,7 @@
     renderReportPanel();
     const wasComplete = isDishComplete(det);
     const nameBefore = det.name;
+    const confidenceBefore = det.confidence;
     logEvent('edit_opened', { actor: 'user', target: dishNoOf(det), field: 'name', detail: { what: 'rename' } });
     // typed name only — no AI-suggested names (teacher 10/21)
     openCandidateDialog(det, [], () => {
@@ -4464,13 +4516,30 @@
       allowCustom: true,
       loading: false,
       onConfirm(target, prevCategory, how){
+        // (11/27) a whole sentence typed as the name (「醬燒肉塊上有薑絲下方有滷蛋」):
+        // the first food is this dish's name, the others are added foods (like
+        // the scenario ones: chips under the photo, each can be opened / deleted)
+        const pieces = how && how.inputType === 'typed' && how.typed && !how.unchanged ? FIELD_DEFAULTS.splitFoods(how.typed) : [];
+        const restFoods = pieces.length > 1 ? pieces.slice(1) : [];
+        if (restFoods.length){
+          target.inputText = how.typed; // the sentence as typed (CSV inputText)
+          const first = pieces[0].slice(0, DISH_NAME_MAX);
+          if (first === splitNameConfidence(nameBefore || '').name){
+            // the first food is the name it already had: the name stays as it was
+            target.name = nameBefore;
+            target.confidence = confidenceBefore;
+          } else target.name = first;
+          if (target.labelEl) renderDetLabel(target.labelEl, target);
+        }
         if (currentMealMeta && target.name !== nameBefore) currentMealMeta.editLog.renameCount += 1;
+        const renameAid = target.name !== nameBefore ? nextAttemptId() : null;
         if (target.name !== nameBefore) logEvent('dish_renamed', {
           actor: 'user', target: dishNoOf(target), field: 'name',
           before: splitNameConfidence(nameBefore || '').name, after: splitNameConfidence(target.name || '').name,
-          attemptId: nextAttemptId(),
+          attemptId: renameAid,
           detail: {
             inputType: (how && how.inputType) || 'picked', // typed a name / picked a candidate
+            ...(restFoods.length ? { splitInto: pieces.length } : {}),
             ...(target.category !== prevCategory ? { categoryBefore: prevCategory, categoryAfter: target.category } : {})
           }
         });
@@ -4492,6 +4561,17 @@
         else {
           Calorie.forget(target.id); // lost its cooking method: the old figure no longer applies
           markExtraIncomplete(target); // (an added food: 資料不足，未估算)
+        }
+        if (restFoods.length){
+          const added = restFoods.map(piece => addReportExtraFood(piece, {
+            source: 'rename-split', typed: how.typed, attemptId: renameAid,
+            splitFromDish: target.id, splitFromNo: dishNoOf(target), splitCount: pieces.length
+          }).name);
+          renderReportExtraChips();
+          updateReportDone();
+          // shown on screen: the chips under the photo (when this dish is closed) + this note
+          setReportVoiceMsg(`已另外加入:${added.join('、')}(在照片下方,點開可刪除)`);
+          showToast(`已另外加入:${added.join('、')}`);
         }
       }
     });
@@ -4583,7 +4663,7 @@
     if (det.boxEl) det.boxEl.remove();
     if (currentMealMeta) currentMealMeta.editLog.deletedDishes.push({
       name: splitNameConfidence(det.name || '').name,
-      source: det.source === 'scenario' ? 'scenario' : det.addedByUser ? 'user' : 'ai',
+      source: det.source === 'scenario' || det.source === 'rename-split' ? det.source : det.addedByUser ? 'user' : 'ai',
       aiName: det.aiOriginal ? det.aiOriginal.name : null
     });
     Calorie.forget(det.id);
@@ -4773,57 +4853,77 @@
     reportEmptyHint.textContent = '修改完請再按下方的「完成」';
     updateReportDone();
   });
-  function submitScenarioFood(){
+  /* One added food, off the photo (A): a scenario answer, or (11/27) the
+     other foods of a rename typed as a whole sentence. Same rules for both:
+     food type guessed from the name, presets, grams, fruit count, a system
+     dish_added, calories. -> the new det */
+  function addReportExtraFood(piece, o){
+    const parsed = FIELD_DEFAULTS.parseGrams(piece);
+    const name = parsed.name.slice(0, 30);
+    const grams = parsed.grams;
+    const det = {
+      id: `scn${Date.now()}_${reportExtraDets.length}`,
+      name, confidence: null, category: 'food',
+      detail: {}, notes: [], onPhoto: false, source: o.source,
+      ...(o.scenarioNo ? { scenarioNo: o.scenarioNo } : {}),
+      ...(o.splitFromDish ? { splitFromDish: o.splitFromDish } : {}),
+      ...(name !== o.typed ? { inputText: o.typed } : {}) // the whole text as typed
+    };
+    det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
+    reportExtraDets.push(det);
+    const target = currentDetections.length + reportExtraDets.length;
+    applyFieldDefaults(det, target, o.source === 'scenario' ? 'scenario' : 'rename-split');
+    if (Number.isInteger(grams)){
+      det.detail = { ...(det.detail || {}), portionGrams: grams };
+      setFieldSource(det, 'portionGrams', 'user');
+    }
+    // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
+    if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
+      det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
+      setFieldSource(det, 'count', 'default');
+      logEvent('default_applied', { actor: 'system', target, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
+    }
+    if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: o.source });
+    // the dish itself (system — the user's action is the answer / rename it came from)
+    logEvent('dish_added', { actor: 'system', target, after: name, attemptId: o.attemptId,
+      detail: { via: o.source === 'scenario' ? 'scenario' : 'rename-split', ...(o.scenarioNo ? { scenarioNo: o.scenarioNo } : {}),
+        ...(o.splitFromDish ? { renamedDish: o.splitFromNo } : {}),
+        ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(o.foodWordsFixed ? { foodWordsFixed: true } : {}), ...(o.splitCount > 1 ? { splitFrom: o.splitCount } : {}) } });
+    // calories from the presets, like any dish (a per-piece item may stay 待補數量)
+    if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
+    // still missing a field: 資料不足，未估算 — nothing is guessed
+    else markExtraIncomplete(det);
+    return { det, name, grams };
+  }
+  let scenarioFoodBusy = false;
+  async function submitScenarioFood(){
     const st = scenarioState();
     const typed = reportScenarioInput ? reportScenarioInput.value.trim().slice(0, 30) : '';
-    if (!st || !typed || isSavingMeal) return;
+    if (!st || !typed || isSavingMeal || scenarioFoodBusy) return;
+    const no = st.next;
     // (11/17) food homophones (殭屍 → 薑絲; this box holds food names, so 輕鬆 → 青蔥
-    // too) and a gram amount (「鴨肉180克」 -> 鴨肉 + portionGrams 180); the typed
-    // text is kept (inputText) when it was changed
-    const food = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(typed, { foodInput: true }) : { text: typed, changed: false, fixes: [] };
-    // (11/17) several foods in one send (「薑絲5克以及青蔥」): one added food each,
-    // each with its own grams; homophones are fixed first. Still ONE answer and
-    // ONE attempt (the counting is unchanged); one system dish_added per food.
+    // too), (11/27) then by pinyin on the server (鄉間 → 香煎), and a gram amount
+    // (「鴨肉180克」 -> 鴨肉 + portionGrams 180); the typed text is kept
+    // (inputText) when it was changed
+    scenarioFoodBusy = true;
+    let food;
+    try { food = await fixFoodText(typed, { foodInput: true }); }
+    finally { scenarioFoodBusy = false; }
+    // the question moved on / the meal was left while the server answered
+    if (scenarioState() !== st || st.next !== no || !reportScenarioOn || isSavingMeal) return;
+    // (11/17) several foods in one send (「薑絲5克以及青蔥」, 11/27 also 「…上有…下方有…」):
+    // one added food each, each with its own grams; homophones are fixed first.
+    // Still ONE answer and ONE attempt (the counting is unchanged); one system dish_added per food.
     const pieces = FIELD_DEFAULTS.splitFoods(food.text);
     const split = pieces.length > 1;
-    const no = st.next;
     const aid = nextAttemptId();
+    logFoodWordFixes(food.fixes, 'scenario', { attemptId: aid, source: 'typed' });
     const items = [];
     pieces.forEach(piece => {
-      const parsed = FIELD_DEFAULTS.parseGrams(piece);
-      const name = parsed.name.slice(0, 30);
-      const grams = parsed.grams;
-      const det = {
-        id: `scn${Date.now()}_${reportExtraDets.length}`,
-        name, confidence: null, category: 'food',
-        detail: {}, notes: [], onPhoto: false, source: 'scenario', scenarioNo: no,
-        ...(name !== typed ? { inputText: typed } : {}) // the whole text as typed
-      };
-      det.foodType = FIELD_DEFAULTS.guessFoodType(name, 'food');
-      reportExtraDets.push(det);
-      const target = currentDetections.length + reportExtraDets.length;
-      applyFieldDefaults(det, target, 'scenario');
-      if (Number.isInteger(grams)){
-        det.detail = { ...(det.detail || {}), portionGrams: grams };
-        setFieldSource(det, 'portionGrams', 'user');
-      }
-      // fruit starts at DEFAULT_COUNT, as on Page 4 (待老師確認)
-      if (FIELD_DEFAULTS.alwaysCounted(det.foodType, det.category) && !Number.isInteger(det.count)){
-        det.count = FIELD_DEFAULTS.DEFAULT_COUNT;
-        setFieldSource(det, 'count', 'default');
-        logEvent('default_applied', { actor: 'system', target, detail: { foodType: det.foodType, fields: { count: det.count }, reason: 'default-count' } });
-      }
-      if (currentMealMeta) currentMealMeta.editLog.addedDishes.push({ name, source: 'scenario' });
-      // the dish itself (system — the user's action is the scenario_answered below)
-      logEvent('dish_added', { actor: 'system', target, after: name, attemptId: aid,
-        detail: { via: 'scenario', scenarioNo: no, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}), ...(food.changed ? { foodWordsFixed: true } : {}), ...(split ? { splitFrom: pieces.length } : {}) } });
+      const { det, name, grams } = addReportExtraFood(piece, { source: 'scenario', scenarioNo: no, typed, attemptId: aid, foodWordsFixed: food.changed, splitCount: pieces.length });
       const extraInfo = { ...(name !== typed ? { text: typed } : {}), ...(food.changed ? { foodWordFixes: food.fixes } : {}), ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) };
       st.added.push({ no, name, dishId: det.id, ...extraInfo });
       items.push({ name, ...(Number.isInteger(grams) ? { portionGrams: grams } : {}) });
-      // calories from the presets, like any dish (a per-piece item may stay 待補數量)
-      if (isDishComplete(det)) notifyDishDetailComplete(det, 'completed');
-      // still missing a field: 資料不足，未估算 — nothing is guessed
-      else markExtraIncomplete(det);
     });
     // one answer for this send (input 'typed' = 2, as before)
     recordScenarioAnswer(no, 'text', {
@@ -5245,7 +5345,14 @@
     // keyboard's dictation arrives as typing; a real word (輕鬆) only where it
     // stands like a list item. The bubble shows the corrected text; the
     // record keeps the original (textRaw).
-    const food = VOICE_MATCH && VOICE_MATCH.fixFoodWords ? VOICE_MATCH.fixFoodWords(fixedVoice.text) : { text: fixedVoice.text, changed: false };
+    // (11/27) then by pinyin on the server (鄉間旗魚 → 香煎旗魚); input is locked meanwhile
+    const sessionAtSend = chatSession;
+    chatBusy = true;
+    updateChatBusy();
+    let food;
+    try { food = await fixFoodText(fixedVoice.text); }
+    finally { chatBusy = false; updateChatBusy(); }
+    if (sessionAtSend !== chatSession) return; // the chat was left meanwhile
     const fixed = { text: food.text, changed: fixedVoice.changed };
     const said = fixed.text;
     const content = sel && sel.type === 'dish' ? `我點選了 ${sel.name}。${said}`
@@ -5259,6 +5366,7 @@
       // contextDish: the dish this message is about (selected, or the recent one; 'meal' for 整餐)
       detail: { length: text.length, selected: sel ? sel.type : null, voiceFixed: fixed.changed, foodWordsFixed: food.changed, contextDish: sel && sel.type === 'meal' ? 'meal' : chatContextNo(sel), scenario: chatScenarioNo }
     });
+    logFoodWordFixes(food.fixes, 'chat', { attemptId, target: sel ? (sel.type === 'dish' ? sel.no : 'meal') : null, source: source === 'suggestion' ? 'suggestion' : (chatVoiceUsed ? 'voice' : 'typed') });
     if (source === 'typed') chatVoiceUsed = false;
     addChatMessage('user', content, {
       selected: sel ? (sel.type === 'dish' ? { type: 'dish', no: sel.no } : { type: 'meal' }) : null,

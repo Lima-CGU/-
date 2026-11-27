@@ -284,9 +284,13 @@
     return { name, grams, raw: typed };
   }
   /** (11/17) A scenario food box often holds several foods: 「薑絲5克以及青蔥」
-   *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,;
+   *  -> ['薑絲5克', '青蔥']. Split at 以及 / 還有 / 和 / 跟 / 及 / 、 / ， / ,
+   *  and (11/27) the position words in POSITION_SEPARATORS (上有 / 下方有 / 配 …);
    *  one piece (or nothing to split) -> [the text as it is]. */
-  const FOOD_SEPARATORS = /以及|還有|和|跟|及|[、，,]/;
+  // (11/27) also position words: 「醬燒肉塊上有薑絲下方有滷蛋」 -> 醬燒肉塊 / 薑絲 / 滷蛋
+  // (longest first, so 上面還有 is one separator, not 上面 + 還有)
+  const POSITION_SEPARATORS = ['上面還有', '上面有', '下面有', '下方有', '底下有', '旁邊有', '裡面有', '上有', '下有', '配'];
+  const FOOD_SEPARATORS = new RegExp(POSITION_SEPARATORS.join('|') + '|以及|還有|和|跟|及|[、，,]');
   // (11/17) food words whose 和 / 及 is not a separator: 鮭魚和風沙拉, 和牛漢堡, 及第粥
   // (和牛 only as the first word of a food; 及第 not inside 以及 — see splitFoods)
   const SPLIT_PROTECTED = ['和菓子', '和風', '和牛', '和式', '及第'];
@@ -296,7 +300,7 @@
     // protected words are swapped for placeholders (private-use characters) while splitting
     // 和牛 only at the start or right after a separator (「豬肉和牛肉」 is 豬肉 + 牛肉);
     // 及第 not inside 以及 (「白飯以及第二碗湯」); the others anywhere
-    const protectAt = (w, before) => (w === '和牛' ? before === '' || /(以及|還有|和|跟|及|[、，,\s])$/.test(before)
+    const protectAt = (w, before) => (w === '和牛' ? before === '' || new RegExp('(' + POSITION_SEPARATORS.join('|') + '|以及|還有|和|跟|及|[、，,\\s])$').test(before)
       : w === '及第' ? !/以$/.test(before) : true);
     let masked = raw;
     SPLIT_PROTECTED.forEach((w, i) => {
@@ -323,7 +327,7 @@
   }
 
   return {
-    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods, SPLIT_PROTECTED,
+    PORTION_GRAMS_MIN, PORTION_GRAMS_MAX, validGrams, parseGrams, gramsIn, splitFoods, SPLIT_PROTECTED, POSITION_SEPARATORS,
     DEFAULT_COUNT, MAX_CARDS_PER_PAGE, OPTIONS, FIELDS, CONTAINER_LABELS, FOOD_TYPES, FOOD_TYPE_LABELS, DEFAULTS, APPLICABLE, CARD_GROUPS, CARD_GROUPS_BY_TYPE, COOKING_KEYWORDS, COOKING_EXCEPTIONS,
     normalizeFoodType, cookingFromName, defaultsFor, applicableFields, alwaysCounted, cardGroups, guessFoodType,
     SEASONING_OPTIONS, SEASONING_NONE, SEASONING_OTHER, SEASONING_DEFAULT, SEASONING_MAX_CHARS, seasoningsApply, cleanSeasonings, DEFAULT_COOKING,

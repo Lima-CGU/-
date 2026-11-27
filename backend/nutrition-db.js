@@ -257,4 +257,15 @@ function getTfndMeta(){
   return loadTfnd().meta;
 }
 
-module.exports = { init, getStatus, searchFoods, isExactMatch, getTfndMeta, normalize };
+/** Every food name (and TFND alias) loaded right now — for the pinyin
+ *  homophone fixer only (food-pinyin.js builds its word list in memory).
+ *  Never send this list out through an API or write it to a file. */
+function foodNames(){
+  const t = loadTfnd();
+  const names = [];
+  t.entries.forEach(e => { names.push(e.name); (e.aliases || []).forEach(a => names.push(a)); });
+  (foods1000 || []).forEach(e => names.push(e.name));
+  return names;
+}
+
+module.exports = { init, getStatus, searchFoods, isExactMatch, getTfndMeta, normalize, foodNames };

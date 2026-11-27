@@ -619,6 +619,34 @@ app.post('/api/detect', async (req, res) => {
   }
 });
 
+// (11/27) Food homophones by pinyin: 「鄉間旗魚」 -> 「香煎旗魚」. The word list is
+// built in memory from the food data loaded at run time (foods1000 + TFND,
+// nutrition-db.foodNames()) plus the cooking / seasoning lists in
+// food-pinyin.js; it is rebuilt once foods1000 has loaded. The answer holds
+// only the corrected text and each replacement — never the word list.
+let foodPinyinFixer = null;
+let foodPinyinBuiltWith = -1;
+function getFoodPinyinFixer(){
+  const db = require('./nutrition-db');
+  const loaded = db.getStatus().foods1000Count || 0;
+  if (!foodPinyinFixer || foodPinyinBuiltWith !== loaded){
+    foodPinyinFixer = require('./food-pinyin').createFixer(db.foodNames());
+    foodPinyinBuiltWith = loaded;
+  }
+  return foodPinyinFixer;
+}
+app.post('/api/food-words', (req, res) => {
+  const text = typeof (req.body && req.body.text) === 'string' ? req.body.text.slice(0, 500) : '';
+  if (!text.trim()) return res.json({ text, changed: false, fixes: [] });
+  try {
+    const r = getFoodPinyinFixer().fix(text);
+    res.json({ text: r.text, changed: r.changed, fixes: r.fixes.map(f => ({ from: f.from, to: f.to })) });
+  } catch (err){
+    console.error('[food-words] failed:', err.message);
+    res.json({ text, changed: false, fixes: [], error: 'unavailable' });
+  }
+});
+
 // One dish -> calories. The AI only picks a candidate from the nutrition
 // tables (by number); nutrition-calc.js does the math. Returns this dish's
 // figures only — never the candidate list or any table.
